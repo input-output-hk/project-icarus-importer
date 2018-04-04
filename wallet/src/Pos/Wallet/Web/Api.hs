@@ -54,11 +54,12 @@ import           Pos.Util.Servant (ApiLoggingConfig, CCapture, CQueryParam, CReq
                                    DReqBody, LoggingApi, ModifiesApiRes (..),
                                    ReportDecodeError (..), VerbMod, serverHandlerL')
 import           Pos.Wallet.Web.ClientTypes (Addr, CAccount, CAccountId, CAccountInit, CAccountMeta,
-                                             CAddress, CCoin, CFilePath, CId, CInitialized,
-                                             CPaperVendWalletRedeem, CPassPhrase, CProfile, CTx,
-                                             CTxId, CUpdateInfo, CWallet, CWalletInit, CWalletMeta,
-                                             CWalletRedeem, ClientInfo, NewBatchPayment,
-                                             ScrollLimit, ScrollOffset, SyncProgress, Wal)
+                                             CAddress, CCoin, CEncodedData, CFilePath, CId,
+                                             CInitialized, CPaperVendWalletRedeem, CPassPhrase,
+                                             CProfile, CSignedEncTx, CTx, CTxId, CUpdateInfo,
+                                             CWallet, CWalletInit, CWalletMeta, CWalletRedeem,
+                                             ClientInfo, NewBatchPayment, ScrollLimit, ScrollOffset,
+                                             SyncProgress, Wal)
 import           Pos.Wallet.Web.Error (WalletError (DecodeError), catchEndpointErrors)
 import           Pos.Wallet.Web.Methods.Misc (PendingTxsSummary, WalletStateSnapshot)
 
@@ -325,6 +326,14 @@ data WTxsApiRecord route = WTxsApiRecord
     :> ReqBody '[JSON] NewBatchPayment
     :> WRes Post CTx
 
+  , _getUnsignedTx :: route
+    :- "unsigned"
+    :> Capture "from" (CId Addr)
+    :> Capture "to" (CId Addr)
+    :> Capture "amount" Coin
+    :> DReqBody '[JSON] (Maybe InputSelectionPolicy)
+    :> WRes Post CEncodedData
+
   , _txFee :: route
     :- "fee"
     :> Summary "Estimate fees for performing given transaction."
@@ -378,6 +387,11 @@ data WTxsApiRecord route = WTxsApiRecord
     :> "summary"
     :> Summary "Get the pending tx summaries."
     :> WRes Get [PendingTxsSummary]
+
+  , _sendSignedTx :: route
+    :- "signed"
+    :> ReqBody '[JSON] CSignedEncTx
+    :> WRes Post Bool
   }
   deriving (Generic)
 

@@ -7,21 +7,35 @@ module Pos.Wallet.Web.Swagger.Instances.Schema where
 import           Universum
 
 import           Control.Lens (ix, mapped, (?~))
+import           Crypto.Hash (Digest)
 import           Data.Aeson (toJSON)
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Lazy as LBS
 import           Data.Swagger (NamedSchema (..), SwaggerType (..), ToParamSchema (..),
                                ToSchema (..), declareNamedSchema, declareSchema, declareSchemaRef,
                                defaultSchemaOptions, description, example, format,
                                genericDeclareNamedSchema, minItems, name, properties, required,
                                sketchSchema, type_)
-import           Data.Swagger.Internal.Schema (named)
+import           Data.Swagger.Internal.Schema (GToSchema, binarySchema, gdeclareNamedSchema, named)
 import qualified Data.Swagger.Lens as Swagger
 import           Data.Typeable (Typeable, typeRep)
 import           Data.Version (Version)
+import qualified GHC.Generics as G
 import           Servant.Multipart (FileData (..))
 
+import           Cardano.Crypto.Wallet (ChainCode (..), XPub, XSignature)
+import qualified Crypto.Sign.Ed25519 as ED (PublicKey, Signature)
 import           Pos.Client.Txp.Util (InputSelectionPolicy (..))
-import           Pos.Core (ApplicationName, BlockCount (..), BlockVersion, ChainDifficulty, Coin,
-                           SlotCount (..), SoftwareVersion, mkCoin)
+import           Pos.Core (AddrAttributes (..), AddrStakeDistribution (..), AddrType (..),
+                           ApplicationName, BlockCount (..), BlockVersion, ChainDifficulty, Coin,
+                           CoinPortion (..), Script (..), SlotCount (..), SoftwareVersion, mkCoin)
+import           Pos.Core.Txp (Tx (..), TxAux (..), TxIn (..), TxInWitness (..), TxOut (..),
+                               TxSigData (..))
+import           Pos.Crypto.Hashing (AbstractHash (..))
+import           Pos.Crypto.HD (HDAddressPayload (..))
+import           Pos.Crypto.Signing (PublicKey (..), RedeemPublicKey, RedeemSignature (..),
+                                     Signature (..))
+import           Pos.Data.Attributes (Attributes (..), UnparsedFields (..))
 import           Pos.Util.BackupPhrase (BackupPhrase)
 
 import qualified Pos.Wallet.Web.ClientTypes as CT
@@ -32,6 +46,43 @@ import           Pos.Wallet.Web.Methods.Misc (PendingTxsSummary, WalletStateSnap
 -- | Instances we need to build Swagger-specification for 'walletApi':
 -- 'ToParamSchema' - for types in parameters ('Capture', etc.),
 -- 'ToSchema' - for types in bodies.
+
+-- | This orphan instance prevents Generic-based deriving mechanism
+-- to use 'ToSchema' 'ByteString' and instead defaults to 'binarySchema'.
+instance GToSchema (G.K1 i BS.ByteString) where
+  gdeclareNamedSchema _ _ _ = pure $ NamedSchema Nothing binarySchema
+
+instance GToSchema (G.K1 i LBS.ByteString) where
+  gdeclareNamedSchema _ _ _ = pure $ NamedSchema Nothing binarySchema
+
+instance ToSchema (Digest algo) where
+  declareNamedSchema _ = pure $ NamedSchema Nothing binarySchema
+
+instance ToSchema UnparsedFields where
+  declareNamedSchema _ = pure $ NamedSchema Nothing binarySchema
+
+instance ToSchema XSignature where
+  declareNamedSchema _ = pure $ NamedSchema Nothing binarySchema
+
+instance ToSchema a => ToSchema (Attributes a)
+instance ToSchema      (AbstractHash algo a)
+instance ToSchema      TxIn
+instance ToSchema      HDAddressPayload
+instance ToSchema      AddrStakeDistribution
+instance ToSchema      CoinPortion
+instance ToSchema      AddrAttributes
+instance ToSchema      AddrType
+instance ToSchema      PublicKey
+instance ToSchema      ED.Signature
+instance ToSchema      ED.PublicKey
+instance ToSchema      XPub
+deriving instance Generic ChainCode
+instance ToSchema      ChainCode
+instance ToSchema      Script
+instance ToSchema      RedeemPublicKey
+instance ToSchema      (Signature TxSigData)
+instance ToSchema      (RedeemSignature TxSigData)
+instance ToSchema      TxInWitness
 instance ToSchema      Coin
 instance ToParamSchema Coin
 instance ToSchema      CT.CTxId
@@ -82,6 +133,8 @@ instance ToParamSchema CT.ScrollLimit
 instance ToSchema      CT.ApiVersion
 instance ToSchema      Version
 instance ToSchema      CT.ClientInfo
+instance ToSchema      CT.CEncodedData
+instance ToSchema      CT.CSignedEncTx
 
 instance ToSchema InputSelectionPolicy where
     declareNamedSchema proxy =

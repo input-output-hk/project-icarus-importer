@@ -6,24 +6,28 @@
 module Pos.Wallet.Web.Methods.Payment
        ( newPayment
        , newPaymentBatch
+       , newUnsignedPayment
        , getTxFee
+       , sendSignedTx
        ) where
 
 import           Universum
 
 import           Control.Exception.Safe (impureThrow)
 import           Control.Monad.Except (runExcept)
+import qualified Data.ByteString.Lazy as BSL
 import qualified Data.Map as M
 import           Data.Time.Units (Second)
 import           Mockable (Concurrently, Delay, Mockable, concurrently, delay)
+import qualified Pos.Binary.Class as Bi
 import           Servant.Server (err405, errReasonPhrase)
 import           System.Wlog (logDebug)
 
 import           Pos.Client.KeyStorage (getSecretKeys)
 import           Pos.Client.Txp.Addresses (MonadAddresses)
 import           Pos.Client.Txp.Balances (MonadBalances (..))
-import           Pos.Client.Txp.History (TxHistoryEntry (..))
-import           Pos.Client.Txp.Network (prepareMTx)
+import           Pos.Client.Txp.History (MonadTxHistory (..), TxHistoryEntry (..))
+import           Pos.Client.Txp.Network (prepareMTx, prepareTx)
 import           Pos.Client.Txp.Util (InputSelectionPolicy (..), computeTxFee, runTxCreator)
 import           Pos.Configuration (walletTxCreationDisabled)
 import           Pos.Core (Coin, TxAux (..), TxOut (..), getCurrentTimestamp)
@@ -32,21 +36,23 @@ import           Pos.Crypto (PassPhrase, ShouldCheckPassphrase (..), checkPassMa
                              withSafeSignerUnsafe)
 import           Pos.DB (MonadGState)
 import           Pos.Txp (TxFee (..), Utxo)
+import           Pos.Txp.DB.Utxo (getFilteredUtxo)
 import           Pos.Util (eitherToThrow, maybeThrow)
 import           Pos.Util.Servant (encodeCType)
 import           Pos.Wallet.Aeson.ClientTypes ()
 import           Pos.Wallet.Aeson.WalletBackup ()
 import           Pos.Wallet.Web.Account (getSKByAddressPure, getSKById)
-import           Pos.Wallet.Web.ClientTypes (AccountId (..), Addr, CCoin, CId, CTx (..),
-                                             CWAddressMeta (..), NewBatchPayment (..), Wal,
-                                             addrMetaToAccount)
+import           Pos.Wallet.Web.ClientTypes (AccountId (..), Addr, CCoin, CEncodedData (..), CId,
+                                             CSignedEncTx (..), CTx (..), CWAddressMeta (..),
+                                             NewBatchPayment (..), Wal, addrMetaToAccount)
 import           Pos.Wallet.Web.Error (WalletError (..))
 import           Pos.Wallet.Web.Methods.History (addHistoryTxMeta, constructCTx,
                                                  getCurChainDifficulty)
-import           Pos.Wallet.Web.Methods.Misc (convertCIdTOAddrs)
+import           Pos.Wallet.Web.Methods.Misc (convertCIdTOAddr, convertCIdTOAddrs)
 import           Pos.Wallet.Web.Methods.Txp (MonadWalletTxFull, coinDistrToOutputs,
                                              getPendingAddresses, rewrapTxError,
                                              submitAndSaveNewPtx)
+import           Pos.Wallet.Web.Networking (MonadWalletSendActions (..))
 import           Pos.Wallet.Web.Pending (mkPendingTx)
 import           Pos.Wallet.Web.State (AddressInfo (..), AddressLookupMode (Ever, Existing),
                                        MonadWalletDBRead)
@@ -72,6 +78,24 @@ newPayment passphrase srcAccount dstAddress coin policy =
           (AccountMoneySource srcAccount)
           (one (dstAddress, coin))
           policy
+
+newUnsignedPayment
+    :: MonadWalletTxFull ctx m
+    => CId Addr
+    -> CId Addr
+    -> Coin
+    -> InputSelectionPolicy
+    -> m CEncodedData
+newUnsignedPayment srcAccount dstAccount coin policy =
+    -- This is done for two reasons:
+    -- 1. In order not to overflow relay.
+    -- 2. To let other things (e. g. block processing) happen if
+    -- `newPayment`s are done continuously.
+    notFasterThan (6 :: Second) $ do
+      getUnsignedTx
+        srcAccount
+        (one (dstAccount, coin))
+        policy
 
 newPaymentBatch
     :: MonadWalletTxFull ctx m
@@ -109,6 +133,22 @@ getTxFee srcAccount dstAccount coin policy = do
     TxFee fee <- rewrapTxError "Cannot compute transaction fee" $
         eitherToThrow =<< runTxCreator policy (computeTxFee pendingAddrs utxo outputs)
     pure $ encodeCType fee
+
+sendSignedTx
+     :: MonadWalletTxFull ctx m
+     => CSignedEncTx
+     -> m Bool
+sendSignedTx (CSignedEncTx (CEncodedData encodedTx) txWitness) = do
+    let maybeTx    = Bi.decodeFull $ BSL.toStrict encodedTx
+        maybeTxAux = flip TxAux txWitness <$> maybeTx
+    case maybeTxAux of
+      Right txAux ->
+        -- This is done for two reasons:
+        -- 1. In order not to overflow relay.
+        -- 2. To let other things (e. g. block processing) happen if
+        -- `newPayment`s are done continuously.
+        notFasterThan (6 :: Second) $ sendTxAux txAux
+      Left _ -> return False
 
 data MoneySource
     = WalletMoneySource (CId Wal)
@@ -213,6 +253,39 @@ sendMoney passphrase moneySource dstDistr policy = do
 
     logDebug "sendMoney: constructing response"
     fst <$> constructCTx srcWallet srcWalletAddrsDetector diff th
+
+getUnsignedTx
+    :: MonadWalletTxFull ctx m
+    => CId Addr
+    -> NonEmpty (CId Addr, Coin)
+    -> InputSelectionPolicy
+    -> m CEncodedData
+getUnsignedTx cidSrcAddr dstDistr policy = do
+    when walletTxCreationDisabled $
+        throwM err405
+        { errReasonPhrase = "Transaction creation is disabled by configuration!"
+        }
+
+    outputs <- coinDistrToOutputs dstDistr
+    srcAddr <- convertCIdTOAddr cidSrcAddr
+    senderUtxo <- getFilteredUtxo [srcAddr]
+    pendingAddrs <- getPendingAddresses policy
+    tx <- rewrapTxError "Cannot send transaction" $
+                        prepareTx pendingAddrs policy senderUtxo outputs srcAddr
+
+    logDebug "getUnsingedTx: successfully created unsigned tx"
+    let encodedTx = CEncodedData (Bi.serialize tx)
+    return encodedTx
+
+sendTxAux
+     :: MonadWalletTxFull ctx m
+     => TxAux
+     -> m Bool
+sendTxAux txAux = do
+  let txId = hash $ taTx txAux
+  accepted <- sendTxToNetwork txAux
+  saveTx (txId, txAux)
+  pure accepted
 
 ----------------------------------------------------------------------------
 -- Utilities

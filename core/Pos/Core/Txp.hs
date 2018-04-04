@@ -46,6 +46,7 @@ import           Universum
 import           Control.Lens (makeLenses, makePrisms)
 import           Data.Hashable (Hashable)
 import qualified Data.Text.Buildable as Buildable
+import qualified Data.Text.Lazy.Builder as B
 import           Data.Vector (Vector)
 import           Fmt (genericF)
 import           Formatting (Format, bprint, build, builder, int, later, sformat, (%))
@@ -111,6 +112,13 @@ instance NFData TxInWitness
 -- spends (by providing signatures, redeeming scripts, etc). A separate proof
 -- is provided for each input.
 type TxWitness = Vector TxInWitness
+
+instance Buildable TxWitness where
+    build v = foldr (\txWit recV -> B.fromText "{ "
+                                 <> bprint build txWit
+                                 <> B.fromText "}, "
+                                 <> recV)
+                    mempty v
 
 ----------------------------------------------------------------------------
 -- Tx parts
