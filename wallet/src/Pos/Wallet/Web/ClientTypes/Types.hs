@@ -45,6 +45,7 @@ module Pos.Wallet.Web.ClientTypes.Types
       , CTx (..)
       , CEncodedData (..)
       , CSignedEncTx (..)
+      , CUtxo (..)
       , CTExMeta (..)
       , CUpdateInfo (..)
       , mkCTxId
@@ -74,6 +75,7 @@ import           Data.Default (Default, def)
 import           Data.Hashable (Hashable (..))
 import qualified Data.Text.Buildable
 import           Data.Text.Lazy.Builder (Builder, fromLazyText)
+import qualified Data.Text.Lazy.Builder as B
 import qualified Data.Text.Lazy.Encoding as TE
 import           Data.Time.Clock.POSIX (POSIXTime)
 import           Data.Typeable (Typeable)
@@ -86,7 +88,7 @@ import           Servant.Multipart (FileData, Mem)
 import           Pos.Client.Txp.Util (InputSelectionPolicy)
 import           Pos.Core (BlockVersion, ChainDifficulty, Coin, ScriptVersion, SoftwareVersion,
                            unsafeGetCoin)
-import           Pos.Core.Txp (TxWitness)
+import           Pos.Core.Txp (TxIn, TxOutAux, TxWitness)
 import           Pos.Util.BackupPhrase (BackupPhrase)
 import           Pos.Util.LogSafe (LogSecurityLevel, SecureLog (..), buildUnsecure, secretOnlyF,
                                    secure, secureListF, unsecure)
@@ -160,6 +162,8 @@ data CSignedEncTx = CSignedEncTx
   , txWitness :: TxWitness
   } deriving (Eq, Generic)
 
+newtype CUtxo = CUtxo [(TxIn, TxOutAux)] deriving Generic
+
 instance Buildable CEncodedData where
   build (CEncodedData bs) = fromLazyText $ TE.decodeUtf8 $ B64.encode bs
 
@@ -170,6 +174,17 @@ instance Buildable CSignedEncTx where
 
 instance Buildable (SecureLog CSignedEncTx) where
   build = buildUnsecure
+
+instance Buildable CUtxo where
+  build (CUtxo [x]) = inOutBuilder x
+  build (CUtxo xs)  = foldr (\x recV  -> inOutBuilder x
+                                      <> B.fromText "}, "
+                                      <> recV)
+                            mempty xs
+
+inOutBuilder :: (TxIn, TxOutAux) -> Builder
+inOutBuilder (txIn, txOut) =
+  bprint ("{ txIn = "%build%" },{ txOut = "%build%" }") txIn txOut
 
 newtype CAccountId = CAccountId Text
     deriving (Eq, Show, Generic, Buildable)

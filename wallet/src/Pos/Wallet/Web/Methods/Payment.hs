@@ -7,6 +7,7 @@ module Pos.Wallet.Web.Methods.Payment
        ( newPayment
        , newPaymentBatch
        , newUnsignedPayment
+       , getUtxoForAddress
        , getTxFee
        , sendSignedTx
        ) where
@@ -30,7 +31,7 @@ import           Pos.Client.Txp.History (MonadTxHistory (..), TxHistoryEntry (..
 import           Pos.Client.Txp.Network (prepareMTx, prepareTx)
 import           Pos.Client.Txp.Util (InputSelectionPolicy (..), computeTxFee, runTxCreator)
 import           Pos.Configuration (walletTxCreationDisabled)
-import           Pos.Core (Coin, TxAux (..), TxOut (..), getCurrentTimestamp)
+import           Pos.Core (Coin, TxAux (..), TxIn, TxOut (..), TxOutAux, getCurrentTimestamp)
 import           Pos.Core.Txp (_txOutputs)
 import           Pos.Crypto (PassPhrase, ShouldCheckPassphrase (..), checkPassMatches, hash,
                              withSafeSignerUnsafe)
@@ -43,8 +44,9 @@ import           Pos.Wallet.Aeson.ClientTypes ()
 import           Pos.Wallet.Aeson.WalletBackup ()
 import           Pos.Wallet.Web.Account (getSKByAddressPure, getSKById)
 import           Pos.Wallet.Web.ClientTypes (AccountId (..), Addr, CCoin, CEncodedData (..), CId,
-                                             CSignedEncTx (..), CTx (..), CWAddressMeta (..),
-                                             NewBatchPayment (..), Wal, addrMetaToAccount)
+                                             CSignedEncTx (..), CTx (..), CUtxo (..),
+                                             CWAddressMeta (..), NewBatchPayment (..), Wal,
+                                             addrMetaToAccount)
 import           Pos.Wallet.Web.Error (WalletError (..))
 import           Pos.Wallet.Web.Methods.History (addHistoryTxMeta, constructCTx,
                                                  getCurChainDifficulty)
@@ -78,6 +80,15 @@ newPayment passphrase srcAccount dstAddress coin policy =
           (AccountMoneySource srcAccount)
           (one (dstAddress, coin))
           policy
+
+getUtxoForAddress
+    :: MonadWalletTxFull ctx m
+    => CId Addr
+    -> m CUtxo
+getUtxoForAddress account = do
+  srcAddr <- convertCIdTOAddr account
+  utxoMap <- getFilteredUtxo [srcAddr]
+  pure $ CUtxo $ M.toList utxoMap
 
 newUnsignedPayment
     :: MonadWalletTxFull ctx m

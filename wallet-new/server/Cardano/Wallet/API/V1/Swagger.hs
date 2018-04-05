@@ -344,8 +344,10 @@ instance ToSchema NewAccount where
 instance ToSchema AddressValidity where
   declareNamedSchema = annotate fromExampleJSON
 
-instance ToSchema Address where
-  declareNamedSchema = annotate fromExampleJSON
+--FIXME: Solve circular dependecy caused by need of ToSchema in the 'wallet'
+--       package (wallet/src/Pos/Wallet/Web/Swagger/Instances/Schema.hs)
+--instance ToSchema Address where
+--  declareNamedSchema = annotate fromExampleJSON
 
 instance ToSchema WalletId where
   declareNamedSchema = annotate fromExampleJSON

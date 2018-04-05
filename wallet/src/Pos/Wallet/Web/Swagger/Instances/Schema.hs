@@ -27,9 +27,10 @@ import           Cardano.Crypto.Wallet (ChainCode (..), XPub, XSignature)
 import qualified Crypto.Sign.Ed25519 as ED (PublicKey, Signature)
 import           Pos.Client.Txp.Util (InputSelectionPolicy (..))
 import           Pos.Core (AddrAttributes (..), AddrStakeDistribution (..), AddrType (..),
-                           ApplicationName, BlockCount (..), BlockVersion, ChainDifficulty, Coin,
-                           CoinPortion (..), Script (..), SlotCount (..), SoftwareVersion, mkCoin)
-import           Pos.Core.Txp (Tx (..), TxAux (..), TxIn (..), TxInWitness (..), TxOut (..),
+                           Address (..), ApplicationName, BlockCount (..), BlockVersion,
+                           ChainDifficulty, Coin, CoinPortion (..), Script (..), SlotCount (..),
+                           SoftwareVersion, mkCoin)
+import           Pos.Core.Txp (TxIn (..), TxInWitness (..), TxOut (..), TxOutAux (..),
                                TxSigData (..))
 import           Pos.Crypto.Hashing (AbstractHash (..))
 import           Pos.Crypto.HD (HDAddressPayload (..))
@@ -67,6 +68,9 @@ instance ToSchema XSignature where
 instance ToSchema a => ToSchema (Attributes a)
 instance ToSchema      (AbstractHash algo a)
 instance ToSchema      TxIn
+instance ToSchema      TxOut
+instance ToSchema      TxOutAux
+instance ToSchema      Address
 instance ToSchema      HDAddressPayload
 instance ToSchema      AddrStakeDistribution
 instance ToSchema      CoinPortion
@@ -135,6 +139,7 @@ instance ToSchema      Version
 instance ToSchema      CT.ClientInfo
 instance ToSchema      CT.CEncodedData
 instance ToSchema      CT.CSignedEncTx
+instance ToSchema      CT.CUtxo
 
 instance ToSchema InputSelectionPolicy where
     declareNamedSchema proxy =

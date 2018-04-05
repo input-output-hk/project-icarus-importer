@@ -49,14 +49,14 @@ import           Servant.Generic ((:-), AsApi, ToServant)
 import           Servant.Swagger.UI (SwaggerSchemaUI)
 
 import           Pos.Client.Txp.Util (InputSelectionPolicy)
-import           Pos.Core (Coin, SoftwareVersion)
+import           Pos.Core (Coin, SoftwareVersion, TxIn, TxOutAux)
 import           Pos.Util.Servant (ApiLoggingConfig, CCapture, CQueryParam, CReqBody, DCQueryParam,
                                    DReqBody, LoggingApi, ModifiesApiRes (..),
                                    ReportDecodeError (..), VerbMod, serverHandlerL')
 import           Pos.Wallet.Web.ClientTypes (Addr, CAccount, CAccountId, CAccountInit, CAccountMeta,
                                              CAddress, CCoin, CEncodedData, CFilePath, CId,
                                              CInitialized, CPaperVendWalletRedeem, CPassPhrase,
-                                             CProfile, CSignedEncTx, CTx, CTxId, CUpdateInfo,
+                                             CProfile, CSignedEncTx, CTx, CTxId, CUpdateInfo, CUtxo,
                                              CWallet, CWalletInit, CWalletMeta, CWalletRedeem,
                                              ClientInfo, NewBatchPayment, ScrollLimit, ScrollOffset,
                                              SyncProgress, Wal)
@@ -333,6 +333,11 @@ data WTxsApiRecord route = WTxsApiRecord
     :> Capture "amount" Coin
     :> DReqBody '[JSON] (Maybe InputSelectionPolicy)
     :> WRes Post CEncodedData
+
+  , _adressUtxo :: route
+    :- "utxoForAddress"
+    :> Capture "address" (CId Addr)
+    :> WRes Post CUtxo
 
   , _txFee :: route
     :- "fee"

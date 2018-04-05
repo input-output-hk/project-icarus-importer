@@ -104,6 +104,7 @@ txsHandlers = toServant' A.WTxsApiRecord
     { _newPayment                = M.newPayment
     , _newPaymentBatch           = M.newPaymentBatch
     , _getUnsignedTx             = M.newUnsignedPayment
+    , _adressUtxo                = M.getUtxoForAddress
     , _txFee                     = M.getTxFee
     , _resetFailedPtxs           = M.resetAllFailedPtxs
     , _cancelApplyingPtxs        = M.cancelAllApplyingPtxs
