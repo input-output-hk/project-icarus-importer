@@ -178,13 +178,13 @@ instance Buildable (SecureLog CSignedEncTx) where
 instance Buildable CUtxo where
   build (CUtxo [x]) = inOutBuilder x
   build (CUtxo xs)  = foldr (\x recV  -> inOutBuilder x
-                                      <> B.fromText "}, "
+                                      <> B.fromText ", "
                                       <> recV)
                             mempty xs
 
 inOutBuilder :: (TxIn, TxOutAux) -> Builder
 inOutBuilder (txIn, txOut) =
-  bprint ("{ txIn = "%build%" },{ txOut = "%build%" }") txIn txOut
+  bprint ("{ txIn = "%build%" }, { txOut = "%build%" }") txIn txOut
 
 newtype CAccountId = CAccountId Text
     deriving (Eq, Show, Generic, Buildable)

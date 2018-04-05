@@ -7,7 +7,6 @@ module Pos.Client.Txp.Network
        ( TxMode
        , submitTx
        , prepareMTx
-       , prepareTx
        , prepareRedemptionTx
        , submitTxRaw
        , sendTxOuts
@@ -23,8 +22,7 @@ import           Pos.Client.Txp.Addresses (MonadAddresses (..))
 import           Pos.Client.Txp.Balances (MonadBalances (..), getOwnUtxo, getOwnUtxoForPk)
 import           Pos.Client.Txp.History (MonadTxHistory (..))
 import           Pos.Client.Txp.Util (InputSelectionPolicy, PendingAddresses (..), TxCreateMode,
-                                      TxError (..), createGenericTxWithSameRem, createMTx,
-                                      createRedemptionTx, createTx, makeTx)
+                                      TxError (..), createMTx, createRedemptionTx, createTx, makeTx)
 import           Pos.Communication.Message ()
 import           Pos.Communication.Protocol (EnqueueMsg, MsgType (..), Origin (..), OutSpecs)
 import           Pos.Communication.Relay (invReqDataFlowTK, resOk)
@@ -71,17 +69,6 @@ prepareMTx
 prepareMTx hdwSigners pendingAddrs inputSelectionPolicy addrs outputs addrData = do
     utxo <- getOwnUtxos (toList addrs)
     eitherToThrow =<< createMTx pendingAddrs inputSelectionPolicy utxo hdwSigners outputs addrData
-
-prepareTx
-    :: TxMode m
-    => PendingAddresses
-    -> InputSelectionPolicy
-    -> Utxo
-    -> NonEmpty TxOutAux
-    -> Address
-    -> m Tx
-prepareTx pendingTx inputSelectionPolicy utxo outputs addr = do
-    eitherToThrow =<< createGenericTxWithSameRem pendingTx makeTx inputSelectionPolicy utxo outputs addr
 
 -- | Construct redemption Tx using redemption secret key and a output address
 prepareRedemptionTx
