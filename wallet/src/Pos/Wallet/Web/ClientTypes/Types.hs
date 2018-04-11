@@ -43,6 +43,8 @@ module Pos.Wallet.Web.ClientTypes.Types
       , CPtxCondition (..)
       , CTxMeta (..)
       , CTx (..)
+      , CEncodedData (..)
+      , CSignedEncTx (..)
       , CTExMeta (..)
       , CUpdateInfo (..)
       , mkCTxId
@@ -66,10 +68,13 @@ module Pos.Wallet.Web.ClientTypes.Types
 import           Universum
 
 import           Control.Lens (makeLenses)
+import qualified Data.ByteString.Base64.Lazy as B64
+import qualified Data.ByteString.Lazy as BSL
 import           Data.Default (Default, def)
 import           Data.Hashable (Hashable (..))
 import qualified Data.Text.Buildable
-import           Data.Text.Lazy.Builder (Builder)
+import           Data.Text.Lazy.Builder (Builder, fromLazyText)
+import qualified Data.Text.Lazy.Encoding as TE
 import           Data.Time.Clock.POSIX (POSIXTime)
 import           Data.Typeable (Typeable)
 import           Data.Version (Version)
@@ -81,6 +86,7 @@ import           Servant.Multipart (FileData, Mem)
 import           Pos.Client.Txp.Util (InputSelectionPolicy)
 import           Pos.Core (BlockVersion, ChainDifficulty, Coin, ScriptVersion, SoftwareVersion,
                            unsafeGetCoin)
+import           Pos.Core.Txp (TxWitness)
 import           Pos.Util.BackupPhrase (BackupPhrase)
 import           Pos.Util.LogSafe (LogSecurityLevel, SecureLog (..), buildUnsecure, secretOnlyF,
                                    secure, secureListF, unsecure)
@@ -144,6 +150,26 @@ newtype CPassPhrase = CPassPhrase Text
 
 instance Show CPassPhrase where
     show _ = "<pass phrase>"
+
+-- | CBOR-encoded data.
+newtype CEncodedData = CEncodedData BSL.ByteString
+    deriving (Eq, Generic)
+
+data CSignedEncTx = CSignedEncTx
+  { encodedTx :: CEncodedData
+  , txWitness :: TxWitness
+  } deriving (Eq, Generic)
+
+instance Buildable CEncodedData where
+  build (CEncodedData bs) = fromLazyText $ TE.decodeUtf8 $ B64.encode bs
+
+instance Buildable CSignedEncTx where
+  build (CSignedEncTx encTx txWitness) =
+    bprint ("CSignedEncTx: encodedTx = "%build%", txWitness = [ "%build%" ]")
+           encTx txWitness
+
+instance Buildable (SecureLog CSignedEncTx) where
+  build = buildUnsecure
 
 newtype CAccountId = CAccountId Text
     deriving (Eq, Show, Generic, Buildable)

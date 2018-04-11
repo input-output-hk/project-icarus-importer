@@ -7,6 +7,7 @@ module Pos.Client.Txp.Network
        ( TxMode
        , submitTx
        , prepareMTx
+       , prepareTx
        , prepareRedemptionTx
        , submitTxRaw
        , sendTxOuts
@@ -22,17 +23,19 @@ import           Pos.Client.Txp.Addresses (MonadAddresses (..))
 import           Pos.Client.Txp.Balances (MonadBalances (..), getOwnUtxo, getOwnUtxoForPk)
 import           Pos.Client.Txp.History (MonadTxHistory (..))
 import           Pos.Client.Txp.Util (InputSelectionPolicy, PendingAddresses (..), TxCreateMode,
-                                      TxError (..), createMTx, createRedemptionTx, createTx)
+                                      TxError (..), createGenericTxWithSameRem, createMTx,
+                                      createRedemptionTx, createTx, makeTx)
 import           Pos.Communication.Message ()
 import           Pos.Communication.Protocol (EnqueueMsg, MsgType (..), Origin (..), OutSpecs)
 import           Pos.Communication.Relay (invReqDataFlowTK, resOk)
 import           Pos.Communication.Specs (createOutSpecs)
 import           Pos.Communication.Types (InvOrDataTK)
 import           Pos.Core (Address, Coin, makeRedeemAddress, mkCoin, unsafeAddCoin)
-import           Pos.Core.Txp (TxAux (..), TxId, TxOut (..), TxOutAux (..), txaF)
+import           Pos.Core.Txp (Tx (..), TxAux (..), TxId, TxOut (..), TxOutAux (..), txaF)
 import           Pos.Crypto (RedeemSecretKey, SafeSigner, hash, redeemToPublic, safeToPublic)
 import           Pos.DB.Class (MonadGState)
 import           Pos.Txp.Network.Types (TxMsgContents (..))
+import           Pos.Txp.Toil.Types (Utxo)
 import           Pos.Util.Util (eitherToThrow)
 import           Pos.WorkMode.Class (MinWorkMode)
 
@@ -68,6 +71,17 @@ prepareMTx
 prepareMTx hdwSigners pendingAddrs inputSelectionPolicy addrs outputs addrData = do
     utxo <- getOwnUtxos (toList addrs)
     eitherToThrow =<< createMTx pendingAddrs inputSelectionPolicy utxo hdwSigners outputs addrData
+
+prepareTx
+    :: TxMode m
+    => PendingAddresses
+    -> InputSelectionPolicy
+    -> Utxo
+    -> NonEmpty TxOutAux
+    -> Address
+    -> m Tx
+prepareTx pendingTx inputSelectionPolicy utxo outputs addr = do
+    eitherToThrow =<< createGenericTxWithSameRem pendingTx makeTx inputSelectionPolicy utxo outputs addr
 
 -- | Construct redemption Tx using redemption secret key and a output address
 prepareRedemptionTx

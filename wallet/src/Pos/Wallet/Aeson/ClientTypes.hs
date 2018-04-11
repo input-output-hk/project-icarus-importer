@@ -8,22 +8,26 @@ import           Data.Aeson (FromJSON (..), ToJSON (..), Value (..), object, wit
                              (.:), (.=))
 import           Data.Aeson.TH (defaultOptions, deriveJSON, deriveToJSON)
 import           Data.Aeson.Types (Parser, typeMismatch)
+import qualified Data.ByteString.Base64.Lazy as B64
+import qualified Data.Text.Lazy.Encoding as TE
 import           Data.Version (showVersion)
 import           Servant.API.ContentTypes (NoContent (..))
 
+import           Pos.Aeson.Txp ()
 import           Pos.Client.Txp.Util (InputSelectionPolicy (..))
 import           Pos.Util.BackupPhrase (BackupPhrase)
+import           Pos.Util.Util (aesonError)
 import           Pos.Wallet.Web.ClientTypes (Addr, ApiVersion (..), CAccount, CAccountId,
                                              CAccountInit, CAccountMeta, CAddress, CCoin,
-                                             CFilePath (..), CHash, CId, CInitialized,
-                                             CPaperVendWalletRedeem, CProfile, CPtxCondition,
-                                             CTExMeta, CTx, CTxId, CTxMeta, CUpdateInfo,
-                                             CWAddressMeta, CWallet, CWalletAssurance, CWalletInit,
-                                             CWalletMeta, CWalletRedeem, ClientInfo (..),
-                                             NewBatchPayment (..), SyncProgress, Wal)
+                                             CEncodedData (..), CFilePath (..), CHash, CId,
+                                             CInitialized, CPaperVendWalletRedeem, CProfile,
+                                             CPtxCondition, CSignedEncTx, CTExMeta, CTx, CTxId,
+                                             CTxMeta, CUpdateInfo, CWAddressMeta, CWallet,
+                                             CWalletAssurance, CWalletInit, CWalletMeta,
+                                             CWalletRedeem, ClientInfo (..), NewBatchPayment (..),
+                                             SyncProgress, Wal)
 import           Pos.Wallet.Web.Error (WalletError)
 import           Pos.Wallet.Web.Sockets.Types (NotifyEvent)
-import           Pos.Util.Util (aesonError)
 
 deriveJSON defaultOptions ''CAccountId
 deriveJSON defaultOptions ''CWAddressMeta
@@ -73,6 +77,7 @@ deriveJSON defaultOptions ''CTxId
 deriveJSON defaultOptions ''CAddress
 deriveJSON defaultOptions ''CAccount
 deriveJSON defaultOptions ''CWallet
+deriveJSON defaultOptions ''CSignedEncTx
 deriveJSON defaultOptions ''CPtxCondition
 deriveJSON defaultOptions ''CTx
 deriveJSON defaultOptions ''CTExMeta
@@ -130,3 +135,21 @@ instance ToJSON NewBatchPayment where
                 [ "address" .= address
                 , "amount" .= amount
                 ]
+
+
+instance ToJSON CEncodedData where
+  toJSON (CEncodedData bs) = String $ toStrict $ TE.decodeUtf8 $ B64.encode bs
+
+
+instance FromJSON CEncodedData where
+  parseJSON (String encodedData) = fromRawEncodedData encodedData
+  parseJSON x                    = typeMismatch "Not a valid CEncodedData" x
+
+fromRawEncodedData :: Text -> Parser CEncodedData
+fromRawEncodedData rawEncodedData = do
+  let lazyRawEncData    = fromStrict rawEncodedData
+      utf8EncRawData    = TE.encodeUtf8 $ lazyRawEncData
+      maybeBase64DecRaw = B64.decode $ utf8EncRawData
+  case maybeBase64DecRaw of
+    Right base64DecRaw -> pure $ CEncodedData $ base64DecRaw
+    Left e             -> fail e

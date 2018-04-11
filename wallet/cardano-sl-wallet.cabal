@@ -107,8 +107,11 @@ library
                       , async
                       , base
                       , base58-bytestring
+                      , base64-bytestring
                       , bytestring
+                      , cardano-crypto
                       , cardano-sl
+                      , cardano-sl-binary
                       , cardano-sl-block
                       , cardano-sl-client
                       , cardano-sl-core
@@ -120,11 +123,13 @@ library
                       , cardano-sl-networking
                       , cardano-sl-update
                       , cardano-sl-util
+                      , cborg
                       , containers
                       , cryptonite
                       , data-default
                       , directory
                       , dlist
+                      , ed25519
                       , ether
                       , exceptions
                       , filepath

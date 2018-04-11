@@ -103,12 +103,14 @@ txsHandlers :: MonadFullWalletWebMode ctx m => ServerT A.WTxsApi m
 txsHandlers = toServant' A.WTxsApiRecord
     { _newPayment                = M.newPayment
     , _newPaymentBatch           = M.newPaymentBatch
+    , _getUnsignedTx             = M.newUnsignedPayment
     , _txFee                     = M.getTxFee
     , _resetFailedPtxs           = M.resetAllFailedPtxs
     , _cancelApplyingPtxs        = M.cancelAllApplyingPtxs
     , _cancelSpecificApplyingPtx = M.cancelOneApplyingPtx
     , _getHistory                = M.getHistoryLimited
     , _pendingSummary            = M.gatherPendingTxsSummary
+    , _sendSignedTx              = M.sendSignedTx
     }
 
 updateHandlers :: MonadFullWalletWebMode ctx m => ServerT A.WUpdateApi m
