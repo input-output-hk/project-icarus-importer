@@ -329,7 +329,7 @@ data WTxsApiRecord route = WTxsApiRecord
   , _adressUtxo :: route
     :- "utxoForAddress"
     :> Capture "address" (CId Addr)
-    :> WRes Post CUtxo
+    :> WRes Get CUtxo
 
   , _txFee :: route
     :- "fee"
