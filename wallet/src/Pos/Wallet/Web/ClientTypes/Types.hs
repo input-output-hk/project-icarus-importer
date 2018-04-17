@@ -162,6 +162,7 @@ data CSignedEncTx = CSignedEncTx
   , txWitness :: TxWitness
   } deriving (Eq, Generic)
 
+-- FIXME: Replace with 'CUtxo Utxo' to avoid duplication
 newtype CUtxo = CUtxo [(TxIn, TxOutAux)] deriving Generic
 
 instance Buildable CEncodedData where

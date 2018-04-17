@@ -326,7 +326,7 @@ data WTxsApiRecord route = WTxsApiRecord
     :> ReqBody '[JSON] NewBatchPayment
     :> WRes Post CTx
 
-  , _adressUtxo :: route
+  , _addressUtxo :: route
     :- "utxoForAddress"
     :> Capture "address" (CId Addr)
     :> WRes Get CUtxo
