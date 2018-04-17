@@ -22,8 +22,8 @@ import           Pos.Wallet.Web.ClientTypes (Addr, ApiVersion (..), CAccount, CA
                                              CEncodedData (..), CFilePath (..), CHash, CId,
                                              CInitialized, CPaperVendWalletRedeem, CProfile,
                                              CPtxCondition, CSignedEncTx, CTExMeta, CTx, CTxId,
-                                             CTxMeta, CUpdateInfo, CWAddressMeta, CWallet,
-                                             CWalletAssurance, CWalletInit, CWalletMeta,
+                                             CTxMeta, CUpdateInfo, CUtxo (..), CWAddressMeta,
+                                             CWallet, CWalletAssurance, CWalletInit, CWalletMeta,
                                              CWalletRedeem, ClientInfo (..), NewBatchPayment (..),
                                              SyncProgress, Wal)
 import           Pos.Wallet.Web.Error (WalletError)
@@ -46,6 +46,7 @@ deriveJSON defaultOptions ''Wal
 deriveJSON defaultOptions ''Addr
 deriveJSON defaultOptions ''CHash
 deriveJSON defaultOptions ''CInitialized
+deriveJSON defaultOptions ''CUtxo
 
 -- NOTE(adinapoli): We need a manual instance to ensure we map @OptimizeForSize@
 -- to @OptimizeForHighThroughput@, for exchanges backward compatibility.

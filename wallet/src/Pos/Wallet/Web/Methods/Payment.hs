@@ -6,7 +6,7 @@
 module Pos.Wallet.Web.Methods.Payment
        ( newPayment
        , newPaymentBatch
-       , newUnsignedPayment
+       , getUtxoForAddress
        , getTxFee
        , sendSignedTx
        ) where
@@ -27,7 +27,7 @@ import           Pos.Client.KeyStorage (getSecretKeys)
 import           Pos.Client.Txp.Addresses (MonadAddresses)
 import           Pos.Client.Txp.Balances (MonadBalances (..))
 import           Pos.Client.Txp.History (MonadTxHistory (..), TxHistoryEntry (..))
-import           Pos.Client.Txp.Network (prepareMTx, prepareTx)
+import           Pos.Client.Txp.Network (prepareMTx)
 import           Pos.Client.Txp.Util (InputSelectionPolicy (..), computeTxFee, runTxCreator)
 import           Pos.Configuration (walletTxCreationDisabled)
 import           Pos.Core (Coin, TxAux (..), TxOut (..), getCurrentTimestamp)
@@ -43,8 +43,9 @@ import           Pos.Wallet.Aeson.ClientTypes ()
 import           Pos.Wallet.Aeson.WalletBackup ()
 import           Pos.Wallet.Web.Account (getSKByAddressPure, getSKById)
 import           Pos.Wallet.Web.ClientTypes (AccountId (..), Addr, CCoin, CEncodedData (..), CId,
-                                             CSignedEncTx (..), CTx (..), CWAddressMeta (..),
-                                             NewBatchPayment (..), Wal, addrMetaToAccount)
+                                             CSignedEncTx (..), CTx (..), CUtxo (..),
+                                             CWAddressMeta (..), NewBatchPayment (..), Wal,
+                                             addrMetaToAccount)
 import           Pos.Wallet.Web.Error (WalletError (..))
 import           Pos.Wallet.Web.Methods.History (addHistoryTxMeta, constructCTx,
                                                  getCurChainDifficulty)
@@ -79,23 +80,14 @@ newPayment passphrase srcAccount dstAddress coin policy =
           (one (dstAddress, coin))
           policy
 
-newUnsignedPayment
+getUtxoForAddress
     :: MonadWalletTxFull ctx m
     => CId Addr
-    -> CId Addr
-    -> Coin
-    -> InputSelectionPolicy
-    -> m CEncodedData
-newUnsignedPayment srcAccount dstAccount coin policy =
-    -- This is done for two reasons:
-    -- 1. In order not to overflow relay.
-    -- 2. To let other things (e. g. block processing) happen if
-    -- `newPayment`s are done continuously.
-    notFasterThan (6 :: Second) $ do
-      getUnsignedTx
-        srcAccount
-        (one (dstAccount, coin))
-        policy
+    -> m CUtxo
+getUtxoForAddress account = do
+  srcAddr <- convertCIdTOAddr account
+  utxoMap <- getFilteredUtxo [srcAddr]
+  pure $ CUtxo $ M.toList utxoMap
 
 newPaymentBatch
     :: MonadWalletTxFull ctx m
@@ -253,29 +245,6 @@ sendMoney passphrase moneySource dstDistr policy = do
 
     logDebug "sendMoney: constructing response"
     fst <$> constructCTx srcWallet srcWalletAddrsDetector diff th
-
-getUnsignedTx
-    :: MonadWalletTxFull ctx m
-    => CId Addr
-    -> NonEmpty (CId Addr, Coin)
-    -> InputSelectionPolicy
-    -> m CEncodedData
-getUnsignedTx cidSrcAddr dstDistr policy = do
-    when walletTxCreationDisabled $
-        throwM err405
-        { errReasonPhrase = "Transaction creation is disabled by configuration!"
-        }
-
-    outputs <- coinDistrToOutputs dstDistr
-    srcAddr <- convertCIdTOAddr cidSrcAddr
-    senderUtxo <- getFilteredUtxo [srcAddr]
-    pendingAddrs <- getPendingAddresses policy
-    tx <- rewrapTxError "Cannot send transaction" $
-                        prepareTx pendingAddrs policy senderUtxo outputs srcAddr
-
-    logDebug "getUnsingedTx: successfully created unsigned tx"
-    let encodedTx = CEncodedData (Bi.serialize tx)
-    return encodedTx
 
 sendTxAux
      :: MonadWalletTxFull ctx m
