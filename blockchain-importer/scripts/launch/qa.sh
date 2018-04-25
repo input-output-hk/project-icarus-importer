@@ -4,7 +4,7 @@
 # that will help speed up the syncing process
 rm -rf run/* node-* *key* *.dump
 
-stack exec -- cardano-explorer \
+stack exec -- cardano-blockchain-importer \
     --system-start 1501793381 \
     --log-config log-config.yaml \
     --logs-prefix "logs/testnet" \

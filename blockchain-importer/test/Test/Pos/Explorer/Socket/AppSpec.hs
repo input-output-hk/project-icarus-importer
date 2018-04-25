@@ -17,7 +17,7 @@ import           Test.Pos.Explorer.MockFactory (testLoggerName)
 -- Spec
 ----------------------------------------------------------------------------
 
--- stack test cardano-sl-explorer --fast --test-arguments "-m Test.Pos.Explorer.Socket"
+-- stack test cardano-sl-blockchain-importer --fast --test-arguments "-m Test.Pos.Explorer.Socket"
 
 spec :: Spec
 spec =

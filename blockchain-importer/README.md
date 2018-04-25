@@ -1,4 +1,4 @@
-# `cardano-sl-explorer`
+# `cardano-sl-blockchain-importer`
 
 ## Installation
 
@@ -20,12 +20,12 @@ nix:
 
 ## Generate documentation
 
-Generated documentation for Explorer Web API is available [online](https://cardanodocs.com/technical/explorer/api/).
+Generated documentation for Explorer Web API is available [online](https://cardanodocs.com/technical/blockchain-importer/api/).
 
 ## Run mock server
 
 ```bash
-stack exec cardano-explorer-mock
+stack exec cardano-blockchain-importer-mock
 ```
 
 ## Run it
@@ -35,8 +35,7 @@ Run it from project root.
 ### Dev version
 
 - run `./scripts/build/cardano-sl.sh`
-- run `./explorer/frontend/scripts/build.sh`
-- run `./scripts/launch/explorer-with-nodes.sh`
+- run `./scripts/launch/blockchain-importer-with-nodes.sh`
 
 ### Prod version (connects Explorer to `staging` or `mainnet`)
 

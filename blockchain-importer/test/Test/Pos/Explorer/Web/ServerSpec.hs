@@ -35,7 +35,7 @@ import           Test.Pos.Configuration (withDefConfigurations)
 
 {-# ANN module ("HLint: ignore Reduce duplication" :: Text) #-}
 
--- stack test cardano-sl-explorer --fast --test-arguments "-m Pos.Explorer.Web.Server"
+-- stack test cardano-sl-blockchain-importer --fast --test-arguments "-m Pos.Explorer.Web.Server"
 spec :: Spec
 spec = withDefConfigurations $ \_ -> do
     describe "Pos.Explorer.Web.Server" $ do

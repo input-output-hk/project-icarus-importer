@@ -18,7 +18,7 @@ import           Test.Hspec (Spec, describe, it, shouldBe)
 -- Spec
 ----------------------------------------------------------------------------
 
--- stack test cardano-sl-explorer --fast --test-arguments "-m Test.Pos.Explorer.Socket"
+-- stack test cardano-sl-blockchain-importer --fast --test-arguments "-m Test.Pos.Explorer.Socket"
 
 spec :: Spec
 spec =

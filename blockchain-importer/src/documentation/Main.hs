@@ -37,7 +37,7 @@ import           Servant ((:>))
 import           Servant.Multipart (MultipartForm)
 import           Servant.Swagger (HasSwagger (toSwagger))
 
-import qualified Paths_cardano_sl_explorer as CSLE
+import qualified Paths_cardano_sl_blockchain_importer as CSLE
 import qualified Pos.Explorer.Web.Api as A
 import qualified Pos.Explorer.Web.ClientTypes as C
 import           Pos.Explorer.Web.Error (ExplorerError)
@@ -49,7 +49,7 @@ main = do
     BSL8.writeFile jsonFile $ encode swaggerSpecForExplorerApi
     putStrLn $ "Done. See " <> jsonFile <> "."
   where
-    jsonFile = "explorer-web-api-swagger.json"
+    jsonFile = "blockchain-importer-web-api-swagger.json"
 
     -- | Showing info for the program.
     showProgramInfoIfRequired :: FilePath -> IO ()
@@ -57,10 +57,10 @@ main = do
       where
         programInfo = Opt.info (helper <*> versionOption) $
             fullDesc <> progDesc "Generate Swagger specification for Explorer web API."
-                     <> header   "Cardano SL Explorer web API docs generator."
+                     <> header   "Cardano SL Blockchain Importer web API docs generator."
                      <> footer   ("This program runs during 'cardano-sl' building on CI. " <>
                                   "Generated file '" <> generatedJSON <> "' will be used to produce HTML documentation. " <>
-                                  "This documentation will be published at cardanodocs.com using 'update-explorer-web-api-docs.sh'.")
+                                  "This documentation will be published at cardanodocs.com using 'update-blockchain-importer-web-api-docs.sh'.")
 
         versionOption = infoOption
             ("cardano-swagger-" <> showVersion CSLE.version)

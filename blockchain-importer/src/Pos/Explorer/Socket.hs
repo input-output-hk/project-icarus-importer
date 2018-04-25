@@ -1,4 +1,4 @@
--- | Web API parts of cardano-explorer
+-- | Web API parts of cardano-blockchain-importer
 
 module Pos.Explorer.Socket
        ( module Socket

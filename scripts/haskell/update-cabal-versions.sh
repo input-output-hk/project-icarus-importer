@@ -20,6 +20,7 @@ updateVersion crypto/cardano-sl-crypto.cabal
 updateVersion db/cardano-sl-db.cabal
 updateVersion delegation/cardano-sl-delegation.cabal
 updateVersion explorer/cardano-sl-explorer.cabal
+updateVersion explorer/cardano-sl-blockchain-importer.cabal
 updateVersion generator/cardano-sl-generator.cabal
 updateVersion infra/cardano-sl-infra.cabal
 updateVersion lib/cardano-sl.cabal

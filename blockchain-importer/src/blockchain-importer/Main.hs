@@ -57,7 +57,7 @@ action (ExplorerNodeArgs (cArgs@CommonNodeArgs{..}) ExplorerArgs{..}) =
     withConfigurations conf $ \ntpConfig ->
     withCompileInfo $(retrieveCompileTimeInfo) $ do
         CLI.printInfoOnStart cArgs ntpConfig
-        logInfo $ "Explorer is enabled!"
+        logInfo $ "Blockchain importer is enabled!"
         currentParams <- getNodeParams loggerName cArgs nodeArgs
 
         let vssSK = fromJust $ npUserSecret currentParams ^. usVss

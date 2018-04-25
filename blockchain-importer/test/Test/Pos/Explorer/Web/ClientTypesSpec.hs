@@ -49,7 +49,7 @@ soundAbstractHashInstanceProperty reversableFunction =
 -- Spec
 ----------------------------------------------------------------------------
 
--- stack test cardano-sl-explorer --fast --test-arguments "-m Test.Pos.Explorer.Web"
+-- stack test cardano-sl-blockchain-importer --fast --test-arguments "-m Test.Pos.Explorer.Web"
 spec :: Spec
 spec = describe "ClientTypes" $ do
     unitTests
