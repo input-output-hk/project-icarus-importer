@@ -7344,6 +7344,64 @@ inherit (pkgs) mesa;};
            description = "Cardano explorer";
            license = stdenv.lib.licenses.mit;
          }) {};
+      "cardano-sl-blockchain-importer" = callPackage
+        ({ mkDerivation, aeson, base, bytestring, cardano-sl
+         , cardano-sl-binary, cardano-sl-block, cardano-sl-client
+         , cardano-sl-core, cardano-sl-crypto, cardano-sl-db
+         , cardano-sl-delegation, cardano-sl-generator, cardano-sl-infra
+         , cardano-sl-networking, cardano-sl-ssc, cardano-sl-txp
+         , cardano-sl-update, cardano-sl-util, conduit, containers, cpphs
+         , cryptonite, data-default, engine-io, engine-io-wai, ether
+         , exceptions, formatting, free, generic-arbitrary, hspec
+         , http-types, lens, log-warper, memory, mmorph, MonadRandom, mtl
+         , optparse-applicative, optparse-simple, purescript-bridge
+         , QuickCheck, resourcet, rocksdb-haskell-ng, safe-exceptions
+         , serokell-util, servant, servant-generic, servant-multipart
+         , servant-server, servant-swagger, socket-io, stdenv, stm, swagger2
+         , text, text-format, time, time-units, transformers, universum
+         , unliftio, unordered-containers, vector, wai, wai-cors, wai-extra
+         , warp
+         }:
+         mkDerivation {
+           pname = "cardano-sl-blockchain-importer";
+           version = "1.1.1";
+           src = ./../blockchain-importer;
+           isLibrary = true;
+           isExecutable = true;
+           libraryHaskellDepends = [
+             aeson base bytestring cardano-sl cardano-sl-binary cardano-sl-block
+             cardano-sl-client cardano-sl-core cardano-sl-crypto cardano-sl-db
+             cardano-sl-delegation cardano-sl-generator cardano-sl-infra
+             cardano-sl-networking cardano-sl-ssc cardano-sl-txp
+             cardano-sl-update cardano-sl-util conduit containers data-default
+             engine-io engine-io-wai ether exceptions formatting free
+             generic-arbitrary http-types lens log-warper memory mmorph mtl
+             QuickCheck resourcet rocksdb-haskell-ng safe-exceptions
+             serokell-util servant servant-generic servant-server socket-io stm
+             text text-format time time-units transformers universum unliftio
+             unordered-containers vector wai wai-cors wai-extra warp
+           ];
+           libraryToolDepends = [ cpphs ];
+           executableHaskellDepends = [
+             aeson base bytestring cardano-sl cardano-sl-core cardano-sl-infra
+             cardano-sl-networking cardano-sl-update cardano-sl-util formatting
+             lens log-warper optparse-applicative optparse-simple
+             purescript-bridge servant-multipart servant-server servant-swagger
+             swagger2 text universum
+           ];
+           executableToolDepends = [ cpphs ];
+           testHaskellDepends = [
+             base bytestring cardano-sl cardano-sl-block cardano-sl-core
+             cardano-sl-crypto cardano-sl-txp cardano-sl-util containers
+             cryptonite data-default engine-io hspec lens log-warper MonadRandom
+             mtl QuickCheck universum warp
+           ];
+           testToolDepends = [ cpphs ];
+           benchmarkToolDepends = [ cpphs ];
+           doHaddock = false;
+           description = "Cardano blockchain importer";
+           license = stdenv.lib.licenses.mit;
+         }) {};
       "cardano-sl-generator" = callPackage
         ({ mkDerivation, base, bytestring, cardano-sl, cardano-sl-binary
          , cardano-sl-block, cardano-sl-client, cardano-sl-core

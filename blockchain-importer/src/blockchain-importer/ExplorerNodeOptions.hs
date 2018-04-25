@@ -17,7 +17,7 @@ import           Options.Applicative (Parser, auto, execParser, footerDoc, fullD
                                       helper, info, infoOption, long, metavar, option, progDesc,
                                       showDefault, value)
 
-import           Paths_cardano_sl_explorer (version)
+import           Paths_cardano_sl_blockchain_importer (version)
 import           Pos.Client.CLI (CommonNodeArgs (..))
 import qualified Pos.Client.CLI as CLI
 

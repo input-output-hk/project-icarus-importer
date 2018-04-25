@@ -70,6 +70,7 @@ let
 
       cardano-sl-node-static = justStaticExecutables self.cardano-sl-node;
       cardano-sl-explorer-static = addGitRev (justStaticExecutables self.cardano-sl-explorer);
+      cardano-sl-blockchain-importer-static = addGitRev (justStaticExecutables self.cardano-sl-blockchain-importer);
       cardano-report-server-static = justStaticExecutables self.cardano-report-server;
 
       # Undo configuration-nix.nix change to hardcode security binary on darwin

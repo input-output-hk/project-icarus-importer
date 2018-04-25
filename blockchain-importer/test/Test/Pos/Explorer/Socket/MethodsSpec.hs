@@ -43,7 +43,7 @@ import           Test.Pos.Explorer.MockFactory (mkTxOut)
 -- Spec
 ----------------------------------------------------------------------------
 
--- stack test cardano-sl-explorer --fast --test-arguments "-m Test.Pos.Explorer.Socket"
+-- stack test cardano-sl-blockchain-importer --fast --test-arguments "-m Test.Pos.Explorer.Socket"
 
 spec :: Spec
 spec =

@@ -42,6 +42,7 @@ let
   executables =  {
     wallet = "${iohkPkgs.cardano-sl-wallet-new}/bin/cardano-node";
     explorer = "${iohkPkgs.cardano-sl-explorer-static}/bin/cardano-explorer";
+    blockchain-importer = "${iohkPkgs.cardano-sl-blockchain-importer-static}/bin/cardano-blockchain-importer";
   };
   ifWallet = localLib.optionalString (executable == "wallet");
   iohkPkgs = import ./../../../default.nix { inherit config system pkgs gitrev; };

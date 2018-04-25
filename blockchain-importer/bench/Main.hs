@@ -8,7 +8,7 @@ import           System.IO (hSetEncoding, stdout, utf8)
 
 import qualified Bench.Pos.Explorer.ServerBench as SB
 
--- stack bench cardano-sl-explorer
+-- stack bench cardano-sl-blockchain-importer
 main :: IO ()
 main = do
     hSetEncoding stdout utf8
