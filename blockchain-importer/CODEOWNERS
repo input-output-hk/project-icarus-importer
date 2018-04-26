@@ -9,5 +9,5 @@
 frontend/                       @sectore
 
 src/                            @ksaric
-src/Pos/Explorer/Socket/        @martoon
+src/Pos/BlockchainImporter/Socket/        @martoon
 test/                           @ksaric

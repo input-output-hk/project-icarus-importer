@@ -13,44 +13,44 @@ extra-source-files:  README.md
 cabal-version:       >=1.10
 
 library
-  exposed-modules:      Pos.Explorer.ExplorerMode
+  exposed-modules:      Pos.BlockchainImporter.BlockchainImporterMode
 
-                        Pos.Explorer.Core
-                        Pos.Explorer.DB
-                        Pos.Explorer.ExtraContext
-                        Pos.Explorer.Socket
-                        Pos.Explorer.Socket.App
-                        Pos.Explorer.Socket.Holder
-                        Pos.Explorer.Socket.Methods
-                        Pos.Explorer.Socket.Util
+                        Pos.BlockchainImporter.Core
+                        Pos.BlockchainImporter.DB
+                        Pos.BlockchainImporter.ExtraContext
+                        Pos.BlockchainImporter.Socket
+                        Pos.BlockchainImporter.Socket.App
+                        Pos.BlockchainImporter.Socket.Holder
+                        Pos.BlockchainImporter.Socket.Methods
+                        Pos.BlockchainImporter.Socket.Util
 
-                        Pos.Explorer.Txp
+                        Pos.BlockchainImporter.Txp
 
-                        Pos.Explorer.Web
-                        Pos.Explorer.Web.Api
-                        Pos.Explorer.Web.ClientTypes
-                        Pos.Explorer.Web.Error
-                        Pos.Explorer.Web.TestServer
-                        Pos.Explorer.Web.Server
-                        Pos.Explorer.Web.Transform
+                        Pos.BlockchainImporter.Web
+                        Pos.BlockchainImporter.Web.Api
+                        Pos.BlockchainImporter.Web.ClientTypes
+                        Pos.BlockchainImporter.Web.Error
+                        Pos.BlockchainImporter.Web.TestServer
+                        Pos.BlockchainImporter.Web.Server
+                        Pos.BlockchainImporter.Web.Transform
 
-                        Pos.Explorer.TestUtil
+                        Pos.BlockchainImporter.TestUtil
 
                         -- Needed for testing
-                        Pos.Arbitrary.Explorer
+                        Pos.Arbitrary.BlockchainImporter
 
-  other-modules:        Pos.Explorer.Aeson.ClientTypes
+  other-modules:        Pos.BlockchainImporter.Aeson.ClientTypes
 
-                        Pos.Binary.Explorer
-                        Pos.Explorer.Core.Types
-                        Pos.Explorer.Txp.Common
-                        Pos.Explorer.Txp.Global
-                        Pos.Explorer.Txp.Local
-                        Pos.Explorer.Txp.Toil
-                        Pos.Explorer.Txp.Toil.Logic
-                        Pos.Explorer.Txp.Toil.Monad
-                        Pos.Explorer.Txp.Toil.Types
-                        Pos.Explorer.BListener
+                        Pos.Binary.BlockchainImporter
+                        Pos.BlockchainImporter.Core.Types
+                        Pos.BlockchainImporter.Txp.Common
+                        Pos.BlockchainImporter.Txp.Global
+                        Pos.BlockchainImporter.Txp.Local
+                        Pos.BlockchainImporter.Txp.Toil
+                        Pos.BlockchainImporter.Txp.Toil.Logic
+                        Pos.BlockchainImporter.Txp.Toil.Monad
+                        Pos.BlockchainImporter.Txp.Toil.Types
+                        Pos.BlockchainImporter.BListener
 
   build-depends:        QuickCheck
                       , aeson
@@ -158,7 +158,7 @@ library
 executable cardano-blockchain-importer
   hs-source-dirs:      src/blockchain-importer
   main-is:             Main.hs
-  other-modules:       ExplorerNodeOptions
+  other-modules:       BlockchainImporterNodeOptions
   build-depends:       base
                      , cardano-sl
                      , cardano-sl-core
@@ -253,16 +253,16 @@ test-suite cardano-blockchain-importer-test
                        -- Standard module with some magic
                        Spec
                        -- Utils
-                       Test.Pos.Explorer.MockFactory
+                       Test.Pos.BlockchainImporter.MockFactory
                        -- Tests
-                       Test.Pos.Explorer.Socket.AppSpec
-                       Test.Pos.Explorer.Socket.MethodsSpec
-                       Test.Pos.Explorer.Socket.UtilSpec
-                       Test.Pos.Explorer.Web.ServerSpec
-                       Test.Pos.Explorer.Web.ClientTypesSpec
+                       Test.Pos.BlockchainImporter.Socket.AppSpec
+                       Test.Pos.BlockchainImporter.Socket.MethodsSpec
+                       Test.Pos.BlockchainImporter.Socket.UtilSpec
+                       Test.Pos.BlockchainImporter.Web.ServerSpec
+                       Test.Pos.BlockchainImporter.Web.ClientTypesSpec
 
-                       -- Test.Pos.Explorer.BListenerSpec -- TODO(KS): To merge when we merge tests.
-                       Test.Pos.Explorer.Identity.BinarySpec
+                       -- Test.Pos.BlockchainImporter.BListenerSpec -- TODO(KS): To merge when we merge tests.
+                       Test.Pos.BlockchainImporter.Identity.BinarySpec
 
   type:                exitcode-stdio-1.0
   build-depends:       QuickCheck
@@ -328,7 +328,7 @@ test-suite cardano-blockchain-importer-test
 benchmark cardano-blockchain-importer-bench
   hs-source-dirs:      bench
   main-is:             Main.hs
-  other-modules:       Bench.Pos.Explorer.ServerBench
+  other-modules:       Bench.Pos.BlockchainImporter.ServerBench
   type:                exitcode-stdio-1.0
   build-depends:       QuickCheck
                      , base

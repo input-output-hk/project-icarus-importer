@@ -75,6 +75,12 @@ explorer-node.log
 explorer.log
 socket-io.log
 
+# blockchain-importer
+blockchain-importer-node.log.*
+blockchain-importer-node.log
+blockchain-importer.log
+socket-io.log
+
 # importify
 .importify
 

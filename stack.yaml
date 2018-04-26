@@ -8,7 +8,7 @@ extra-package-dbs: []
 
 # networking → [util, binary] → crypto → core → db → [lrc, infra] → [ssc, txp, update, delegation] → block → lib → ...
 # Then we have two branches:
-# ... → client → generator → [auxx, explorer, wallet] → wallet-new
+# ... → client → generator → [auxx, explorer, blockchain-importer, wallet] → wallet-new
 # ... → [node, tools]
 packages:
 - networking
