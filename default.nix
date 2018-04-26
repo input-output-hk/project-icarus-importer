@@ -120,8 +120,10 @@ let
     connectScripts = {
       mainnetWallet = connect {};
       mainnetExplorer = connect { executable = "explorer"; };
+      mainnetBlockchainImporter = connect { executable = "blockchain-importer"; };
       stagingWallet = connect { environment = "mainnet-staging"; };
       stagingExplorer = connect { executable = "explorer"; environment = "mainnet-staging"; };
+      stagingBlockchainImporter = connect { executable = "blockchain-importer"; environment = "mainnet-staging"; };
     };
     dockerImages = {
       mainnetWallet = mkDocker { environment = "mainnet"; };

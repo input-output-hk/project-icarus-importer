@@ -33,7 +33,7 @@ import           Pos.Web ()
 
 -- Run the server. Must be on the same port so we don't have to modify anything
 runMockServer :: IO ()
-runMockServer = run 8100 blockchainImporterApp
+runMockServer = run 8200 blockchainImporterApp
 
 blockchainImporterApp :: Application
 blockchainImporterApp = serve blockchainImporterApi blockchainImporterHandlers

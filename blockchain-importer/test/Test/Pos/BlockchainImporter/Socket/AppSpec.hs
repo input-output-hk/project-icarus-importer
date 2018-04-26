@@ -24,7 +24,7 @@ spec =
     describe "App" $
         describe "toConfig" $
             it "maps config into warp settings" $ do
-                let p = 8080
+                let p = 8200
                     ns = NotifierSettings { nsPort = p }
                     s :: Settings
                     s = toConfig ns testLoggerName

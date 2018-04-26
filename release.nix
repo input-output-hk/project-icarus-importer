@@ -35,10 +35,12 @@ let
     cardano-report-server-static = [ "x86_64-linux" ];
     stack2nix = supportedSystems;
     purescript = supportedSystems;
-    connectScripts.mainnetWallet   = [ "x86_64-linux" "x86_64-darwin" ];
-    connectScripts.mainnetExplorer = [ "x86_64-linux" "x86_64-darwin" ];
-    connectScripts.stagingWallet   = [ "x86_64-linux" "x86_64-darwin" ];
-    connectScripts.stagingExplorer = [ "x86_64-linux" "x86_64-darwin" ];
+    connectScripts.mainnetWallet             = [ "x86_64-linux" "x86_64-darwin" ];
+    connectScripts.mainnetExplorer           = [ "x86_64-linux" "x86_64-darwin" ];
+    connectScripts.mainnetBlockchainImporter = [ "x86_64-linux" "x86_64-darwin" ];
+    connectScripts.stagingWallet             = [ "x86_64-linux" "x86_64-darwin" ];
+    connectScripts.stagingExplorer           = [ "x86_64-linux" "x86_64-darwin" ];
+    connectScripts.stagingBlockchainImporter = [ "x86_64-linux" "x86_64-darwin" ];
     daedalus-bridge = supportedSystems;
   };
   nixosTests = import ./nixos-tests;
