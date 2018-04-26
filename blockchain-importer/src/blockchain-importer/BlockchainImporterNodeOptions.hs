@@ -39,11 +39,11 @@ data BlockchainImporterArgs = BlockchainImporterArgs
 blockchainImporterArgsParser :: Parser BlockchainImporterNodeArgs
 blockchainImporterArgsParser = do
     commonNodeArgs <- CLI.commonNodeArgsParser
-    webPort        <- CLI.webPortOption 8100 "Port for web API."
+    webPort        <- CLI.webPortOption 8200 "Port for web API."
     notifierPort   <- option auto $
         long    "notifier-port" <>
         metavar "PORT" <>
-        value   8110 <> showDefault <>
+        value   8200 <> showDefault <>
         help    "Port for update notifier, the socket.io backend."
 
     pure $ BlockchainImporterNodeArgs commonNodeArgs BlockchainImporterArgs{..}

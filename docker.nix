@@ -34,6 +34,7 @@ in pkgs.dockerTools.buildImage {
       "3000/tcp" = {}; # protocol
       "8090/tcp" = {}; # wallet
       "8100/tcp" = {}; # explorer api
+      "8200/tcp" = {}; # blockchain-importer
       "8000/tcp" = {}; # ekg
     };
   };
