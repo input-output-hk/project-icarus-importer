@@ -20,7 +20,7 @@ nix:
 
 ## Generate documentation
 
-Generated documentation for Explorer Web API is available [online](https://cardanodocs.com/technical/blockchain-importer/api/).
+Generated documentation for BlockchainImporter Web API is available [online](https://cardanodocs.com/technical/blockchain-importer/api/).
 
 ## Run mock server
 
@@ -37,20 +37,19 @@ Run it from project root.
 - run `./scripts/build/cardano-sl.sh`
 - run `./scripts/launch/blockchain-importer-with-nodes.sh`
 
-### Prod version (connects Explorer to `staging` or `mainnet`)
+### Prod version (connects BlockchainImporter to `staging` or `mainnet`)
 
-- Run `/scripts/clean/db.sh` to do a clean synchronization, so that Explorer will sync and download blockchain from start.
+- Run `/scripts/clean/db.sh` to do a clean synchronization, so that BlockchainImporter will sync and download blockchain from start.
 - Connect to cluster as described in  `docs/how-to/connect-to-cluster.md`
-- Build Explorer's UI in `prod` mode as described in `explorer/frontend/README.md`
-- Open http://localhost:3100/ in your browser. (Note: It takes some time to sync all data from cluster. That's why Explorer's UI might not display latest data from start.)
+- Open http://localhost:3100/ in your browser. (Note: It takes some time to sync all data from cluster. That's why BlockchainImporter's UI might not display latest data from start.)
 
 
 ## Sockets
 
 `CORS` requests to connect `socket` server are currently restricted to following resources:
-* https://cardanoexplorer.com
-* https://explorer.iohkdev.io
-* http://cardano-explorer.cardano-mainnet.iohk.io
+* https://cardano-blockchain-importer.com
+* https://blockchain-importer.iohkdev.io
+* http://cardano-blockchain-importer.cardano-mainnet.iohk.io
 * http://localhost:3100
 
-Change `CORS` policies in `src/Pos/Explorer/Socket/App.hs` whenever you have to add more resources.
+Change `CORS` policies in `src/Pos/BlockchainImporter/Socket/App.hs` whenever you have to add more resources.

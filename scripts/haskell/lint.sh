@@ -2,7 +2,7 @@
 
 # Networking is not in here, because it has a very different codestyle (doesn't use universum).
 # This is bad and should probably be fixed.
-projects="util binary crypto core db lrc infra ssc txp update delegation node tools client generator auxx explorer wallet wallet-new"
+projects="util binary crypto core db lrc infra ssc txp update delegation node tools client generator auxx explorer blockchain-importer wallet wallet-new"
 
 # incpath can be used to specify custom include paths, e. g.:
 # incpath=$(find $(stack path $@ --compiler-bin)/../lib -maxdepth 2 -path */include)

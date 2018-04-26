@@ -15,18 +15,18 @@ import           Data.Maybe (fromJust)
 import           Mockable (Production, runProduction)
 import           System.Wlog (LoggerName, logInfo)
 
-import           ExplorerNodeOptions (ExplorerArgs (..), ExplorerNodeArgs (..),
-                                      getExplorerNodeOptions)
+import           BlockchainImporterNodeOptions (BlockchainImporterArgs (..), BlockchainImporterNodeArgs (..),
+                                      getBlockchainImporterNodeOptions)
 import           Pos.Binary ()
 import           Pos.Client.CLI (CommonNodeArgs (..), NodeArgs (..), getNodeParams)
 import qualified Pos.Client.CLI as CLI
 import           Pos.Communication (OutSpecs)
 import           Pos.Context (NodeContext (..))
-import           Pos.Explorer.DB (explorerInitDB)
-import           Pos.Explorer.ExtraContext (makeExtraCtx)
-import           Pos.Explorer.Socket (NotifierSettings (..))
-import           Pos.Explorer.Txp (ExplorerExtraModifier, explorerTxpGlobalSettings)
-import           Pos.Explorer.Web (ExplorerProd, explorerPlugin, notifierPlugin, runExplorerProd)
+import           Pos.BlockchainImporter.DB (blockchainImporterInitDB)
+import           Pos.BlockchainImporter.ExtraContext (makeExtraCtx)
+import           Pos.BlockchainImporter.Socket (NotifierSettings (..))
+import           Pos.BlockchainImporter.Txp (BlockchainImporterExtraModifier, blockchainImporterTxpGlobalSettings)
+import           Pos.BlockchainImporter.Web (BlockchainImporterProd, blockchainImporterPlugin, notifierPlugin, runBlockchainImporterProd)
 import           Pos.Launcher (ConfigurationOptions (..), HasConfigurations, NodeParams (..),
                                NodeResources (..), bracketNodeResources, elimRealMode,
                                loggerBracket, runNode, runServer, withConfigurations)
@@ -46,14 +46,14 @@ loggerName = "node"
 
 main :: IO ()
 main = do
-    args <- getExplorerNodeOptions
+    args <- getBlockchainImporterNodeOptions
     let loggingParams = CLI.loggingParams loggerName (enaCommonNodeArgs args)
     loggerBracket loggingParams . logException "node" . runProduction $ do
-        logInfo "[Attention] Software is built with explorer part"
+        logInfo "[Attention] Software is built with blockchainImporter part"
         action args
 
-action :: ExplorerNodeArgs -> Production ()
-action (ExplorerNodeArgs (cArgs@CommonNodeArgs{..}) ExplorerArgs{..}) =
+action :: BlockchainImporterNodeArgs -> Production ()
+action (BlockchainImporterNodeArgs (cArgs@CommonNodeArgs{..}) BlockchainImporterArgs{..}) =
     withConfigurations conf $ \ntpConfig ->
     withCompileInfo $(retrieveCompileTimeInfo) $ do
         CLI.printInfoOnStart cArgs ntpConfig
@@ -63,36 +63,36 @@ action (ExplorerNodeArgs (cArgs@CommonNodeArgs{..}) ExplorerArgs{..}) =
         let vssSK = fromJust $ npUserSecret currentParams ^. usVss
         let sscParams = CLI.gtSscParams cArgs vssSK (npBehaviorConfig currentParams)
 
-        let plugins :: HasConfigurations => ([WorkerSpec ExplorerProd], OutSpecs)
+        let plugins :: HasConfigurations => ([WorkerSpec BlockchainImporterProd], OutSpecs)
             plugins = mconcatPair
-                [ explorerPlugin webPort
+                [ blockchainImporterPlugin webPort
                 , notifierPlugin NotifierSettings{ nsPort = notifierPort }
                 , updateTriggerWorker
                 ]
         bracketNodeResources currentParams sscParams
-            explorerTxpGlobalSettings
-            explorerInitDB $ \nr@NodeResources {..} ->
-                runExplorerRealMode nr (runNode nr plugins)
+            blockchainImporterTxpGlobalSettings
+            blockchainImporterInitDB $ \nr@NodeResources {..} ->
+                runBlockchainImporterRealMode nr (runNode nr plugins)
   where
 
     conf :: ConfigurationOptions
     conf = CLI.configurationOptions $ CLI.commonArgs cArgs
 
-    runExplorerRealMode
+    runBlockchainImporterRealMode
         :: (HasConfigurations,HasCompileInfo)
-        => NodeResources ExplorerExtraModifier
-        -> (WorkerSpec ExplorerProd, OutSpecs)
+        => NodeResources BlockchainImporterExtraModifier
+        -> (WorkerSpec BlockchainImporterProd, OutSpecs)
         -> Production ()
-    runExplorerRealMode nr@NodeResources{..} (go, outSpecs) =
+    runBlockchainImporterRealMode nr@NodeResources{..} (go, outSpecs) =
         let NodeContext {..} = nrContext
             extraCtx = makeExtraCtx
-            explorerModeToRealMode  = runExplorerProd extraCtx
+            blockchainImporterModeToRealMode  = runBlockchainImporterProd extraCtx
             elim = elimRealMode nr
             ekgNodeMetrics = EkgNodeMetrics
                 nrEkgStore
-                (runProduction . elim . explorerModeToRealMode)
-            serverRealMode = explorerModeToRealMode $ runServer
-                (runProduction . elim . explorerModeToRealMode)
+                (runProduction . elim . blockchainImporterModeToRealMode)
+            serverRealMode = blockchainImporterModeToRealMode $ runServer
+                (runProduction . elim . blockchainImporterModeToRealMode)
                 ncNodeParams
                 ekgNodeMetrics
                 outSpecs
