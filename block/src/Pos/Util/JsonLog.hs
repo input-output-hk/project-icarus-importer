@@ -170,6 +170,6 @@ jsonLogDefault x = do
 
 deriving instance CanJsonLog (t m) => CanJsonLog (Ether.TaggedTrans tag t m)
 
--- Required for @Explorer@ @BListener@ and @ExtraContext@ redirect
+-- Required for @Explorer@ @BlockchainImporter@ @BListener@ and @ExtraContext@ redirect
 deriving instance CanJsonLog m => CanJsonLog (Ether.TaggedTrans tag IdentityT m)
 deriving instance CanJsonLog m => CanJsonLog (Ether.ReaderT tag r m)
