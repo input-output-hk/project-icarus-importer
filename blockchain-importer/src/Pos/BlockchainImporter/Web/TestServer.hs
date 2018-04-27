@@ -59,6 +59,7 @@ blockchainImporterHandlers =
         , _genesisPagesTotal  = testGenesisPagesTotal
         , _genesisAddressInfo = testGenesisAddressInfo
         , _statsTxs           = testStatsTxs
+        , _blockCount         = getBlocksTotal
         }
         :: BlockchainImporterApiRecord (AsServerT Handler))
 
@@ -103,6 +104,9 @@ cTxBrief = CTxBrief
 
 testTotalAda :: Handler CAda
 testTotalAda = pure $ CAda 123.456789
+
+getBlocksTotal :: Handler Integer
+getBlocksTotal = pure 10
 
 testBlocksPagesTotal
     :: Maybe Word

@@ -155,6 +155,12 @@ data BlockchainImporterApiRecord route = BlockchainImporterApiRecord
         :> "txs"
         :> QueryParam "page" Word
         :> ExRes Get TxsStats
+
+  , _blockCount :: route
+        :- "stats"
+        :> "blocksCount"
+        :> ExRes Get Integer
+   
   }
   deriving (Generic)
 
