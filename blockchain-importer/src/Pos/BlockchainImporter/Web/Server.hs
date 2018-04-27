@@ -133,6 +133,7 @@ blockchainImporterHandlers _diffusion =
         , _genesisPagesTotal  = getGenesisPagesTotal
         , _genesisAddressInfo = getGenesisAddressInfo
         , _statsTxs           = getStatsTxs
+        , _blockCount         = getBlocksTotal
         }
         :: BlockchainImporterApiRecord (AsServerT m))
 
@@ -732,7 +733,6 @@ getStatsTxs mPageNumber = do
           where
             txToTxIdSize :: Tx -> (CTxId, Byte)
             txToTxIdSize tx = (toCTxId $ hash tx, biSize tx)
-
 
 --------------------------------------------------------------------------------
 -- Helpers
