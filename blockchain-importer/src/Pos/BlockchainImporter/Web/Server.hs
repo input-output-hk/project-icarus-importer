@@ -37,8 +37,10 @@ import qualified Data.ByteString as BS
 import qualified Data.HashMap.Strict as HM
 import qualified Data.List.NonEmpty as NE
 import           Data.Maybe (fromMaybe)
+import           Data.Time.Units (Second)
 import qualified Data.Vector as V
 import           Formatting (build, int, sformat, (%))
+import           Mockable (Concurrently, Delay, Mockable, concurrently, delay)
 import           Network.Wai (Application)
 import           Network.Wai.Middleware.RequestLogger (logStdoutDev)
 
@@ -47,21 +49,22 @@ import           Servant.Generic (AsServerT, toServant)
 import           Servant.Server (Server, ServerT, serve)
 import           System.Wlog (logDebug)
 
+import qualified Pos.Binary.Class as Bi
 import           Pos.Crypto (WithHash (..), hash, redeemPkBuild, withHash)
 
 import           Pos.DB.Block (getBlund)
 import           Pos.DB.Class (MonadDBRead)
 
-import           Pos.Diffusion.Types (Diffusion)
+import           Pos.Diffusion.Types (Diffusion(..))
 
 import           Pos.Binary.Class (biSize)
 import           Pos.Block.Types (Blund, Undo)
-import           Pos.Core (AddrType (..), Address (..), Coin, EpochIndex, HeaderHash, Timestamp,
+import           Pos.Core (AddrType (..), Address (..), TxAux (..), Coin, EpochIndex, HeaderHash, Timestamp,
                            coinToInteger, difficultyL, gbHeader, gbhConsensus, getChainDifficulty,
                            isUnknownAddressType, makeRedeemAddress, siEpoch, siSlot, sumCoins,
                            timestampToPosix, unsafeAddCoin, unsafeIntegerToCoin, unsafeSubCoin)
 import           Pos.Core.Block (Block, MainBlock, mainBlockSlot, mainBlockTxPayload, mcdSlot)
-import           Pos.Core.Txp (Tx (..), TxAux, TxId, TxOutAux (..), taTx, txOutValue, txpTxs,
+import           Pos.Core.Txp (Tx (..), TxId, TxOutAux (..), taTx, txOutValue, txpTxs,
                                _txOutputs)
 import           Pos.Slotting (MonadSlots (..), getSlotStart)
 import           Pos.Txp (MonadTxpMem, TxMap, getLocalTxs, getMemPool, mpLocalTxs, topsortTxs,
@@ -83,8 +86,8 @@ import           Pos.BlockchainImporter.Web.ClientTypes (Byte, CAda (..), CAddre
                                                CBlockEntry (..), CBlockSummary (..),
                                                CGenesisAddressInfo (..), CGenesisSummary (..),
                                                CHash, CTxBrief (..), CTxEntry (..), CTxId (..),
-                                               CTxSummary (..), TxInternal (..), convertTxOutputs,
-                                               convertTxOutputsMB, fromCAddress, fromCHash,
+                                               CTxSummary (..), TxInternal (..), CSignedEncTx (..), CEncodedData (..),
+                                               convertTxOutputs, convertTxOutputsMB, fromCAddress, fromCHash,
                                                fromCTxId, getEpochIndex, getSlotIndex, mkCCoin,
                                                mkCCoinMB, tiToTxEntry, toBlockEntry, toBlockSummary,
                                                toCAddress, toCHash, toCTxId, toTxBrief)
@@ -134,6 +137,7 @@ blockchainImporterHandlers _diffusion =
         , _genesisAddressInfo = getGenesisAddressInfo
         , _statsTxs           = getStatsTxs
         , _blockCount         = getBlocksTotal
+        , _sendSignedTx       = sendSignedTx(_diffusion)
         }
         :: BlockchainImporterApiRecord (AsServerT m))
 
@@ -734,6 +738,23 @@ getStatsTxs mPageNumber = do
             txToTxIdSize :: Tx -> (CTxId, Byte)
             txToTxIdSize tx = (toCTxId $ hash tx, biSize tx)
 
+sendSignedTx
+     :: BlockchainImporterMode ctx m
+     => Diffusion m 
+     -> CSignedEncTx
+     -> m Bool
+sendSignedTx Diffusion{..} (CSignedEncTx (CEncodedData encodedTx) txWitness) = do
+    let maybeTx    = Bi.decodeFull encodedTx
+        maybeTxAux = flip TxAux txWitness <$> maybeTx
+    case maybeTxAux of
+      Right txAux ->
+        -- This is done for two reasons:
+        -- 1. In order not to overflow relay.
+        -- 2. To let other things (e. g. block processing) happen if
+        -- `newPayment`s are done continuously.
+        notFasterThan (6 :: Second) $ sendTx txAux
+      Left _ -> return False
+
 --------------------------------------------------------------------------------
 -- Helpers
 --------------------------------------------------------------------------------
@@ -886,3 +907,11 @@ getEpochPagesOrThrow
     -> m Page
 getEpochPagesOrThrow epochIndex =
     getEpochPagesCSLI epochIndex >>= maybeThrow (Internal "No epoch pages.")
+
+----------------------------------------------------------------------------
+-- Utilities
+----------------------------------------------------------------------------
+
+notFasterThan ::
+       (Mockable Concurrently m, Mockable Delay m) => Second -> m a -> m a
+notFasterThan time action = fst <$> concurrently action (delay time)
