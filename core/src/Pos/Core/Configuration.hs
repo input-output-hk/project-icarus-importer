@@ -16,6 +16,7 @@ import           Universum
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
+import qualified Database.PostgreSQL.Simple as PGS
 import           System.FilePath ((</>))
 import qualified Text.JSON.Canonical as Canonical
 
@@ -30,8 +31,8 @@ import           Pos.Core.Genesis.Canonical (SchemaError)
 import           Pos.Core.Genesis.Generate (GeneratedGenesisData (..), generateGenesisData)
 import           Pos.Core.Genesis.Helpers (mkGenesisDelegation)
 import           Pos.Core.Genesis.Types (GenesisData (..), GenesisDelegation,
-                                         GenesisInitializer (..), GenesisSpec (..),
-                                         GenesisProtocolConstants (..),
+                                         GenesisInitializer (..), GenesisProtocolConstants (..),
+                                         GenesisSpec (..),
                                          genesisProtocolConstantsToProtocolConstants)
 import           Pos.Core.Slotting.Types (Timestamp)
 import           Pos.Crypto.Configuration as E
@@ -47,6 +48,7 @@ type HasConfiguration =
     , HasGeneratedSecrets
     , HasGenesisBlockVersionData
     , HasProtocolConstants
+    , HasPostGresDB
     )
 
 canonicalGenesisJson :: GenesisData -> (BSL.ByteString, Hash Raw)
@@ -116,7 +118,11 @@ withCoreConfigurations conf@CoreConfiguration{..} confDir mSystemStart mSeed act
             throwM $ GenesisHashMismatch
                      (show theGenesisHash) (show expectedHash)
 
+        -- FIXME: Database name and password is hardocoded
+        conn <- liftIO $ PGS.connect PGS.defaultConnectInfo {PGS.connectDatabase = "icaruspocbackendservice", PGS.connectPassword = "mysecretpassword"}
+
         withCoreConfiguration conf $
+            withPostGresDB conn $
             withProtocolMagic pm $
             withProtocolConstants pc $
             withGenesisBlockVersionData (gdBlockVersionData theGenesisData) $
@@ -157,6 +163,7 @@ withGenesisSpec theSystemStart conf@CoreConfiguration{..} val = case ccGenesis o
     GCSrc {} -> error "withGenesisSpec called with GCSrc"
     GCSpec spec ->
         withProtocolMagic pm $
+        withPostGresDB undefined $
         withProtocolConstants pc $
         withGenesisBlockVersionData (gsBlockVersionData spec) $
             let

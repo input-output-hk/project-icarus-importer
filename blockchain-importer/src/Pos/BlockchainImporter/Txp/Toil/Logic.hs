@@ -19,18 +19,21 @@ import qualified Data.List.NonEmpty as NE
 import           Formatting (build, sformat, (%))
 import           System.Wlog (logError)
 
+import           Pos.BlockchainImporter.Core (AddrHistory, TxExtra (..))
+import           Pos.BlockchainImporter.Txp.Toil.Monad (BlockchainImporterExtraM, EGlobalToilM,
+                                                        ELocalToilM,
+                                                        blockchainImporterExtraMToEGlobalToilM,
+                                                        blockchainImporterExtraMToELocalToilM,
+                                                        delAddrBalance, delTxExtra, getAddrBalance,
+                                                        getAddrHistory, getTxExtra, getUtxoSum,
+                                                        putAddrBalance, putTxExtra, putUtxoSum,
+                                                        updateAddrHistory)
+import qualified Pos.BlockchainImporter.Txp.Toil.TxsTable as TxsT
 import           Pos.Core (Address, BlockVersionData, Coin, EpochIndex, HasConfiguration,
                            HeaderHash, Timestamp, mkCoin, sumCoins, unsafeAddCoin, unsafeSubCoin)
 import           Pos.Core.Txp (Tx (..), TxAux (..), TxId, TxOut (..), TxOutAux (..), TxUndo, _TxOut)
-import           Pos.Crypto (WithHash (..), hash)
-import           Pos.BlockchainImporter.Core (AddrHistory, TxExtra (..))
-import           Pos.BlockchainImporter.Txp.Toil.Monad (EGlobalToilM, ELocalToilM, BlockchainImporterExtraM,
-                                              delAddrBalance, delTxExtra,
-                                              blockchainImporterExtraMToEGlobalToilM,
-                                              blockchainImporterExtraMToELocalToilM, getAddrBalance,
-                                              getAddrHistory, getTxExtra, getUtxoSum,
-                                              putAddrBalance, putTxExtra, putUtxoSum,
-                                              updateAddrHistory)
+import           Pos.Crypto (WithHash (..), hash, hashHexF, postGresDB)
+import           Pos.Txp (TxpGlobalApplyMode)
 import           Pos.Txp.Configuration (HasTxpConfiguration)
 import           Pos.Txp.Toil (ToilVerFailure (..), extendGlobalToilM, extendLocalToilM)
 import qualified Pos.Txp.Toil as Txp
@@ -45,25 +48,31 @@ import           Pos.Util.Util (Sign (..))
 -- | Apply transactions from one block. They must be valid (for
 -- example, it implies topological sort).
 eApplyToil ::
-       HasConfiguration
+       forall ctx m. (HasConfiguration, TxpGlobalApplyMode ctx m)
     => Maybe Timestamp
     -> [(TxAux, TxUndo)]
     -> HeaderHash
-    -> EGlobalToilM ()
+    -> m (EGlobalToilM ())
 eApplyToil mTxTimestamp txun hh = do
-    extendGlobalToilM $ Txp.applyToil txun
-    blockchainImporterExtraMToEGlobalToilM $ mapM_ applier $ zip [0..] txun
+    _ <- pure $ extendGlobalToilM $ Txp.applyToil txun
+    let appliersM = zipWithM (curry applier) [0..] txun
+    (blockchainImporterExtraMToEGlobalToilM . sequence_) <$> appliersM
   where
-    applier :: (Word32, (TxAux, TxUndo)) -> BlockchainImporterExtraM ()
+    applier :: (Word32, (TxAux, TxUndo)) -> m (BlockchainImporterExtraM ())
     applier (i, (txAux, txUndo)) = do
         let tx = taTx txAux
             id = hash tx
             newExtra = TxExtra (Just (hh, i)) mTxTimestamp txUndo
-        extra <- fromMaybe newExtra <$> getTxExtra id
-        putTxExtraWithHistory id extra $ getTxRelatedAddrs txAux txUndo
-        let balanceUpdate = getBalanceUpdate txAux txUndo
-        updateAddrBalances balanceUpdate
-        updateUtxoSumFromBalanceUpdate balanceUpdate
+        -- FIXME: Only id is inserted so far
+        _ <- liftIO $ TxsT.insertTx postGresDB $ toString $ sformat hashHexF id
+        -- FIXME: Remove, old storage of history and balance
+        let resultStorage = do
+                  extra <- fromMaybe newExtra <$> getTxExtra id
+                  putTxExtraWithHistory id extra $ getTxRelatedAddrs txAux txUndo
+                  let balanceUpdate = getBalanceUpdate txAux txUndo
+                  updateAddrBalances balanceUpdate
+                  updateUtxoSumFromBalanceUpdate balanceUpdate
+        pure $ resultStorage
 
 -- | Rollback transactions from one block.
 eRollbackToil :: HasConfiguration => [(TxAux, TxUndo)] -> EGlobalToilM ()

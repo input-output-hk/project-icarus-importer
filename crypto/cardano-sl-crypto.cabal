@@ -59,6 +59,7 @@ library
                      , lens
                      , memory
                      , mtl
+                     , postgresql-simple
                      , pvss
                      , reflection
                      , safe-exceptions
