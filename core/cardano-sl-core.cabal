@@ -157,6 +157,7 @@ library
                      , memory
                      , mtl
                      , plutus-prototype
+                     , postgresql-simple
                      , quickcheck-instances
                      , random
                      , reflection
