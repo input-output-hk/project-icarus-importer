@@ -29,6 +29,7 @@ import           Pos.BlockchainImporter.Txp.Toil.Monad (BlockchainImporterExtraM
                                                         putAddrBalance, putTxExtra, putUtxoSum,
                                                         updateAddrHistory)
 import qualified Pos.BlockchainImporter.Txp.Toil.TxsTable as TxsT
+import qualified Pos.BlockchainImporter.Txp.Toil.UtxosTable as UT
 import           Pos.Core (Address, BlockVersionData, Coin, EpochIndex, HasConfiguration,
                            HeaderHash, Timestamp, mkCoin, sumCoins, unsafeAddCoin, unsafeSubCoin)
 import           Pos.Core.Txp (Tx (..), TxAux (..), TxId, TxOut (..), TxOutAux (..), TxUndo, _TxOut)
@@ -54,7 +55,17 @@ eApplyToil ::
     -> HeaderHash
     -> m (EGlobalToilM ())
 eApplyToil mTxTimestamp txun hh = do
-    _ <- pure $ extendGlobalToilM $ Txp.applyToil txun
+    -- FIXME: Remove, old storage of utxo
+    --_ <- pure $ extendGlobalToilM $ Txp.applyToil txun
+
+    -- Update UTxOs
+    utxoModifier <- pure $ do
+                      _ <- Txp.applyToil txun
+                      globalToil <- get
+                      return $ view Txp.gtsUtxoModifier globalToil
+    _ <- pure $ UT.applyModifierToUtxos postGresDB <$> utxoModifier
+
+    -- Update tx history
     let appliersM = zipWithM (curry applier) [0..] txun
     (blockchainImporterExtraMToEGlobalToilM . sequence_) <$> appliersM
   where
@@ -63,8 +74,10 @@ eApplyToil mTxTimestamp txun hh = do
         let tx = taTx txAux
             id = hash tx
             newExtra = TxExtra (Just (hh, i)) mTxTimestamp txUndo
+
         -- FIXME: Only id is inserted so far
         _ <- liftIO $ TxsT.insertTx postGresDB $ toString $ sformat hashHexF id
+
         -- FIXME: Remove, old storage of history and balance
         let resultStorage = do
                   extra <- fromMaybe newExtra <$> getTxExtra id

@@ -32,7 +32,7 @@ txsTable = Table "temp_txs" (pTxs TxRow {trHash = required "hash"})
 insertTx :: PGS.Connection -> TxHash -> IO ()
 insertTx conn txHash = do
   rows <- runInsertMany conn txsTable [TxRow (pgString txHash)]
-  putStrLn $ show rows ++ " row(s) inserted"  -- FIXME: Delete, for debugging purposes only
+  putStrLn $ show rows ++ " row(s) inserted (txs table)"  -- FIXME: Delete, for debugging purposes only
 
 -- FIXME: Delete, not needed
 -- Returns all the txs stored in the table

@@ -52,6 +52,7 @@ library
                         Pos.BlockchainImporter.Txp.Toil.Types
                         Pos.BlockchainImporter.BListener
                         Pos.BlockchainImporter.Txp.Toil.TxsTable
+                        Pos.BlockchainImporter.Txp.Toil.UtxosTable
 
   build-depends:        QuickCheck
                       , aeson
