@@ -5,19 +5,20 @@
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE TemplateHaskell       #-}
 
-module Pos.BlockchainImporter.Txp.Toil.TxsTable where
+module Pos.BlockchainImporter.Tables.TxsTable where
+
+import           Universum
 
 import           Data.Profunctor.Product.TH (makeAdaptorAndInstance)
 import qualified Database.PostgreSQL.Simple as PGS
 import           Opaleye
 
-import           Universum
-
-type TxHash = String
+import           Pos.BlockchainImporter.Tables.Utils
+import           Pos.Core.Txp (TxId)
 
 data TxRowPoly a = TxRow {trHash :: a} deriving (Show)
 
-type TxRow = TxRowPoly TxHash
+type TxRow = TxRowPoly TxId
 type TxRowPGW = TxRowPoly (Column PGText)
 type TxRowPGR = TxRowPoly (Column PGText)
 
@@ -29,15 +30,7 @@ txsTable = Table "temp_txs" (pTxs TxRow {trHash = required "hash"})
 
 -- FIXME: Replace with inserting a list of txs?
 -- Inserts a tx into the table
-insertTx :: PGS.Connection -> TxHash -> IO ()
+insertTx :: PGS.Connection -> TxId -> IO ()
 insertTx conn txHash = do
-  rows <- runInsertMany conn txsTable [TxRow (pgString txHash)]
-  putStrLn $ show rows ++ " row(s) inserted (txs table)"  -- FIXME: Delete, for debugging purposes only
-
--- FIXME: Delete, not needed
--- Returns all the txs stored in the table
-getAllTxs :: PGS.Connection -> IO ()
-getAllTxs conn = do
-  txs <- runQuery conn (queryTable txsTable) :: IO [TxRow]
-  print txs
-
+  _ <- runInsertMany conn txsTable [TxRow (pgString $ hashToString txHash)]
+  return ()
