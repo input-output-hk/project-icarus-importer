@@ -10,15 +10,14 @@ module Pos.BlockchainImporter.Txp.Toil.UtxosTable where
 import           Universum
 
 import           Data.Profunctor.Product.TH (makeAdaptorAndInstance)
-import           Data.Text.Lazy.Encoding as E (decodeUtf8)
 import qualified Database.PostgreSQL.Simple as PGS
 import           Formatting (sformat)
 import           Opaleye
-import qualified Pos.Binary.Class as Bi
 
-import           Pos.Core.Common (Coin (..))
+import           Pos.Core.Common (Address, Coin (..), addressF)
 import           Pos.Core.Txp (TxIn (..), TxOut (..), TxOutAux (..))
 import           Pos.Crypto (hashHexF)
+import           Pos.Crypto.Hashing (AbstractHash)
 import           Pos.Txp.Toil.Types (UtxoModifier)
 import qualified Pos.Util.Modifier as MM
 
@@ -43,13 +42,17 @@ utxosTable = Table "utxos" (pUtxos UtxoRow  { urTxHash = required "tx_hash"
                                             })
 
 -- FIXME: Move to utils?
+hashToString :: AbstractHash algo a -> String
 hashToString h = toString $ sformat hashHexF h
+
+addressToString :: Address -> String
+addressToString addr = toString $ sformat addressF addr
 
 toRecord :: TxIn -> TxOutAux -> UtxoRowPGW
 toRecord (TxInUtxo txHash txIndex) (TxOutAux (TxOut receiver value)) = UtxoRow sHash iIndex sAddress iAmount
   where sHash     = pgString $ hashToString txHash
         iIndex    = pgInt4 $ fromIntegral txIndex
-        sAddress  = pgLazyText $ E.decodeUtf8 $ Bi.serialize receiver
+        sAddress  = pgString $ addressToString receiver
         iAmount   = pgInt8 $ fromIntegral $ getCoin value
 toRecord _ _ = undefined --FIXME
 

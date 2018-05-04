@@ -1,5 +1,5 @@
-CREATE DOMAIN hash AS text; #character(32);
-CREATE DOMAIN address AS text;#character(30);
+CREATE DOMAIN hash AS text;     --character(32);
+CREATE DOMAIN address AS text;  --character(30);
 CREATE TYPE output AS 	( out_address 	address
 						, out_amount 	bigint
 );
@@ -16,3 +16,5 @@ CREATE TABLE txs 	( tx_hash		hash
 					, block_num 	bigint NULL
 					, timestamp 	numeric NULL
 );
+
+-- FIXME: Agregar tabla txs addr (tx_hash, addr, amount)
