@@ -48,19 +48,6 @@ import           Pos.Util.Util (Sign (..))
 -- Global
 ----------------------------------------------------------------------------
 
--- Returns the UxtoModifier corresponding to a list of txs
-applyUTxOModifier :: [(TxAux, TxUndo)] -> Txp.UtxoModifier
-applyUTxOModifier txs = mconcat $ applySingleModifier <$> txs
-
--- Returns the UxtoModifier corresponding to a single tx
-applySingleModifier :: (TxAux, TxUndo) -> Txp.UtxoModifier
-applySingleModifier (txAux, _) = foldr MM.delete (foldr (uncurry MM.insert) mempty toInsert) toDelete
-  where tx       = taTx txAux
-        id       = hash $ tx
-        outputs  = toList $ _txOutputs $ tx
-        toInsert = zipWith (\o index -> (TxInUtxo id index, TxOutAux o)) outputs [0..]
-        toDelete = toList $ _txInputs $ tx
-
 -- | Apply transactions from one block. They must be valid (for
 -- example, it implies topological sort).
 eApplyToil ::
@@ -70,10 +57,9 @@ eApplyToil ::
     -> HeaderHash
     -> m (EGlobalToilM ())
 eApplyToil mTxTimestamp txun hh = do
-    -- FIXME: Remove, old storage of utxo
+    -- Update UTxOs
     toilApplyUTxO <- pure $ extendGlobalToilM $ Txp.applyToil txun
 
-    -- Update UTxOs
     liftIO $ UT.applyModifierToUtxos postGresDB $ applyUTxOModifier txun
 
     -- Update tx history
@@ -89,7 +75,6 @@ eApplyToil mTxTimestamp txun hh = do
         -- FIXME: Only id is inserted so far
         liftIO $ TxsT.insertTx postGresDB id
 
-        -- FIXME: Remove, old storage of history and balance
         let resultStorage = do
                   extra <- fromMaybe newExtra <$> getTxExtra id
                   putTxExtraWithHistory id extra $ getTxRelatedAddrs txAux txUndo
@@ -256,3 +241,28 @@ getBalanceUpdate txAux txUndo =
     let minusBalance = map (view _TxOut . toaOut) $ catMaybes $ toList txUndo
         plusBalance = map (view _TxOut) $ toList $ _txOutputs (taTx txAux)
     in BalanceUpdate {..}
+
+-- Returns the UxtoModifier corresponding to a list of txs
+applyUTxOModifier :: [(TxAux, TxUndo)] -> Txp.UtxoModifier
+applyUTxOModifier txs = mconcat $ applySingleModifier <$> txs
+
+-- Returns the UxtoModifier corresponding to a single tx
+applySingleModifier :: (TxAux, TxUndo) -> Txp.UtxoModifier
+applySingleModifier (txAux, _) = foldr MM.delete (foldr (uncurry MM.insert) mempty toInsert) toDelete
+  where tx       = taTx txAux
+        id       = hash $ tx
+        outputs  = toList $ _txOutputs $ tx
+        toInsert = zipWith (\o index -> (TxInUtxo id index, TxOutAux o)) outputs [0..]
+        toDelete = toList $ _txInputs $ tx
+
+rollbackUTxOModifier :: [(TxAux, TxUndo)] -> Txp.UtxoModifier
+rollbackUTxOModifier txs = mconcat $ rollbackSingleModifier <$> txs
+
+rollbackSingleModifier :: (TxAux, TxUndo) -> Txp.UtxoModifier
+rollbackSingleModifier (txAux, txUndo) = foldr MM.delete (foldr (uncurry MM.insert) mempty toInsert) toDelete
+  where tx       = taTx txAux
+        id       = hash $ tx
+        inputs   = toList $ _txInputs $ tx
+        outputs  = toList $ _txOutputs $ tx
+        toDelete = (\(_, index) -> TxInUtxo id index) <$> zip outputs [0..]
+        toInsert = zip inputs $ catMaybes $ toList txUndo
