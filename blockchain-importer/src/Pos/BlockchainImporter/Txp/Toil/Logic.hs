@@ -35,7 +35,6 @@ import           Pos.Core (Address, BlockVersionData, Coin, EpochIndex, HasConfi
 import           Pos.Core.Txp (Tx (..), TxAux (..), TxId, TxIn (..), TxOut (..), TxOutAux (..),
                                TxUndo, _TxOut)
 import           Pos.Crypto (WithHash (..), hash, postGresDB)
-import           Pos.Txp (TxpGlobalApplyMode)
 import           Pos.Txp.Configuration (HasTxpConfiguration)
 import           Pos.Txp.Toil (ToilVerFailure (..), extendGlobalToilM, extendLocalToilM)
 import qualified Pos.Txp.Toil as Txp
@@ -51,7 +50,7 @@ import           Pos.Util.Util (Sign (..))
 -- | Apply transactions from one block. They must be valid (for
 -- example, it implies topological sort).
 eApplyToil ::
-       forall ctx m. (HasConfiguration, TxpGlobalApplyMode ctx m)
+       forall m. (HasConfiguration, MonadIO m)
     => Maybe Timestamp
     -> [(TxAux, TxUndo)]
     -> HeaderHash
@@ -84,10 +83,18 @@ eApplyToil mTxTimestamp txun hh = do
         pure $ resultStorage
 
 -- | Rollback transactions from one block.
-eRollbackToil :: HasConfiguration => [(TxAux, TxUndo)] -> EGlobalToilM ()
+eRollbackToil ::
+     forall m. (HasConfiguration, MonadIO m)
+  => [(TxAux, TxUndo)] -> m (EGlobalToilM ())
 eRollbackToil txun = do
-    extendGlobalToilM $ Txp.rollbackToil txun
-    blockchainImporterExtraMToEGlobalToilM $ mapM_ extraRollback $ reverse txun
+    -- Update UTxOs
+    toilRollbackUtxo <- pure $ extendGlobalToilM $ Txp.rollbackToil txun
+
+    liftIO $ UT.applyModifierToUtxos postGresDB $ rollbackUTxOModifier txun
+
+    -- Update tx history
+    let toilRollbackTxsM = blockchainImporterExtraMToEGlobalToilM . extraRollback <$> reverse txun
+    pure $ sequence_ (toilRollbackUtxo : toilRollbackTxsM)
   where
     extraRollback :: (TxAux, TxUndo) -> BlockchainImporterExtraM ()
     extraRollback (txAux, txUndo) = do
@@ -242,11 +249,11 @@ getBalanceUpdate txAux txUndo =
         plusBalance = map (view _TxOut) $ toList $ _txOutputs (taTx txAux)
     in BalanceUpdate {..}
 
--- Returns the UxtoModifier corresponding to a list of txs
+-- Returns the UxtoModifier corresponding to applying a list of txs
 applyUTxOModifier :: [(TxAux, TxUndo)] -> Txp.UtxoModifier
 applyUTxOModifier txs = mconcat $ applySingleModifier <$> txs
 
--- Returns the UxtoModifier corresponding to a single tx
+-- Returns the UxtoModifier corresponding to applying a single tx
 applySingleModifier :: (TxAux, TxUndo) -> Txp.UtxoModifier
 applySingleModifier (txAux, _) = foldr MM.delete (foldr (uncurry MM.insert) mempty toInsert) toDelete
   where tx       = taTx txAux
@@ -255,9 +262,11 @@ applySingleModifier (txAux, _) = foldr MM.delete (foldr (uncurry MM.insert) memp
         toInsert = zipWith (\o index -> (TxInUtxo id index, TxOutAux o)) outputs [0..]
         toDelete = toList $ _txInputs $ tx
 
+-- Returns the UxtoModifier corresponding to rollbacking a list of txs
 rollbackUTxOModifier :: [(TxAux, TxUndo)] -> Txp.UtxoModifier
-rollbackUTxOModifier txs = mconcat $ rollbackSingleModifier <$> txs
+rollbackUTxOModifier txs = mconcat $ rollbackSingleModifier <$> reverse txs
 
+-- Returns the UxtoModifier corresponding to rollbacking a single tx
 rollbackSingleModifier :: (TxAux, TxUndo) -> Txp.UtxoModifier
 rollbackSingleModifier (txAux, txUndo) = foldr MM.delete (foldr (uncurry MM.insert) mempty toInsert) toDelete
   where tx       = taTx txAux
