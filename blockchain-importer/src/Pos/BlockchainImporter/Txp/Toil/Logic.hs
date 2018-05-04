@@ -71,14 +71,14 @@ eApplyToil ::
     -> m (EGlobalToilM ())
 eApplyToil mTxTimestamp txun hh = do
     -- FIXME: Remove, old storage of utxo
-    _ <- pure $ extendGlobalToilM $ Txp.applyToil txun
+    toilApplyUTxO <- pure $ extendGlobalToilM $ Txp.applyToil txun
 
     -- Update UTxOs
     liftIO $ UT.applyModifierToUtxos postGresDB $ applyUTxOModifier txun
 
     -- Update tx history
     let appliersM = zipWithM (curry applier) [0..] txun
-    (blockchainImporterExtraMToEGlobalToilM . sequence_) <$> appliersM
+    sequence_ . (toilApplyUTxO:) . (map blockchainImporterExtraMToEGlobalToilM) <$> appliersM
   where
     applier :: (Word32, (TxAux, TxUndo)) -> m (BlockchainImporterExtraM ())
     applier (i, (txAux, txUndo)) = do
