@@ -56,10 +56,15 @@ toRecord (TxInUtxo txHash txIndex) (TxOutAux (TxOut receiver value)) = UtxoRow s
         iAmount   = pgInt8 $ fromIntegral $ getCoin value
 toRecord _ _ = undefined --FIXME
 
--- FIXME: Replace with inserting a list of txs?
--- Inserts a tx into the table
+-- FIXME: do the deletions as well
+-- Applies a UtxoModifier to the UTxOs in the table
 applyModifierToUtxos :: PGS.Connection -> UtxoModifier -> IO ()
 applyModifierToUtxos conn modifier = do
   let toInsert = (uncurry toRecord) <$> MM.insertions modifier
-  rows <- runInsertMany conn utxosTable toInsert
-  putStrLn $ show rows ++ " row(s) inserted (utxo's table)"  -- FIXME: Delete, for debugging purposes only
+      toDelete = map (\i -> pgString $ hashToString $ txInHash i) $ MM.deletions modifier
+  rowsIns <- runInsertMany conn utxosTable toInsert
+  rowsDel <- runDelete conn utxosTable $ \(UtxoRow sHash _ _ _) -> in_ toDelete sHash
+
+  -- FIXME: Delete, for debugging purposes only
+  putStrLn $ show rowsIns ++ " row(s) inserted (utxo's table)"
+  putStrLn $ show rowsDel ++ " row(s) deleted (utxo's table)"
