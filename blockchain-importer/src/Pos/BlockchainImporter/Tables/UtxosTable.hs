@@ -5,7 +5,9 @@
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE TemplateHaskell       #-}
 
-module Pos.BlockchainImporter.Tables.UtxosTable where
+module Pos.BlockchainImporter.Tables.UtxosTable
+  ( applyModifierToUtxos
+  ) where
 
 import           Universum
 
@@ -27,7 +29,7 @@ data UtxoRowPoly a b c d e = UtxoRow  { urUtxoId   :: a
                                       , urAmount   :: e
                                       } deriving (Show)
 
-type UtxoRow = UtxoRowPoly String String Word32 String Word64
+--type UtxoRow = UtxoRowPoly String String Word32 String Word64
 type UtxoRowPGW = UtxoRowPoly (Column PGText) (Column PGText) (Column PGInt4) (Column PGText) (Column PGInt8)
 type UtxoRowPGR = UtxoRowPoly (Column PGText) (Column PGText) (Column PGInt4) (Column PGText) (Column PGInt8)
 
@@ -56,7 +58,7 @@ toRecord txIn@(TxInUtxo txHash txIndex) (TxOutAux (TxOut receiver value)) = Just
                             (pgString sAddress) (pgInt8 iAmount)
 toRecord _ _ = Nothing
 
--- Applies a UtxoModifier to the UTxOs in the table
+-- | Applies a UtxoModifier to the UTxOs in the table
 applyModifierToUtxos :: PGS.Connection -> UtxoModifier -> IO ()
 applyModifierToUtxos conn modifier = do
   let toInsert = catMaybes $ (uncurry toRecord) <$> MM.insertions modifier

@@ -4,6 +4,7 @@ CREATE TYPE output AS ( out_address address
 						          , out_amount 	bigint
                       );
 
+-- FIXME: Define primary keys
 CREATE TABLE utxos  ( utxo_id   text
                     , tx_hash   hash
           					, tx_index	integer
@@ -11,9 +12,11 @@ CREATE TABLE utxos  ( utxo_id   text
           					, amount 	  bigint
                     );
 
+-- FIXME: Define primary keys
 CREATE TABLE bestBlock ( best_block_num bigint);
 
 -- FIXME: Temporarily not used
+-- FIXME: Define primary keys
 CREATE TABLE txs 	( tx_hash		hash
         					, inputs 		output[]
         					, outputs 	output[]
