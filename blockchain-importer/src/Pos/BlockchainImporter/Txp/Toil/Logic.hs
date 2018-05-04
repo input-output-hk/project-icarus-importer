@@ -20,6 +20,8 @@ import           Formatting (build, sformat, (%))
 import           System.Wlog (logError)
 
 import           Pos.BlockchainImporter.Core (AddrHistory, TxExtra (..))
+import qualified Pos.BlockchainImporter.Tables.TxsTable as TxsT
+import qualified Pos.BlockchainImporter.Tables.UtxosTable as UT
 import           Pos.BlockchainImporter.Txp.Toil.Monad (BlockchainImporterExtraM, EGlobalToilM,
                                                         ELocalToilM,
                                                         blockchainImporterExtraMToEGlobalToilM,
@@ -28,13 +30,11 @@ import           Pos.BlockchainImporter.Txp.Toil.Monad (BlockchainImporterExtraM
                                                         getAddrHistory, getTxExtra, getUtxoSum,
                                                         putAddrBalance, putTxExtra, putUtxoSum,
                                                         updateAddrHistory)
-import qualified Pos.BlockchainImporter.Txp.Toil.TxsTable as TxsT
-import qualified Pos.BlockchainImporter.Txp.Toil.UtxosTable as UT
 import           Pos.Core (Address, BlockVersionData, Coin, EpochIndex, HasConfiguration,
                            HeaderHash, Timestamp, mkCoin, sumCoins, unsafeAddCoin, unsafeSubCoin)
 import           Pos.Core.Txp (Tx (..), TxAux (..), TxId, TxIn (..), TxOut (..), TxOutAux (..),
                                TxUndo, _TxOut)
-import           Pos.Crypto (WithHash (..), hash, hashHexF, postGresDB)
+import           Pos.Crypto (WithHash (..), hash, postGresDB)
 import           Pos.Txp (TxpGlobalApplyMode)
 import           Pos.Txp.Configuration (HasTxpConfiguration)
 import           Pos.Txp.Toil (ToilVerFailure (..), extendGlobalToilM, extendLocalToilM)
@@ -87,7 +87,7 @@ eApplyToil mTxTimestamp txun hh = do
             newExtra = TxExtra (Just (hh, i)) mTxTimestamp txUndo
 
         -- FIXME: Only id is inserted so far
-        liftIO $ TxsT.insertTx postGresDB $ toString $ sformat hashHexF id
+        liftIO $ TxsT.insertTx postGresDB id
 
         -- FIXME: Remove, old storage of history and balance
         let resultStorage = do
