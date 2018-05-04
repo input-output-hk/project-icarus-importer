@@ -32,7 +32,8 @@ import qualified Pos.BlockchainImporter.Txp.Toil.TxsTable as TxsT
 import qualified Pos.BlockchainImporter.Txp.Toil.UtxosTable as UT
 import           Pos.Core (Address, BlockVersionData, Coin, EpochIndex, HasConfiguration,
                            HeaderHash, Timestamp, mkCoin, sumCoins, unsafeAddCoin, unsafeSubCoin)
-import           Pos.Core.Txp (Tx (..), TxAux (..), TxId, TxOut (..), TxOutAux (..), TxUndo, _TxOut)
+import           Pos.Core.Txp (Tx (..), TxAux (..), TxId, TxIn (..), TxOut (..), TxOutAux (..),
+                               TxUndo, _TxOut)
 import           Pos.Crypto (WithHash (..), hash, hashHexF, postGresDB)
 import           Pos.Txp (TxpGlobalApplyMode)
 import           Pos.Txp.Configuration (HasTxpConfiguration)
@@ -40,11 +41,25 @@ import           Pos.Txp.Toil (ToilVerFailure (..), extendGlobalToilM, extendLoc
 import qualified Pos.Txp.Toil as Txp
 import           Pos.Txp.Topsort (topsortTxs)
 import           Pos.Util.Chrono (NewestFirst (..))
+import qualified Pos.Util.Modifier as MM
 import           Pos.Util.Util (Sign (..))
 
 ----------------------------------------------------------------------------
 -- Global
 ----------------------------------------------------------------------------
+
+-- Returns the UxtoModifier corresponding to a list of txs
+applyUTxOModifier :: [(TxAux, TxUndo)] -> Txp.UtxoModifier
+applyUTxOModifier txs = mconcat $ applySingleModifier <$> txs
+
+-- Returns the UxtoModifier corresponding to a single tx
+applySingleModifier :: (TxAux, TxUndo) -> Txp.UtxoModifier
+applySingleModifier (txAux, _) = foldr MM.delete (foldr (uncurry MM.insert) mempty toInsert) toDelete
+  where tx       = taTx txAux
+        id       = hash $ tx
+        outputs  = toList $ _txOutputs $ tx
+        toInsert = zipWith (\o index -> (TxInUtxo id index, TxOutAux o)) outputs [0..]
+        toDelete = toList $ _txInputs $ tx
 
 -- | Apply transactions from one block. They must be valid (for
 -- example, it implies topological sort).
@@ -56,14 +71,10 @@ eApplyToil ::
     -> m (EGlobalToilM ())
 eApplyToil mTxTimestamp txun hh = do
     -- FIXME: Remove, old storage of utxo
-    --_ <- pure $ extendGlobalToilM $ Txp.applyToil txun
+    _ <- pure $ extendGlobalToilM $ Txp.applyToil txun
 
     -- Update UTxOs
-    utxoModifier <- pure $ do
-                      _ <- Txp.applyToil txun
-                      globalToil <- get
-                      return $ view Txp.gtsUtxoModifier globalToil
-    _ <- pure $ UT.applyModifierToUtxos postGresDB <$> utxoModifier
+    liftIO $ UT.applyModifierToUtxos postGresDB $ applyUTxOModifier txun
 
     -- Update tx history
     let appliersM = zipWithM (curry applier) [0..] txun
@@ -76,7 +87,7 @@ eApplyToil mTxTimestamp txun hh = do
             newExtra = TxExtra (Just (hh, i)) mTxTimestamp txUndo
 
         -- FIXME: Only id is inserted so far
-        _ <- liftIO $ TxsT.insertTx postGresDB $ toString $ sformat hashHexF id
+        liftIO $ TxsT.insertTx postGresDB $ toString $ sformat hashHexF id
 
         -- FIXME: Remove, old storage of history and balance
         let resultStorage = do
