@@ -46,11 +46,11 @@ applySettings =
         }
 
 rollbackSettings ::
-       TxpGlobalRollbackMode m
+       (TxpGlobalRollbackMode m, MonadIO m)
     => ProcessBlundsSettings BlockchainImporterExtraLookup BlockchainImporterExtraModifier m
 rollbackSettings =
     ProcessBlundsSettings
-        { pbsProcessSingle = return . eRollbackToil . blundToAuxNUndo
+        { pbsProcessSingle = eRollbackToil . blundToAuxNUndo
         , pbsCreateEnv = buildBlockchainImporterExtraLookup
         , pbsExtraOperations = extraOps
         , pbsIsRollback = True
