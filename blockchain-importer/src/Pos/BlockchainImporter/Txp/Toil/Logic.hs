@@ -19,6 +19,7 @@ import qualified Data.List.NonEmpty as NE
 import           Formatting (build, sformat, (%))
 import           System.Wlog (logError)
 
+import           Pos.BlockchainImporter.Configuration (HasPostGresDB, postGresDB)
 import           Pos.BlockchainImporter.Core (AddrHistory, TxExtra (..))
 import qualified Pos.BlockchainImporter.Tables.TxsTable as TxsT
 import qualified Pos.BlockchainImporter.Tables.UtxosTable as UT
@@ -32,7 +33,6 @@ import           Pos.BlockchainImporter.Txp.Toil.Monad (BlockchainImporterExtraM
                                                         updateAddrHistory)
 import           Pos.Core (Address, BlockVersionData, Coin, EpochIndex, HasConfiguration,
                            HeaderHash, Timestamp, mkCoin, sumCoins, unsafeAddCoin, unsafeSubCoin)
-import           Pos.Core.ConfigPostgres (postGresDB)
 import           Pos.Core.Txp (Tx (..), TxAux (..), TxId, TxIn (..), TxOut (..), TxOutAux (..),
                                TxUndo, _TxOut)
 import           Pos.Crypto (WithHash (..), hash)
@@ -51,7 +51,7 @@ import           Pos.Util.Util (Sign (..))
 -- | Apply transactions from one block. They must be valid (for
 -- example, it implies topological sort).
 eApplyToil ::
-       forall m. (HasConfiguration, MonadIO m)
+       forall m. (HasConfiguration, HasPostGresDB, MonadIO m)
     => Maybe Timestamp
     -> [(TxAux, TxUndo)]
     -> HeaderHash
@@ -85,7 +85,7 @@ eApplyToil mTxTimestamp txun hh = do
 
 -- | Rollback transactions from one block.
 eRollbackToil ::
-     forall m. (HasConfiguration, MonadIO m)
+     forall m. (HasConfiguration, HasPostGresDB, MonadIO m)
   => [(TxAux, TxUndo)] -> m (EGlobalToilM ())
 eRollbackToil txun = do
     -- Update UTxOs

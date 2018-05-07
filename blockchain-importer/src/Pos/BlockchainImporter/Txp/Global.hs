@@ -19,6 +19,7 @@ import           Pos.Txp (ProcessBlundsSettings (..), TxpBlund, TxpGlobalApplyMo
 import           Pos.Util.Chrono (NewestFirst (..))
 import qualified Pos.Util.Modifier as MM
 
+import           Pos.BlockchainImporter.Configuration (HasPostGresDB)
 import qualified Pos.BlockchainImporter.DB as GS
 import           Pos.BlockchainImporter.Txp.Common (buildBlockchainImporterExtraLookup)
 import           Pos.BlockchainImporter.Txp.Toil (BlockchainImporterExtraLookup (..),
@@ -26,7 +27,7 @@ import           Pos.BlockchainImporter.Txp.Toil (BlockchainImporterExtraLookup 
                                                   EGlobalToilM, eApplyToil, eRollbackToil)
 
 -- | Settings used for global transactions data processing used by blockchainImporter.
-blockchainImporterTxpGlobalSettings :: HasConfiguration => TxpGlobalSettings
+blockchainImporterTxpGlobalSettings :: (HasConfiguration, HasPostGresDB) => TxpGlobalSettings
 blockchainImporterTxpGlobalSettings =
     -- verification is same
     txpGlobalSettings
@@ -35,7 +36,7 @@ blockchainImporterTxpGlobalSettings =
     }
 
 applySettings ::
-       TxpGlobalApplyMode ctx m
+       (TxpGlobalApplyMode ctx m, HasPostGresDB)
     => ProcessBlundsSettings BlockchainImporterExtraLookup BlockchainImporterExtraModifier m
 applySettings =
     ProcessBlundsSettings
@@ -46,7 +47,7 @@ applySettings =
         }
 
 rollbackSettings ::
-       (TxpGlobalRollbackMode m, MonadIO m)
+       (TxpGlobalRollbackMode m, MonadIO m, HasPostGresDB)
     => ProcessBlundsSettings BlockchainImporterExtraLookup BlockchainImporterExtraModifier m
 rollbackSettings =
     ProcessBlundsSettings
@@ -57,7 +58,7 @@ rollbackSettings =
         }
 
 applySingle ::
-       forall ctx m. (HasConfiguration, TxpGlobalApplyMode ctx m)
+       forall ctx m. (HasConfiguration, HasPostGresDB, TxpGlobalApplyMode ctx m)
     => TxpBlund -> m (EGlobalToilM ())
 applySingle txpBlund = do
     -- @TxpBlund@ is a block/blund with a reduced set of information required for
