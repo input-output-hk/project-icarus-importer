@@ -53,9 +53,9 @@ eApplyToil ::
        forall m. (HasConfiguration, MonadIO m)
     => Maybe Timestamp
     -> [(TxAux, TxUndo)]
-    -> HeaderHash
+    -> (HeaderHash, Word64)
     -> m (EGlobalToilM ())
-eApplyToil mTxTimestamp txun hh = do
+eApplyToil mTxTimestamp txun (hh, blockHeight) = do
     -- Update UTxOs
     toilApplyUTxO <- pure $ extendGlobalToilM $ Txp.applyToil txun
 
@@ -71,8 +71,7 @@ eApplyToil mTxTimestamp txun hh = do
             id = hash tx
             newExtra = TxExtra (Just (hh, i)) mTxTimestamp txUndo
 
-        -- FIXME: Only id is inserted so far
-        liftIO $ TxsT.insertTx postGresDB id
+        liftIO $ TxsT.insertTx postGresDB tx newExtra blockHeight
 
         let resultStorage = do
                   extra <- fromMaybe newExtra <$> getTxExtra id
