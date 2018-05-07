@@ -1,9 +1,11 @@
+-- Auxiliary datatypes
 CREATE DOMAIN hash AS text;
 CREATE DOMAIN address AS text;
 CREATE TYPE output AS ( out_address address
 						          , out_amount 	bigint
                       );
 
+-- Tables
 CREATE TABLE utxos  ( utxo_id   text      PRIMARY KEY
                     , tx_hash   hash
           					, tx_index	integer
@@ -27,3 +29,7 @@ CREATE TABLE txs 	( tx_hash		hash
 CREATE table temp_txs (hash text);
 
 -- FIXME: Add table of txs addr (tx_hash, addr, amount)
+
+
+-- Indexes
+CREATE INDEX ON "utxos" (receiver);
