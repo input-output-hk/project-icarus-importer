@@ -4,8 +4,7 @@ CREATE TYPE output AS ( out_address address
 						          , out_amount 	bigint
                       );
 
--- FIXME: Define primary keys
-CREATE TABLE utxos  ( utxo_id   text
+CREATE TABLE utxos  ( utxo_id   text      PRIMARY KEY
                     , tx_hash   hash
           					, tx_index	integer
           					, receiver	address

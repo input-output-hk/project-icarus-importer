@@ -21,6 +21,7 @@ import           System.FilePath ((</>))
 import qualified Text.JSON.Canonical as Canonical
 
 import           Pos.Binary.Class (Raw)
+import           Pos.Core.ConfigPostgres as E
 import           Pos.Core.Configuration.BlockVersionData as E
 import           Pos.Core.Configuration.Core as E
 import           Pos.Core.Configuration.GeneratedSecrets as E
@@ -118,7 +119,7 @@ withCoreConfigurations conf@CoreConfiguration{..} confDir mSystemStart mSeed act
             throwM $ GenesisHashMismatch
                      (show theGenesisHash) (show expectedHash)
 
-        -- FIXME: Database name and password is hardocoded
+        -- FIXME: Database name and password is hardcoded
         conn <- liftIO $ PGS.connect PGS.defaultConnectInfo {PGS.connectDatabase = "icaruspocbackendservice", PGS.connectPassword = "mysecretpassword"}
 
         withCoreConfiguration conf $

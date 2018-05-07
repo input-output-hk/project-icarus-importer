@@ -1,4 +1,7 @@
-module Pos.BlockchainImporter.Tables.Utils where
+module Pos.BlockchainImporter.Tables.Utils
+  ( hashToString
+  , addressToString
+  ) where
 
 import           Universum
 

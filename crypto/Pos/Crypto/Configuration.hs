@@ -7,15 +7,11 @@ module Pos.Crypto.Configuration
        , HasProtocolMagic
        , withProtocolMagic
        , protocolMagic
-       , HasPostGresDB
-       , withPostGresDB
-       , postGresDB
        ) where
 
 import           Universum
 
 import           Data.Reflection (Given (..), give, given)
-import qualified Database.PostgreSQL.Simple as PGS
 
 -- | Magic number which should differ for different clusters. It's
 -- defined here, because it's used for signing. It also used for other
@@ -34,13 +30,3 @@ protocolMagic = given
 
 withProtocolMagic :: ProtocolMagic -> (HasProtocolMagic => r) -> r
 withProtocolMagic = give
-
-
--- FIXME: MOVE TO THE CORRESPONDANT FILE
-type HasPostGresDB = Given PGS.Connection
-
-postGresDB :: HasPostGresDB => PGS.Connection
-postGresDB = given
-
-withPostGresDB :: PGS.Connection -> (HasPostGresDB => r) -> r
-withPostGresDB = give
