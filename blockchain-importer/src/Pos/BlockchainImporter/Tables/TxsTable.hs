@@ -5,32 +5,52 @@
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE TemplateHaskell       #-}
 
-module Pos.BlockchainImporter.Tables.TxsTable where
-
-import           Universum
+module Pos.BlockchainImporter.Tables.TxsTable
+(
+  insertTx
+) where
 
 import           Data.Profunctor.Product.TH (makeAdaptorAndInstance)
+import           Data.Time.Clock (UTCTime)
 import qualified Database.PostgreSQL.Simple as PGS
 import           Opaleye
+import           Pos.BlockchainImporter.Core (TxExtra (..))
+import           Pos.BlockchainImporter.Tables.Utils (hashToString)
+import           Pos.Core (timestampToUTCTimeL)
+import           Pos.Core.Txp (Tx (..), TxId)
+import           Pos.Crypto (hash)
+import           Universum
 
-import           Pos.BlockchainImporter.Tables.Utils
-import           Pos.Core.Txp (TxId)
+data TxRowPoly a b c = TxRow {
+    trHash     :: a
+  , trBlockNum :: b
+  , trTime     :: c
+  } deriving (Show)
 
-data TxRowPoly a = TxRow {trHash :: a} deriving (Show)
-
-type TxRow = TxRowPoly TxId
-type TxRowPGW = TxRowPoly (Column PGText)
-type TxRowPGR = TxRowPoly (Column PGText)
+type TxRow = TxRowPoly TxId Word64 UTCTime
+type TxRowPGW = TxRowPoly (Column PGText) (Column (Nullable PGInt8)) (Column (Nullable PGTimestamptz))
+type TxRowPGR = TxRowPoly (Column PGText) (Column (Nullable PGInt8)) (Column (Nullable PGTimestamptz))
 
 $(makeAdaptorAndInstance "pTxs" ''TxRowPoly)
 
--- FIXME: This currently only stores the tx hash (rename table upon fix)
 txsTable :: Table TxRowPGW TxRowPGR
-txsTable = Table "temp_txs" (pTxs TxRow {trHash = required "hash"})
+txsTable = Table "txs" (pTxs TxRow { trHash     = required "hash"
+                                   , trBlockNum = required "block_num"
+                                   , trTime     = required "time"
+                                   })
 
 -- FIXME: Replace with inserting a list of txs?
--- Inserts a tx into the table
-insertTx :: PGS.Connection -> TxId -> IO ()
-insertTx conn txHash = do
-  _ <- runInsertMany conn txsTable [TxRow (pgString $ hashToString txHash)]
+insertTx :: PGS.Connection -> Tx -> TxExtra -> Word64 -> IO ()
+insertTx conn tx txExtra blockHeight = do
+  putStrLn $ "************* blockHeight: " ++ show blockHeight
+  putStrLn $ "************* tx: " ++ show tx
+  putStrLn $ "************* txExtra: " ++ show txExtra
+  _ <- runInsertMany conn txsTable [row]
   return ()
+  where
+    row = TxRow {
+      trHash     = pgString $ hashToString (hash tx)
+    , trBlockNum = toNullable $ pgInt8 $ fromIntegral blockHeight
+    , trTime     = maybeToNullable utcTime
+    }
+    utcTime = pgUTCTime . (^. timestampToUTCTimeL) <$> teReceivedTime txExtra
