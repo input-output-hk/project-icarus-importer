@@ -29,7 +29,6 @@ data UtxoRowPoly a b c d e = UtxoRow  { urUtxoId   :: a
                                       , urAmount   :: e
                                       } deriving (Show)
 
---type UtxoRow = UtxoRowPoly String String Word32 String Word64
 type UtxoRowPGW = UtxoRowPoly (Column PGText) (Column PGText) (Column PGInt4) (Column PGText) (Column PGInt8)
 type UtxoRowPGR = UtxoRowPoly (Column PGText) (Column PGText) (Column PGInt4) (Column PGText) (Column PGInt8)
 
