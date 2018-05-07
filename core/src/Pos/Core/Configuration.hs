@@ -21,7 +21,6 @@ import           System.FilePath ((</>))
 import qualified Text.JSON.Canonical as Canonical
 
 import           Pos.Binary.Class (Raw)
-import           Pos.Core.ConfigPostgres as E
 import           Pos.Core.Configuration.BlockVersionData as E
 import           Pos.Core.Configuration.Core as E
 import           Pos.Core.Configuration.GeneratedSecrets as E
@@ -49,7 +48,6 @@ type HasConfiguration =
     , HasGeneratedSecrets
     , HasGenesisBlockVersionData
     , HasProtocolConstants
-    , HasPostGresDB
     )
 
 canonicalGenesisJson :: GenesisData -> (BSL.ByteString, Hash Raw)
@@ -119,11 +117,7 @@ withCoreConfigurations conf@CoreConfiguration{..} confDir mSystemStart mSeed act
             throwM $ GenesisHashMismatch
                      (show theGenesisHash) (show expectedHash)
 
-        -- FIXME: Database name and password is hardcoded
-        conn <- liftIO $ PGS.connect PGS.defaultConnectInfo {PGS.connectDatabase = "icaruspocbackendservice", PGS.connectPassword = "mysecretpassword"}
-
         withCoreConfiguration conf $
-            withPostGresDB conn $
             withProtocolMagic pm $
             withProtocolConstants pc $
             withGenesisBlockVersionData (gdBlockVersionData theGenesisData) $
@@ -164,7 +158,6 @@ withGenesisSpec theSystemStart conf@CoreConfiguration{..} val = case ccGenesis o
     GCSrc {} -> error "withGenesisSpec called with GCSrc"
     GCSpec spec ->
         withProtocolMagic pm $
-        withPostGresDB undefined $
         withProtocolConstants pc $
         withGenesisBlockVersionData (gsBlockVersionData spec) $
             let

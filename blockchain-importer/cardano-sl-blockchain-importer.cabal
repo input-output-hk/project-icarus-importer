@@ -14,6 +14,7 @@ cabal-version:       >=1.10
 
 library
   exposed-modules:      Pos.BlockchainImporter.BlockchainImporterMode
+                        Pos.BlockchainImporter.Configuration
 
                         Pos.BlockchainImporter.Core
                         Pos.BlockchainImporter.DB
@@ -75,6 +76,7 @@ library
                       , opaleye
                       , postgresql-simple
                       , product-profunctors
+                      , reflection
                       , resourcet
                       , rocksdb-haskell-ng
                       , safe-exceptions
@@ -177,6 +179,7 @@ executable cardano-blockchain-importer
                      , formatting
                      , log-warper
                      , optparse-applicative
+                     , postgresql-simple
                      , universum
   default-language:    Haskell2010
   ghc-options:         -threaded -rtsopts
