@@ -54,6 +54,7 @@ library
                         Pos.BlockchainImporter.BListener
                         Pos.BlockchainImporter.Tables.Utils
                         Pos.BlockchainImporter.Tables.TxsTable
+                        Pos.BlockchainImporter.Tables.TxDetailsTable
                         Pos.BlockchainImporter.Tables.UtxosTable
 
   build-depends:        QuickCheck
