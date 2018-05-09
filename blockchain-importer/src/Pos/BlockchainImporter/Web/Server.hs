@@ -47,7 +47,7 @@ import           Network.Wai.Middleware.RequestLogger (logStdoutDev)
 import qualified Serokell.Util.Base64 as B64
 import           Servant.Generic (AsServerT, toServant)
 import           Servant.Server (Server, ServerT, serve)
-import           System.Wlog (logDebug)
+import           System.Wlog (logDebug, logWarning)
 
 import qualified Pos.Binary.Class as Bi
 import           Pos.Crypto (WithHash (..), hash, redeemPkBuild, withHash)
@@ -68,7 +68,8 @@ import           Pos.Core.Block (Block, MainBlock, mainBlockSlot, mainBlockTxPay
 import           Pos.Core.Txp (Tx (..), TxId, TxOutAux (..), taTx, txOutValue, txpTxs, _txOutputs)
 import           Pos.Slotting (MonadSlots (..), getSlotStart)
 import           Pos.Txp (MonadTxpMem, TxMap, getLocalTxs, getMemPool, mpLocalTxs, topsortTxs,
-                          withTxpLocalData)
+                          verifyTx, withTxpLocalData)
+import           Pos.Txp.DB.Utxo (getTxOut)
 import           Pos.Util (divRoundUp, maybeThrow)
 import           Pos.Util.Chrono (NewestFirst (..))
 import           Pos.Web (serveImpl)
@@ -743,6 +744,7 @@ getStatsTxs mPageNumber = do
             txToTxIdSize :: Tx -> (CTxId, Byte)
             txToTxIdSize tx = (toCTxId $ hash tx, biSize tx)
 
+-- FIXME: Invalid tx is just logged, not returned as an answer
 sendSignedTx
      :: BlockchainImporterMode ctx m
      => Diffusion m
@@ -751,13 +753,23 @@ sendSignedTx
 sendSignedTx Diffusion{..} (CEncodedSTx encodedSTx) = do
     let maybeTxAux = Bi.decodeFull encodedSTx
     case maybeTxAux of
-      Right txAux ->
-        -- This is done for two reasons:
-        -- 1. In order not to overflow relay.
-        -- 2. To let other things (e. g. block processing) happen if
-        -- `newPayment`s are done continuously.
-        notFasterThan (6 :: Second) $ sendTx txAux
-      Left _ -> return False
+      Right txAux -> do
+        let txHash = hash $ taTx txAux
+        isValidTx <- runExceptT $ verifyTx getTxOut False txAux
+        case isValidTx of
+          Right _              -> do
+            logDebug $ sformat ("Tx broadcasted "%build) txHash
+            -- This is done for two reasons:
+            -- 1. In order not to overflow relay.
+            -- 2. To let other things (e. g. block processing) happen if
+            -- `newPayment`s are done continuously.
+            notFasterThan (6 :: Second) $ sendTx txAux
+          Left validationError -> do
+            logWarning $ sformat ("Tx not broadcasted "%build%": "%build) txHash validationError
+            return False
+      Left _ -> do
+        logWarning "Tx not broadcasted: invalid encoded tx"
+        return False
 
 --------------------------------------------------------------------------------
 -- Helpers
