@@ -260,10 +260,10 @@ applySingleModifier (txAux, _) = foldr  MM.delete
                                         (foldr (uncurry MM.insert) mempty toInsert)
                                         toDelete
   where tx       = taTx txAux
-        id       = hash $ tx
-        outputs  = toList $ _txOutputs $ tx
+        id       = hash tx
+        outputs  = toList $ _txOutputs tx
         toInsert = zipWith (\o index -> (TxInUtxo id index, TxOutAux o)) outputs [0..]
-        toDelete = toList $ _txInputs $ tx
+        toDelete = toList $ _txInputs tx
 
 -- Returns the UxtoModifier corresponding to rollbacking a list of txs
 rollbackUTxOModifier :: [(TxAux, TxUndo)] -> Txp.UtxoModifier
@@ -275,12 +275,11 @@ rollbackSingleModifier (txAux, txUndo) = foldr  MM.delete
                                                 (foldr (uncurry MM.insert) mempty toInsert)
                                                 toDelete
   where tx       = taTx txAux
-        id       = hash $ tx
-        inputs   = toList $ _txInputs $ tx
-        outputs  = toList $ _txOutputs $ tx
-        toDelete = [ TxInUtxo id (fromIntegral index) | index <- [0..(length outputs - 1)] ]
+        id       = hash tx
+        inputs   = toList $ _txInputs tx
+        outputs  = toList $ _txOutputs tx
+        toDelete = [ TxInUtxo id (fromIntegral index) | index <- [0..length outputs - 1] ]
         toInsert = catMaybes $ zipWith mapValueToMaybe inputs $ toList txUndo
 
         mapValueToMaybe :: a -> Maybe b -> Maybe (a, b)
-        mapValueToMaybe _ Nothing  = Nothing
-        mapValueToMaybe x (Just y) = Just (x, y)
+        mapValueToMaybe a = fmap ((,) a)
