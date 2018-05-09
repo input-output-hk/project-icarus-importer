@@ -21,8 +21,9 @@ import qualified Pos.Util.Modifier as MM
 
 import qualified Pos.BlockchainImporter.DB as GS
 import           Pos.BlockchainImporter.Txp.Common (buildBlockchainImporterExtraLookup)
-import           Pos.BlockchainImporter.Txp.Toil (EGlobalToilM, BlockchainImporterExtraLookup (..),
-                                        BlockchainImporterExtraModifier (..), eApplyToil, eRollbackToil)
+import           Pos.BlockchainImporter.Txp.Toil (BlockchainImporterExtraLookup (..),
+                                                  BlockchainImporterExtraModifier (..),
+                                                  EGlobalToilM, eApplyToil, eRollbackToil)
 
 -- | Settings used for global transactions data processing used by blockchainImporter.
 blockchainImporterTxpGlobalSettings :: HasConfiguration => TxpGlobalSettings
@@ -45,11 +46,11 @@ applySettings =
         }
 
 rollbackSettings ::
-       TxpGlobalRollbackMode m
+       (TxpGlobalRollbackMode m, MonadIO m)
     => ProcessBlundsSettings BlockchainImporterExtraLookup BlockchainImporterExtraModifier m
 rollbackSettings =
     ProcessBlundsSettings
-        { pbsProcessSingle = return . eRollbackToil . blundToAuxNUndo
+        { pbsProcessSingle = eRollbackToil . blundToAuxNUndo
         , pbsCreateEnv = buildBlockchainImporterExtraLookup
         , pbsExtraOperations = extraOps
         , pbsIsRollback = True
@@ -81,7 +82,7 @@ applySingle txpBlund = do
     mTxTimestamp <- getSlotStart slotId
 
     let (txAuxesAndUndos, hHash) = blundToAuxNUndoWHash txpBlund
-    return $ eApplyToil mTxTimestamp txAuxesAndUndos hHash
+    eApplyToil mTxTimestamp txAuxesAndUndos hHash
 
 extraOps :: HasConfiguration => BlockchainImporterExtraModifier -> SomeBatchOp
 extraOps (BlockchainImporterExtraModifier em (HM.toList -> histories) balances utxoNewSum) =
