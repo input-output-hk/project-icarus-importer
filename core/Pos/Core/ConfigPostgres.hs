@@ -1,8 +1,6 @@
 -- FIXME: Move to blockchain-importer package
 -- | Configuration of Postgres DB.
 
-{-# LANGUAGE RankNTypes #-}
-
 module Pos.Core.ConfigPostgres
        ( HasPostGresDB
        , withPostGresDB
