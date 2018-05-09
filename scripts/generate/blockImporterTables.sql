@@ -1,7 +1,9 @@
+-- Auxiliary datatypes
 CREATE DOMAIN hash AS text;
 CREATE DOMAIN address AS text;
 
-CREATE TABLE utxos  ( utxo_id   text
+-- Tables
+CREATE TABLE utxos  ( utxo_id   text      PRIMARY KEY
                     , tx_hash   hash
           					, tx_index	integer
           					, receiver	address
@@ -21,4 +23,6 @@ CREATE TABLE tx_details  ( hash     hash REFERENCES txs ON DELETE CASCADE
 												 , amount   bigint
                          ); 
 
+-- Indexes
+CREATE INDEX ON "utxos" (receiver);
 CREATE INDEX address_idx ON tx_details (address);

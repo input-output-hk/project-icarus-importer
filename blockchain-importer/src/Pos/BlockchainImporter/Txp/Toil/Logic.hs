@@ -32,9 +32,10 @@ import           Pos.BlockchainImporter.Txp.Toil.Monad (BlockchainImporterExtraM
                                                         updateAddrHistory)
 import           Pos.Core (Address, BlockVersionData, Coin, EpochIndex, HasConfiguration,
                            HeaderHash, Timestamp, mkCoin, sumCoins, unsafeAddCoin, unsafeSubCoin)
+import           Pos.Core.ConfigPostgres (postGresDB)
 import           Pos.Core.Txp (Tx (..), TxAux (..), TxId, TxIn (..), TxOut (..), TxOutAux (..),
                                TxUndo, _TxOut)
-import           Pos.Crypto (WithHash (..), hash, postGresDB)
+import           Pos.Crypto (WithHash (..), hash)
 import           Pos.Txp.Configuration (HasTxpConfiguration)
 import           Pos.Txp.Toil (ToilVerFailure (..), extendGlobalToilM, extendLocalToilM)
 import qualified Pos.Txp.Toil as Txp
@@ -57,7 +58,7 @@ eApplyToil ::
     -> m (EGlobalToilM ())
 eApplyToil mTxTimestamp txun (hh, blockHeight) = do
     -- Update UTxOs
-    toilApplyUTxO <- pure $ extendGlobalToilM $ Txp.applyToil txun
+    let toilApplyUTxO = extendGlobalToilM $ Txp.applyToil txun
 
     liftIO $ UT.applyModifierToUtxos postGresDB $ applyUTxOModifier txun
 
@@ -87,7 +88,7 @@ eRollbackToil ::
   => [(TxAux, TxUndo)] -> m (EGlobalToilM ())
 eRollbackToil txun = do
     -- Update UTxOs
-    toilRollbackUtxo <- pure $ extendGlobalToilM $ Txp.rollbackToil txun
+    let toilRollbackUtxo = extendGlobalToilM $ Txp.rollbackToil txun
 
     liftIO $ UT.applyModifierToUtxos postGresDB $ rollbackUTxOModifier txun
 
@@ -254,12 +255,14 @@ applyUTxOModifier txs = mconcat $ applySingleModifier <$> txs
 
 -- Returns the UxtoModifier corresponding to applying a single tx
 applySingleModifier :: (TxAux, TxUndo) -> Txp.UtxoModifier
-applySingleModifier (txAux, _) = foldr MM.delete (foldr (uncurry MM.insert) mempty toInsert) toDelete
+applySingleModifier (txAux, _) = foldr  MM.delete
+                                        (foldr (uncurry MM.insert) mempty toInsert)
+                                        toDelete
   where tx       = taTx txAux
-        id       = hash $ tx
-        outputs  = toList $ _txOutputs $ tx
+        id       = hash tx
+        outputs  = toList $ _txOutputs tx
         toInsert = zipWith (\o index -> (TxInUtxo id index, TxOutAux o)) outputs [0..]
-        toDelete = toList $ _txInputs $ tx
+        toDelete = toList $ _txInputs tx
 
 -- Returns the UxtoModifier corresponding to rollbacking a list of txs
 rollbackUTxOModifier :: [(TxAux, TxUndo)] -> Txp.UtxoModifier
@@ -267,10 +270,15 @@ rollbackUTxOModifier txs = mconcat $ rollbackSingleModifier <$> reverse txs
 
 -- Returns the UxtoModifier corresponding to rollbacking a single tx
 rollbackSingleModifier :: (TxAux, TxUndo) -> Txp.UtxoModifier
-rollbackSingleModifier (txAux, txUndo) = foldr MM.delete (foldr (uncurry MM.insert) mempty toInsert) toDelete
+rollbackSingleModifier (txAux, txUndo) = foldr  MM.delete
+                                                (foldr (uncurry MM.insert) mempty toInsert)
+                                                toDelete
   where tx       = taTx txAux
-        id       = hash $ tx
-        inputs   = toList $ _txInputs $ tx
-        outputs  = toList $ _txOutputs $ tx
-        toDelete = (\(_, index) -> TxInUtxo id index) <$> zip outputs [0..]
-        toInsert = zip inputs $ catMaybes $ toList txUndo
+        id       = hash tx
+        inputs   = toList $ _txInputs tx
+        outputs  = toList $ _txOutputs tx
+        toDelete = [ TxInUtxo id (fromIntegral index) | index <- [0..length outputs - 1] ]
+        toInsert = catMaybes $ zipWith mapValueToMaybe inputs $ toList txUndo
+
+        mapValueToMaybe :: a -> Maybe b -> Maybe (a, b)
+        mapValueToMaybe a = fmap ((,) a)

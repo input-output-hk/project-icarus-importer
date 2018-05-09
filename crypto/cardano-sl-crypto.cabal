@@ -61,7 +61,6 @@ library
                      , lens
                      , memory
                      , mtl
-                     , postgresql-simple
                      , pvss
                      , quickcheck-instances
                      , reflection
