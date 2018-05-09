@@ -5,10 +5,9 @@
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE TemplateHaskell       #-}
 
--- TODO: Add documentation.
-
 module Pos.BlockchainImporter.Tables.TxDetailsTable
-  ( insertTxDetails
+  ( -- * Data manipulation
+    insertTxDetails
   ) where
 
 import           Control.Monad (void)
@@ -41,6 +40,7 @@ txDetailsTable = Table "tx_details" (pTxDetails TxDetailsRow { tdHash    = requi
                                                              , tdAmount  = required "amount"
                                                              })
 
+-- | Creates a row for the detail Tx history table from a given Tx input/output.
 makeRowPGW :: String -> Bool -> TxOut -> TxDetailsRowPGW
 makeRowPGW txHash isInput txOut = TxDetailsRow {..}
   where
@@ -51,12 +51,9 @@ makeRowPGW txHash isInput txOut = TxDetailsRow {..}
     amount          = fromIntegral $ getCoin coin
     (address, coin) = (addressToString . txOutAddress &&& txOutValue) txOut
 
+-- | Inserts the inputs/outputs of a given Tx into the detail Tx history table.
 insertTxDetails :: PGS.Connection -> Tx -> TxExtra -> IO ()
-insertTxDetails conn tx txExtra = do
-  -- FIXME: Remove, only for debugging purposes.
-  --putStrLn $ "--------- inputs: "  ++ show inputs
-  --putStrLn $ "--------- outputs: " ++ show outputs
-  void $ runInsertMany conn txDetailsTable rows
+insertTxDetails conn tx txExtra = void $ runInsertMany conn txDetailsTable rows
   where
     txHash           = hashToString (hash tx)
     rows             = inputs ++ outputs
