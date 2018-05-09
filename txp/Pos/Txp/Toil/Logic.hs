@@ -138,8 +138,13 @@ verifyAndApplyTx adoptedBVD curEpoch verifyVersions tx@(_, txAux) = do
   where
     ctx = Utxo.VTxContext verifyVersions
 
--- FIXME: Check missing validations
--- Verifies that a tx is valid
+{-  Verifies that a tx is valid
+    All validations from 'verifyAndApplyTx' are incorporated, except the ones
+    that require the block in which it will be incorporated:
+      - Verifying the tx fee
+      - Verifying the tx size
+      - If we are in the bootstrap era, checking the addresses used
+-}
 verifyTx ::
        (HasConfiguration, Monad m)
     => (TxIn -> m (Maybe TxOutAux))

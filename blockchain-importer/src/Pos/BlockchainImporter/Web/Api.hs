@@ -167,7 +167,7 @@ data BlockchainImporterApiRecord route = BlockchainImporterApiRecord
         :- "txs"
         :> "signed"
         :> ReqBody '[JSON] CEncodedSTx
-        :> ExRes Post Bool
+        :> ExRes Post ()
   }
   deriving (Generic)
 
