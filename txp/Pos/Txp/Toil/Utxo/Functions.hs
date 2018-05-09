@@ -4,6 +4,7 @@ module Pos.Txp.Toil.Utxo.Functions
        ( VTxContext (..)
        , VerifyTxUtxoRes (..)
        , verifyTxUtxo
+       , verifyTxUtxoFromLookup
        , applyTxToUtxo
        , rollbackTxUtxo
        ) where
@@ -28,7 +29,8 @@ import           Pos.Crypto (SignTag (SignRedeemTx, SignTx), WithHash (..), chec
 import           Pos.Crypto.Configuration (HasProtocolMagic, protocolMagic)
 import           Pos.Data.Attributes (Attributes (attrRemain), areAttributesKnown)
 import           Pos.Script (Script (..), isKnownScriptVersion, txScriptCheck)
-import           Pos.Txp.Toil.Failure (ToilVerFailure (..), TxOutVerFailure (..), WitnessVerFailure (..))
+import           Pos.Txp.Toil.Failure (ToilVerFailure (..), TxOutVerFailure (..),
+                                       WitnessVerFailure (..))
 import           Pos.Txp.Toil.Monad (UtxoM, utxoDel, utxoGet, utxoPut)
 import           Pos.Txp.Toil.Types (TxFee (..))
 import           Pos.Util (liftEither)
@@ -81,7 +83,25 @@ verifyTxUtxo
     => VTxContext
     -> TxAux
     -> ExceptT ToilVerFailure UtxoM VerifyTxUtxoRes
-verifyTxUtxo ctx@VTxContext {..} ta@(TxAux UnsafeTx {..} witnesses) = do
+verifyTxUtxo = genericVerifyTxUtxo resolveInput
+
+-- Verifies that a tx is valid, by resolving inputs through a utxo lookup function
+verifyTxUtxoFromLookup
+    :: ( HasProtocolMagic, Monad m )
+    => (TxIn -> m (Maybe TxOutAux))
+    -> VTxContext
+    -> TxAux
+    -> ExceptT ToilVerFailure m VerifyTxUtxoRes
+verifyTxUtxoFromLookup uxtoLookup = genericVerifyTxUtxo $ resolveInputFromLookup uxtoLookup
+
+-- Given a resolve input function, verifies that a tx is valid
+genericVerifyTxUtxo
+    :: ( HasProtocolMagic, Monad m )
+    => (TxIn -> ExceptT ToilVerFailure m (TxIn, TxOutAux))
+    -> VTxContext
+    -> TxAux
+    -> ExceptT ToilVerFailure m VerifyTxUtxoRes
+genericVerifyTxUtxo resolveInputFn ctx@VTxContext {..} ta@(TxAux UnsafeTx {..} witnesses) = do
     let unknownTxInMB = find (isTxInUnknown . snd) $ zip [0..] (toList _txInputs)
     case (vtcVerifyAllIsKnown, unknownTxInMB) of
         (True, Just (inpId, txIn)) -> throwError $
@@ -91,7 +111,7 @@ verifyTxUtxo ctx@VTxContext {..} ta@(TxAux UnsafeTx {..} witnesses) = do
             minimalReasonableChecks
             resolvedInputs :: NonEmpty (Maybe (TxIn, TxOutAux)) <-
                 mapM
-                    (lift . fmap rightToMaybe . runExceptT . resolveInput)
+                    (lift . fmap rightToMaybe . runExceptT . resolveInputFn)
                     _txInputs
             pure VerifyTxUtxoRes
                  { vturUndo = map (fmap snd) resolvedInputs
@@ -100,7 +120,7 @@ verifyTxUtxo ctx@VTxContext {..} ta@(TxAux UnsafeTx {..} witnesses) = do
         _               -> do
             -- Case when all inputs are known
             minimalReasonableChecks
-            resolvedInputs <- mapM resolveInput _txInputs
+            resolvedInputs <- mapM resolveInputFn _txInputs
             liftEither $ do
                 txFee <- verifySums resolvedInputs _txOutputs
                 verifyKnownInputs ctx resolvedInputs ta
@@ -110,7 +130,7 @@ verifyTxUtxo ctx@VTxContext {..} ta@(TxAux UnsafeTx {..} witnesses) = do
                     , vturFee = Just txFee
                     }
   where
-    minimalReasonableChecks :: ExceptT ToilVerFailure UtxoM ()
+    minimalReasonableChecks :: Monad m => ExceptT ToilVerFailure m ()
     minimalReasonableChecks = liftEither $ do
         verifyConsistency _txInputs witnesses
         verifyOutputs ctx ta
@@ -118,6 +138,15 @@ verifyTxUtxo ctx@VTxContext {..} ta@(TxAux UnsafeTx {..} witnesses) = do
 resolveInput :: TxIn -> ExceptT ToilVerFailure UtxoM (TxIn, TxOutAux)
 resolveInput txIn =
     (txIn, ) <$> (note (ToilNotUnspent txIn) =<< lift (utxoGet txIn))
+
+-- Resolve input from utxo lookup function
+resolveInputFromLookup
+    :: Monad m
+    => (TxIn -> m (Maybe TxOutAux))
+    -> TxIn
+    -> ExceptT ToilVerFailure m (TxIn, TxOutAux)
+resolveInputFromLookup utxoLookup txIn =
+    (txIn, ) <$> (note (ToilNotUnspent txIn) =<< lift (utxoLookup txIn))
 
 verifySums ::
        NonEmpty (TxIn, TxOutAux)
