@@ -5,10 +5,9 @@
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE TemplateHaskell       #-}
 
--- TODO: Add documentation.
-
 module Pos.BlockchainImporter.Tables.TxsTable
-  ( insertTx
+  ( -- * Data manipulation
+    insertTx
   , deleteTx
   ) where
 
@@ -40,18 +39,15 @@ txsTable = Table "txs" (pTxs TxRow { trHash     = required "hash"
                                    , trTime     = required "time"
                                    })
 
+-- | Inserts a given Tx into the Tx history tables.
 insertTx :: PGS.Connection -> Tx -> TxExtra -> Word64 -> IO ()
 insertTx conn tx txExtra blockHeight = PGS.withTransaction conn $ do
   insertTxHeader conn tx txExtra blockHeight
   TDT.insertTxDetails conn tx txExtra
 
+-- | Inserts the basic info of a given Tx into the master Tx history table.
 insertTxHeader :: PGS.Connection -> Tx -> TxExtra -> Word64 -> IO ()
-insertTxHeader conn tx txExtra blockHeight = do
-  -- FIXME: Remove, only for debugging purposes.
-  --putStrLn $ "************* blockHeight: " ++ show blockHeight
-  --putStrLn $ "************* tx: "          ++ show tx
-  --putStrLn $ "************* txExtra: "     ++ show txExtra
-  void $ runInsertMany conn txsTable [row]
+insertTxHeader conn tx txExtra blockHeight = void $ runInsertMany conn txsTable [row]
   where
     row = TxRow { trHash     = pgString $ hashToString (hash tx)
                 , trBlockNum = toNullable $ pgInt8 $ fromIntegral blockHeight
@@ -59,10 +55,8 @@ insertTxHeader conn tx txExtra blockHeight = do
                 }
     utcTime = pgUTCTime . (^. timestampToUTCTimeL) <$> teReceivedTime txExtra
 
+-- | Deletes a Tx by Tx hash from the Tx history tables.
 deleteTx :: PGS.Connection -> Tx -> IO ()
-deleteTx conn tx = do
-  -- FIXME: Remove, only for debugging purposes.
-  putStrLn $ "///////////// tx: " ++ show tx
-  void $ runDelete conn txsTable $ \row -> trHash row .== txHash
+deleteTx conn tx = void $ runDelete conn txsTable $ \row -> trHash row .== txHash
   where
     txHash = pgString $ hashToString (hash tx)
