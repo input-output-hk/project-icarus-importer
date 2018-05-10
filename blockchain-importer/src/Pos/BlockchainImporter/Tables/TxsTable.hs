@@ -5,32 +5,58 @@
 {-# LANGUAGE OverloadedStrings     #-}
 {-# LANGUAGE TemplateHaskell       #-}
 
-module Pos.BlockchainImporter.Tables.TxsTable where
+module Pos.BlockchainImporter.Tables.TxsTable
+  ( -- * Data manipulation
+    insertTx
+  , deleteTx
+  ) where
 
-import           Universum
-
+import           Control.Monad (void)
 import           Data.Profunctor.Product.TH (makeAdaptorAndInstance)
 import qualified Database.PostgreSQL.Simple as PGS
 import           Opaleye
+import           Pos.BlockchainImporter.Core (TxExtra (..))
+import qualified Pos.BlockchainImporter.Tables.TxDetailsTable as TDT (insertTxDetails)
+import           Pos.BlockchainImporter.Tables.Utils (hashToString)
+import           Pos.Core (timestampToUTCTimeL)
+import           Pos.Core.Txp (Tx (..))
+import           Pos.Crypto (hash)
+import           Universum
 
-import           Pos.BlockchainImporter.Tables.Utils
-import           Pos.Core.Txp (TxId)
+data TxRowPoly a b c = TxRow { trHash     :: a
+                             , trBlockNum :: b
+                             , trTime     :: c
+                             } deriving (Show)
 
-data TxRowPoly a = TxRow {trHash :: a} deriving (Show)
-
-type TxRow = TxRowPoly TxId
-type TxRowPGW = TxRowPoly (Column PGText)
-type TxRowPGR = TxRowPoly (Column PGText)
+type TxRowPGW = TxRowPoly (Column PGText) (Column (Nullable PGInt8)) (Column (Nullable PGTimestamptz))
+type TxRowPGR = TxRowPoly (Column PGText) (Column (Nullable PGInt8)) (Column (Nullable PGTimestamptz))
 
 $(makeAdaptorAndInstance "pTxs" ''TxRowPoly)
 
--- FIXME: This currently only stores the tx hash (rename table upon fix)
 txsTable :: Table TxRowPGW TxRowPGR
-txsTable = Table "temp_txs" (pTxs TxRow {trHash = required "hash"})
+txsTable = Table "txs" (pTxs TxRow { trHash     = required "hash"
+                                   , trBlockNum = required "block_num"
+                                   , trTime     = required "time"
+                                   })
 
--- FIXME: Replace with inserting a list of txs?
--- Inserts a tx into the table
-insertTx :: PGS.Connection -> TxId -> IO ()
-insertTx conn txHash = do
-  _ <- runInsertMany conn txsTable [TxRow (pgString $ hashToString txHash)]
-  return ()
+-- | Inserts a given Tx into the Tx history tables.
+insertTx :: PGS.Connection -> Tx -> TxExtra -> Word64 -> IO ()
+insertTx conn tx txExtra blockHeight = PGS.withTransaction conn $ do
+  insertTxHeader conn tx txExtra blockHeight
+  TDT.insertTxDetails conn tx txExtra
+
+-- | Inserts the basic info of a given Tx into the master Tx history table.
+insertTxHeader :: PGS.Connection -> Tx -> TxExtra -> Word64 -> IO ()
+insertTxHeader conn tx txExtra blockHeight = void $ runInsertMany conn txsTable [row]
+  where
+    row = TxRow { trHash     = pgString $ hashToString (hash tx)
+                , trBlockNum = toNullable $ pgInt8 $ fromIntegral blockHeight
+                , trTime     = maybeToNullable utcTime
+                }
+    utcTime = pgUTCTime . (^. timestampToUTCTimeL) <$> teReceivedTime txExtra
+
+-- | Deletes a Tx by Tx hash from the Tx history tables.
+deleteTx :: PGS.Connection -> Tx -> IO ()
+deleteTx conn tx = void $ runDelete conn txsTable $ \row -> trHash row .== txHash
+  where
+    txHash = pgString $ hashToString (hash tx)
