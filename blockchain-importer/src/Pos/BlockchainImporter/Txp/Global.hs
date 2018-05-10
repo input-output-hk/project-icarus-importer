@@ -9,7 +9,7 @@ import           Universum
 import qualified Data.HashMap.Strict as HM
 
 import           Pos.Core (ComponentBlock (..), HasConfiguration, HeaderHash, SlotId (..),
-                           epochIndexL, headerHash, headerSlotL)
+                           difficultyL, epochIndexL, headerHash, headerSlotL)
 import           Pos.Core.Txp (TxAux, TxUndo)
 import           Pos.DB (SomeBatchOp (..))
 import           Pos.Slotting (getSlotStart)
@@ -70,19 +70,28 @@ applySingle txpBlund = do
     -- type TxpBlock = ComponentBlock TxPayload
 
     let txpBlock = txpBlund ^. _1
-    let slotId   = case txpBlock of
-            ComponentBlockGenesis genesisBlock -> SlotId
-                                  { siEpoch = genesisBlock ^. epochIndexL
-                                  , siSlot  = minBound
-                                  -- Genesis block doesn't have a slot, set to minBound
-                                  }
-            ComponentBlockMain mainHeader _  -> mainHeader ^. headerSlotL
+    let (slotId, blockHeight) = case txpBlock of
+            ComponentBlockGenesis genesisBlock ->
+                (
+                    SlotId
+                        { siEpoch = genesisBlock ^. epochIndexL
+                        , siSlot  = minBound
+                        -- Genesis block doesn't have a slot, set to minBound
+                        }
+                    ,
+                    0 -- TODO: Confirm
+                )
+            ComponentBlockMain mainHeader _  ->
+                (
+                    mainHeader ^. headerSlotL,
+                    fromIntegral $ mainHeader ^. difficultyL
+                )
 
     -- Get the timestamp from that information.
     mTxTimestamp <- getSlotStart slotId
 
     let (txAuxesAndUndos, hHash) = blundToAuxNUndoWHash txpBlund
-    eApplyToil mTxTimestamp txAuxesAndUndos hHash
+    eApplyToil mTxTimestamp txAuxesAndUndos (hHash, blockHeight)
 
 extraOps :: HasConfiguration => BlockchainImporterExtraModifier -> SomeBatchOp
 extraOps (BlockchainImporterExtraModifier em (HM.toList -> histories) balances utxoNewSum) =
