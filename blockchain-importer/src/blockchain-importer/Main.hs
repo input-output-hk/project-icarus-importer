@@ -64,7 +64,7 @@ action (BlockchainImporterNodeArgs (cArgs@CommonNodeArgs{..}) BlockchainImporter
       withPostGresDB conn $
         withCompileInfo $(retrieveCompileTimeInfo) $ do
             CLI.printInfoOnStart cArgs ntpConfig
-            logInfo $ "Blockchain importer is enabled!"
+            logInfo "Blockchain importer is enabled!"
             currentParams <- getNodeParams loggerName cArgs nodeArgs
 
             let vssSK = fromJust $ npUserSecret currentParams ^. usVss

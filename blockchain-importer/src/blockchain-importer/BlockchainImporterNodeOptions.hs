@@ -58,13 +58,13 @@ connectInfoParser = do
       long    "postgres-host" <>
       metavar "PS-HOST" <>
       value   (PGS.connectHost PGS.defaultConnectInfo) <> showDefault <>
-      help    "Host the postgres DB is listening in."
+      help    "Host the postgres DB is running on."
   connectPort     <- option auto $
       long    "postgres-port" <>
       metavar "PS-PORT" <>
       value   (PGS.connectPort PGS.defaultConnectInfo) <> showDefault <>
-      help    "Port the postgres DB is listening in."
-  pure $ PGS.ConnectInfo{..}
+      help    "Port the postgres DB is listening on."
+  pure PGS.ConnectInfo{..}
 
 -- | Ther parser for the blockchainImporter arguments.
 blockchainImporterArgsParser :: Parser BlockchainImporterNodeArgs
