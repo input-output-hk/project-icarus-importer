@@ -55,17 +55,17 @@ import           Pos.Crypto (WithHash (..), hash, redeemPkBuild, withHash)
 import           Pos.DB.Block (getBlund)
 import           Pos.DB.Class (MonadDBRead)
 
-import           Pos.Diffusion.Types (Diffusion(..))
+import           Pos.Diffusion.Types (Diffusion (..))
 
 import           Pos.Binary.Class (biSize)
 import           Pos.Block.Types (Blund, Undo)
-import           Pos.Core (AddrType (..), Address (..), TxAux (..), Coin, EpochIndex, HeaderHash, Timestamp,
-                           coinToInteger, difficultyL, gbHeader, gbhConsensus, getChainDifficulty,
-                           isUnknownAddressType, makeRedeemAddress, siEpoch, siSlot, sumCoins,
-                           timestampToPosix, unsafeAddCoin, unsafeIntegerToCoin, unsafeSubCoin)
+import           Pos.Core (AddrType (..), Address (..), Coin, EpochIndex, HeaderHash, Timestamp,
+                           TxAux (..), coinToInteger, difficultyL, gbHeader, gbhConsensus,
+                           getChainDifficulty, isUnknownAddressType, makeRedeemAddress, siEpoch,
+                           siSlot, sumCoins, timestampToPosix, unsafeAddCoin, unsafeIntegerToCoin,
+                           unsafeSubCoin)
 import           Pos.Core.Block (Block, MainBlock, mainBlockSlot, mainBlockTxPayload, mcdSlot)
-import           Pos.Core.Txp (Tx (..), TxId, TxOutAux (..), taTx, txOutValue, txpTxs,
-                               _txOutputs)
+import           Pos.Core.Txp (Tx (..), TxId, TxOutAux (..), taTx, txOutValue, txpTxs, _txOutputs)
 import           Pos.Slotting (MonadSlots (..), getSlotStart)
 import           Pos.Txp (MonadTxpMem, TxMap, getLocalTxs, getMemPool, mpLocalTxs, topsortTxs,
                           withTxpLocalData)
@@ -74,23 +74,28 @@ import           Pos.Util.Chrono (NewestFirst (..))
 import           Pos.Web (serveImpl)
 
 import           Pos.BlockchainImporter.Aeson.ClientTypes ()
+import           Pos.BlockchainImporter.BlockchainImporterMode (BlockchainImporterMode)
 import           Pos.BlockchainImporter.Core (TxExtra (..))
 import           Pos.BlockchainImporter.DB (Page, defaultPageSize, getAddrBalance, getAddrHistory,
-                                  getLastTransactions, getTxExtra, getUtxoSum)
-import           Pos.BlockchainImporter.BlockchainImporterMode (BlockchainImporterMode)
+                                            getLastTransactions, getTxExtra, getUtxoSum)
 import           Pos.BlockchainImporter.ExtraContext (HasBlockchainImporterCSLInterface (..),
-                                            HasGenesisRedeemAddressInfo (..))
-import           Pos.BlockchainImporter.Web.Api (BlockchainImporterApi, BlockchainImporterApiRecord (..), blockchainImporterApi)
-import           Pos.BlockchainImporter.Web.ClientTypes (Byte, CAda (..), CAddress (..), CAddressSummary (..),
-                                               CAddressType (..), CAddressesFilter (..),
-                                               CBlockEntry (..), CBlockSummary (..),
-                                               CGenesisAddressInfo (..), CGenesisSummary (..),
-                                               CHash, CTxBrief (..), CTxEntry (..), CTxId (..),
-                                               CTxSummary (..), TxInternal (..), CSignedEncTx (..), CEncodedData (..),
-                                               convertTxOutputs, convertTxOutputsMB, fromCAddress, fromCHash,
-                                               fromCTxId, getEpochIndex, getSlotIndex, mkCCoin,
-                                               mkCCoinMB, tiToTxEntry, toBlockEntry, toBlockSummary,
-                                               toCAddress, toCHash, toCTxId, toTxBrief)
+                                                      HasGenesisRedeemAddressInfo (..))
+import           Pos.BlockchainImporter.Web.Api (BlockchainImporterApi,
+                                                 BlockchainImporterApiRecord (..),
+                                                 blockchainImporterApi)
+import           Pos.BlockchainImporter.Web.ClientTypes (Byte, CAda (..), CAddress (..),
+                                                         CAddressSummary (..), CAddressType (..),
+                                                         CAddressesFilter (..), CBlockEntry (..),
+                                                         CBlockSummary (..), CEncodedSTx (..),
+                                                         CGenesisAddressInfo (..),
+                                                         CGenesisSummary (..), CHash, CTxBrief (..),
+                                                         CTxEntry (..), CTxId (..), CTxSummary (..),
+                                                         TxInternal (..), convertTxOutputs,
+                                                         convertTxOutputsMB, fromCAddress,
+                                                         fromCHash, fromCTxId, getEpochIndex,
+                                                         getSlotIndex, mkCCoin, mkCCoinMB,
+                                                         tiToTxEntry, toBlockEntry, toBlockSummary,
+                                                         toCAddress, toCHash, toCTxId, toTxBrief)
 import           Pos.BlockchainImporter.Web.Error (BlockchainImporterError (..))
 
 
@@ -740,12 +745,11 @@ getStatsTxs mPageNumber = do
 
 sendSignedTx
      :: BlockchainImporterMode ctx m
-     => Diffusion m 
-     -> CSignedEncTx
+     => Diffusion m
+     -> CEncodedSTx
      -> m Bool
-sendSignedTx Diffusion{..} (CSignedEncTx (CEncodedData encodedTx) txWitness) = do
-    let maybeTx    = Bi.decodeFull encodedTx
-        maybeTxAux = flip TxAux txWitness <$> maybeTx
+sendSignedTx Diffusion{..} encodedSTx = do
+    let maybeTxAux = Bi.decodeFull $ Bi.serialize encodedSTx
     case maybeTxAux of
       Right txAux ->
         -- This is done for two reasons:
