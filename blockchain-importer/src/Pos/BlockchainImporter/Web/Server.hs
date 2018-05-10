@@ -748,8 +748,8 @@ sendSignedTx
      => Diffusion m
      -> CEncodedSTx
      -> m Bool
-sendSignedTx Diffusion{..} (CEncodedSTx encodedSTx) = do
-    let maybeTxAux = Bi.decodeFull encodedSTx
+sendSignedTx Diffusion{..} encodedSTx = do
+    let maybeTxAux = Bi.decodeFull $ Bi.serialize encodedSTx
     case maybeTxAux of
       Right txAux ->
         -- This is done for two reasons:
