@@ -47,6 +47,7 @@ module Pos.BlockchainImporter.Web.ClientTypes
        , tiToTxEntry
        , encodeHashHex
        , decodeHashHex
+       , decodeSTx
        ) where
 
 import qualified Prelude
@@ -71,7 +72,8 @@ import           Serokell.Util.Base16 as SB16
 import           Servant.API (FromHttpApiData (..))
 import           Test.QuickCheck (Arbitrary (..))
 
-import           Pos.Binary (Bi, biSize)
+import           Pos.Binary (Bi (..))
+import qualified Pos.Binary as Bi
 import           Pos.Block.Types (Undo (..))
 import           Pos.Core (Address, Coin, EpochIndex, LocalSlotIndex, SlotId (..), StakeholderId,
                            Timestamp, addressF, coinToInteger, decodeTextAddress, gbHeader,
@@ -79,7 +81,8 @@ import           Pos.Core (Address, Coin, EpochIndex, LocalSlotIndex, SlotId (..
                            prevBlockL, sumCoins, timestampToPosix, unsafeAddCoin, unsafeGetCoin,
                            unsafeIntegerToCoin, unsafeSubCoin)
 import           Pos.Core.Block (MainBlock, mainBlockSlot, mainBlockTxPayload, mcdSlot)
-import           Pos.Core.Txp (Tx (..), TxId, TxOut (..), TxOutAux (..), TxUndo, txpTxs, _txOutputs)
+import           Pos.Core.Txp (Tx (..), TxAux (..), TxId, TxOut (..), TxOutAux (..), TxUndo, txpTxs,
+                               _txOutputs)
 import           Pos.Crypto (AbstractHash, Hash, HashAlgorithm, hash)
 import qualified Pos.GState as GS
 import qualified Pos.Lrc as Lrc (getLeader)
@@ -228,7 +231,7 @@ toBlockEntry (blk, Undo{..}) = do
         totalRecvCoin = unsafeIntegerToCoin . sumCoins <$> traverse totalTxInMoney undoTx
         totalSentCoin = foldl' addOutCoins (mkCoin 0) txs
         cbeTotalSent  = mkCCoin $ totalSentCoin
-        cbeSize       = fromIntegral $ biSize blk
+        cbeSize       = fromIntegral $ Bi.biSize blk
         cbeFees       = mkCCoinMB $ (`unsafeSubCoin` totalSentCoin) <$> totalRecvCoin
 
         -- A simple reconstruction of the AbstractHash, could be better?
@@ -350,9 +353,10 @@ instance Default CAddressesFilter where
     def = AllAddresses
 
 -- | CBOR-encoded signed tx.
-newtype CEncodedSTx = CEncodedSTx
-    { signedTx :: BSL.ByteString
-    } deriving (Eq, Generic)
+newtype CEncodedSTx = CEncodedSTx BSL.ByteString
+
+decodeSTx :: CEncodedSTx -> Either Text TxAux
+decodeSTx (CEncodedSTx encodedSTx) = Bi.decodeFull encodedSTx
 
 instance Buildable CEncodedSTx where
     build (CEncodedSTx bs) = fromLazyText $ TE.decodeUtf8 $ B64.encode bs

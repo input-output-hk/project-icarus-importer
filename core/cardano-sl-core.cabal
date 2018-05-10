@@ -42,6 +42,7 @@ library
                        Pos.Core.Class
                        Pos.Core.Common
                        Pos.Core.Configuration
+                       Pos.Core.ConfigPostgres
                        Pos.Core.Constants
                        Pos.Core.Context
                        Pos.Core.Delegation
@@ -157,6 +158,7 @@ library
                      , memory
                      , mtl
                      , plutus-prototype
+                     , postgresql-simple
                      , quickcheck-instances
                      , random
                      , reflection

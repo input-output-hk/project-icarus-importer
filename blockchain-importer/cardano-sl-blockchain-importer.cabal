@@ -51,6 +51,10 @@ library
                         Pos.BlockchainImporter.Txp.Toil.Monad
                         Pos.BlockchainImporter.Txp.Toil.Types
                         Pos.BlockchainImporter.BListener
+                        Pos.BlockchainImporter.Tables.Utils
+                        Pos.BlockchainImporter.Tables.TxsTable
+                        Pos.BlockchainImporter.Tables.TxDetailsTable
+                        Pos.BlockchainImporter.Tables.UtxosTable
 
   build-depends:        QuickCheck
                       , aeson
@@ -69,6 +73,9 @@ library
                       , log-warper
                       , memory
                       , mmorph
+                      , opaleye
+                      , postgresql-simple
+                      , product-profunctors
                       , resourcet
                       , rocksdb-haskell-ng
                       , safe-exceptions

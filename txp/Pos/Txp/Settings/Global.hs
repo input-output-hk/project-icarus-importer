@@ -59,6 +59,6 @@ data TxpGlobalSettings = TxpGlobalSettings
       tgsApplyBlocks :: forall ctx m . TxpGlobalApplyMode ctx m =>
                         OldestFirst NE TxpBlund -> m SomeBatchOp
     , -- | Rollback chain of blocks.
-      tgsRollbackBlocks :: forall m . TxpGlobalRollbackMode m =>
+      tgsRollbackBlocks :: forall m . (TxpGlobalRollbackMode m, MonadIO m) =>
                            NewestFirst NE TxpBlund -> m SomeBatchOp
     }

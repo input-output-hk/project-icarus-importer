@@ -19,23 +19,29 @@ import qualified Data.List.NonEmpty as NE
 import           Formatting (build, sformat, (%))
 import           System.Wlog (logError)
 
+import           Pos.BlockchainImporter.Core (AddrHistory, TxExtra (..))
+import qualified Pos.BlockchainImporter.Tables.TxsTable as TxsT
+import qualified Pos.BlockchainImporter.Tables.UtxosTable as UT
+import           Pos.BlockchainImporter.Txp.Toil.Monad (BlockchainImporterExtraM, EGlobalToilM,
+                                                        ELocalToilM,
+                                                        blockchainImporterExtraMToEGlobalToilM,
+                                                        blockchainImporterExtraMToELocalToilM,
+                                                        delAddrBalance, delTxExtra, getAddrBalance,
+                                                        getAddrHistory, getTxExtra, getUtxoSum,
+                                                        putAddrBalance, putTxExtra, putUtxoSum,
+                                                        updateAddrHistory)
 import           Pos.Core (Address, BlockVersionData, Coin, EpochIndex, HasConfiguration,
                            HeaderHash, Timestamp, mkCoin, sumCoins, unsafeAddCoin, unsafeSubCoin)
-import           Pos.Core.Txp (Tx (..), TxAux (..), TxId, TxOut (..), TxOutAux (..), TxUndo, _TxOut)
+import           Pos.Core.ConfigPostgres (postGresDB)
+import           Pos.Core.Txp (Tx (..), TxAux (..), TxId, TxIn (..), TxOut (..), TxOutAux (..),
+                               TxUndo, _TxOut)
 import           Pos.Crypto (WithHash (..), hash)
-import           Pos.BlockchainImporter.Core (AddrHistory, TxExtra (..))
-import           Pos.BlockchainImporter.Txp.Toil.Monad (EGlobalToilM, ELocalToilM, BlockchainImporterExtraM,
-                                              delAddrBalance, delTxExtra,
-                                              blockchainImporterExtraMToEGlobalToilM,
-                                              blockchainImporterExtraMToELocalToilM, getAddrBalance,
-                                              getAddrHistory, getTxExtra, getUtxoSum,
-                                              putAddrBalance, putTxExtra, putUtxoSum,
-                                              updateAddrHistory)
 import           Pos.Txp.Configuration (HasTxpConfiguration)
 import           Pos.Txp.Toil (ToilVerFailure (..), extendGlobalToilM, extendLocalToilM)
 import qualified Pos.Txp.Toil as Txp
 import           Pos.Txp.Topsort (topsortTxs)
 import           Pos.Util.Chrono (NewestFirst (..))
+import qualified Pos.Util.Modifier as MM
 import           Pos.Util.Util (Sign (..))
 
 ----------------------------------------------------------------------------
@@ -45,31 +51,50 @@ import           Pos.Util.Util (Sign (..))
 -- | Apply transactions from one block. They must be valid (for
 -- example, it implies topological sort).
 eApplyToil ::
-       HasConfiguration
+       forall m. (HasConfiguration, MonadIO m)
     => Maybe Timestamp
     -> [(TxAux, TxUndo)]
-    -> HeaderHash
-    -> EGlobalToilM ()
-eApplyToil mTxTimestamp txun hh = do
-    extendGlobalToilM $ Txp.applyToil txun
-    blockchainImporterExtraMToEGlobalToilM $ mapM_ applier $ zip [0..] txun
+    -> (HeaderHash, Word64)
+    -> m (EGlobalToilM ())
+eApplyToil mTxTimestamp txun (hh, blockHeight) = do
+    -- Update UTxOs
+    let toilApplyUTxO = extendGlobalToilM $ Txp.applyToil txun
+
+    liftIO $ UT.applyModifierToUtxos postGresDB $ applyUTxOModifier txun
+
+    -- Update tx history
+    let appliersM = zipWithM (curry applier) [0..] txun
+    sequence_ . (toilApplyUTxO:) . (map blockchainImporterExtraMToEGlobalToilM) <$> appliersM
   where
-    applier :: (Word32, (TxAux, TxUndo)) -> BlockchainImporterExtraM ()
+    applier :: (Word32, (TxAux, TxUndo)) -> m (BlockchainImporterExtraM ())
     applier (i, (txAux, txUndo)) = do
         let tx = taTx txAux
             id = hash tx
             newExtra = TxExtra (Just (hh, i)) mTxTimestamp txUndo
-        extra <- fromMaybe newExtra <$> getTxExtra id
-        putTxExtraWithHistory id extra $ getTxRelatedAddrs txAux txUndo
-        let balanceUpdate = getBalanceUpdate txAux txUndo
-        updateAddrBalances balanceUpdate
-        updateUtxoSumFromBalanceUpdate balanceUpdate
+
+        liftIO $ TxsT.insertTx postGresDB tx newExtra blockHeight
+
+        let resultStorage = do
+                  extra <- fromMaybe newExtra <$> getTxExtra id
+                  putTxExtraWithHistory id extra $ getTxRelatedAddrs txAux txUndo
+                  let balanceUpdate = getBalanceUpdate txAux txUndo
+                  updateAddrBalances balanceUpdate
+                  updateUtxoSumFromBalanceUpdate balanceUpdate
+        pure $ resultStorage
 
 -- | Rollback transactions from one block.
-eRollbackToil :: HasConfiguration => [(TxAux, TxUndo)] -> EGlobalToilM ()
+eRollbackToil ::
+     forall m. (HasConfiguration, MonadIO m)
+  => [(TxAux, TxUndo)] -> m (EGlobalToilM ())
 eRollbackToil txun = do
-    extendGlobalToilM $ Txp.rollbackToil txun
-    blockchainImporterExtraMToEGlobalToilM $ mapM_ extraRollback $ reverse txun
+    -- Update UTxOs
+    let toilRollbackUtxo = extendGlobalToilM $ Txp.rollbackToil txun
+
+    liftIO $ UT.applyModifierToUtxos postGresDB $ rollbackUTxOModifier txun
+
+    -- Update tx history
+    let toilRollbackTxsM = blockchainImporterExtraMToEGlobalToilM . extraRollback <$> reverse txun
+    pure $ sequence_ (toilRollbackUtxo : toilRollbackTxsM)
   where
     extraRollback :: (TxAux, TxUndo) -> BlockchainImporterExtraM ()
     extraRollback (txAux, txUndo) = do
@@ -223,3 +248,37 @@ getBalanceUpdate txAux txUndo =
     let minusBalance = map (view _TxOut . toaOut) $ catMaybes $ toList txUndo
         plusBalance = map (view _TxOut) $ toList $ _txOutputs (taTx txAux)
     in BalanceUpdate {..}
+
+-- Returns the UxtoModifier corresponding to applying a list of txs
+applyUTxOModifier :: [(TxAux, TxUndo)] -> Txp.UtxoModifier
+applyUTxOModifier txs = mconcat $ applySingleModifier <$> txs
+
+-- Returns the UxtoModifier corresponding to applying a single tx
+applySingleModifier :: (TxAux, TxUndo) -> Txp.UtxoModifier
+applySingleModifier (txAux, _) = foldr  MM.delete
+                                        (foldr (uncurry MM.insert) mempty toInsert)
+                                        toDelete
+  where tx       = taTx txAux
+        id       = hash tx
+        outputs  = toList $ _txOutputs tx
+        toInsert = zipWith (\o index -> (TxInUtxo id index, TxOutAux o)) outputs [0..]
+        toDelete = toList $ _txInputs tx
+
+-- Returns the UxtoModifier corresponding to rollbacking a list of txs
+rollbackUTxOModifier :: [(TxAux, TxUndo)] -> Txp.UtxoModifier
+rollbackUTxOModifier txs = mconcat $ rollbackSingleModifier <$> reverse txs
+
+-- Returns the UxtoModifier corresponding to rollbacking a single tx
+rollbackSingleModifier :: (TxAux, TxUndo) -> Txp.UtxoModifier
+rollbackSingleModifier (txAux, txUndo) = foldr  MM.delete
+                                                (foldr (uncurry MM.insert) mempty toInsert)
+                                                toDelete
+  where tx       = taTx txAux
+        id       = hash tx
+        inputs   = toList $ _txInputs tx
+        outputs  = toList $ _txOutputs tx
+        toDelete = [ TxInUtxo id (fromIntegral index) | index <- [0..length outputs - 1] ]
+        toInsert = catMaybes $ zipWith mapValueToMaybe inputs $ toList txUndo
+
+        mapValueToMaybe :: a -> Maybe b -> Maybe (a, b)
+        mapValueToMaybe a = fmap ((,) a)

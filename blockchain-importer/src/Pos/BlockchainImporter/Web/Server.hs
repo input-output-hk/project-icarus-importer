@@ -49,7 +49,6 @@ import           Servant.Generic (AsServerT, toServant)
 import           Servant.Server (Server, ServerT, serve)
 import           System.Wlog (logDebug)
 
-import qualified Pos.Binary.Class as Bi
 import           Pos.Crypto (WithHash (..), hash, redeemPkBuild, withHash)
 
 import           Pos.DB.Block (getBlund)
@@ -92,11 +91,12 @@ import           Pos.BlockchainImporter.Web.ClientTypes (Byte, CAda (..), CAddre
                                                          CGenesisSummary (..), CHash, CTxBrief (..),
                                                          CTxEntry (..), CTxId (..), CTxSummary (..),
                                                          TxInternal (..), convertTxOutputs,
-                                                         convertTxOutputsMB, fromCAddress,
-                                                         fromCHash, fromCTxId, getEpochIndex,
-                                                         getSlotIndex, mkCCoin, mkCCoinMB,
-                                                         tiToTxEntry, toBlockEntry, toBlockSummary,
-                                                         toCAddress, toCHash, toCTxId, toTxBrief)
+                                                         convertTxOutputsMB, decodeSTx,
+                                                         fromCAddress, fromCHash, fromCTxId,
+                                                         getEpochIndex, getSlotIndex, mkCCoin,
+                                                         mkCCoinMB, tiToTxEntry, toBlockEntry,
+                                                         toBlockSummary, toCAddress, toCHash,
+                                                         toCTxId, toTxBrief)
 import           Pos.BlockchainImporter.Web.Error (BlockchainImporterError (..))
 
 
@@ -749,8 +749,8 @@ sendSignedTx
      => Diffusion m
      -> CEncodedSTx
      -> m ()
-sendSignedTx Diffusion{..} (CEncodedSTx encodedSTx) = do
-    let maybeTxAux = Bi.decodeFull encodedSTx
+sendSignedTx Diffusion{..} encodedSTx = do
+    let maybeTxAux = decodeSTx encodedSTx
     case maybeTxAux of
       Right txAux -> do
         let txHash = hash $ taTx txAux
