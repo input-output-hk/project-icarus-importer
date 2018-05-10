@@ -71,7 +71,8 @@ import           Serokell.Util.Base16 as SB16
 import           Servant.API (FromHttpApiData (..))
 import           Test.QuickCheck (Arbitrary (..))
 
-import           Pos.Binary (Bi, biSize)
+import           Pos.Binary (Bi (..))
+import qualified Pos.Binary as Bi
 import           Pos.Block.Types (Undo (..))
 import           Pos.Core (Address, Coin, EpochIndex, LocalSlotIndex, SlotId (..), StakeholderId,
                            Timestamp, addressF, coinToInteger, decodeTextAddress, gbHeader,
@@ -228,7 +229,7 @@ toBlockEntry (blk, Undo{..}) = do
         totalRecvCoin = unsafeIntegerToCoin . sumCoins <$> traverse totalTxInMoney undoTx
         totalSentCoin = foldl' addOutCoins (mkCoin 0) txs
         cbeTotalSent  = mkCCoin $ totalSentCoin
-        cbeSize       = fromIntegral $ biSize blk
+        cbeSize       = fromIntegral $ Bi.biSize blk
         cbeFees       = mkCCoinMB $ (`unsafeSubCoin` totalSentCoin) <$> totalRecvCoin
 
         -- A simple reconstruction of the AbstractHash, could be better?
@@ -350,9 +351,11 @@ instance Default CAddressesFilter where
     def = AllAddresses
 
 -- | CBOR-encoded signed tx.
-newtype CEncodedSTx = CEncodedSTx
-    { signedTx :: BSL.ByteString
-    } deriving (Eq, Generic)
+newtype CEncodedSTx = CEncodedSTx BSL.ByteString
+
+instance Bi CEncodedSTx where
+  encode (CEncodedSTx bytes) = Bi.encode bytes
+  decode = CEncodedSTx <$> Bi.decode
 
 instance Buildable CEncodedSTx where
     build (CEncodedSTx bs) = fromLazyText $ TE.decodeUtf8 $ B64.encode bs

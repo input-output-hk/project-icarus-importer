@@ -9,7 +9,8 @@ import           Universum
 
 import           Data.Aeson.Encoding (unsafeToEncoding)
 import           Data.Aeson.TH (defaultOptions, deriveJSON, deriveToJSON)
-import           Data.Aeson.Types (FromJSON (..), Parser, ToJSON (..), Value (String), typeMismatch)
+import           Data.Aeson.Types (FromJSON (..), Parser, ToJSON (..), Value (String), typeMismatch,
+                                   withObject, (.:))
 import qualified Data.ByteString.Base64.Lazy as B64
 import qualified Data.ByteString.Builder as BS (string8)
 import qualified Data.ByteString.Lazy as BSL
@@ -29,7 +30,6 @@ import           Pos.BlockchainImporter.Web.Error (BlockchainImporterError)
 deriveJSON defaultOptions ''CHash
 deriveJSON defaultOptions ''CAddress
 deriveJSON defaultOptions ''CTxId
-deriveJSON defaultOptions ''CEncodedSTx
 
 deriveToJSON defaultOptions ''CCoin
 deriveToJSON defaultOptions ''BlockchainImporterError
@@ -51,10 +51,10 @@ instance ToJSON CAda where
         BS.string8 &         -- convert String to ByteString using Latin1 encoding
         unsafeToEncoding     -- convert ByteString to Aeson's Encoding
 
--- JSON instances for ByteString, it is encoded to base 64
-instance ToJSON BSL.ByteString where
-  toJSON bs = String $ toStrict $ TE.decodeUtf8 $ B64.encode bs
+instance FromJSON CEncodedSTx where
+  parseJSON = withObject "signedTx" $ \v -> CEncodedSTx <$> v .: "signedTx"
 
+-- JSON instance for ByteString, it is decoded from base 64
 instance FromJSON BSL.ByteString where
   parseJSON (String encodedData) = fromBase64Data encodedData
   parseJSON x                    = typeMismatch "Not a valid ByteString" x
