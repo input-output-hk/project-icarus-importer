@@ -1,13 +1,12 @@
--- FIXME: Move to blockchain-importer package
--- | Configuration of Postgres DB.
+-- | Configuration of PostGres DB.
 
-module Pos.Core.ConfigPostgres
+{-# LANGUAGE RankNTypes #-}
+
+module Pos.BlockchainImporter.Configuration
        ( HasPostGresDB
        , withPostGresDB
        , postGresDB
        ) where
-
-import           Universum
 
 import           Data.Reflection (Given (..), give, given)
 import qualified Database.PostgreSQL.Simple as PGS

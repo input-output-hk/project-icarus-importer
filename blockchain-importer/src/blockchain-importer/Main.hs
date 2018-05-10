@@ -12,21 +12,26 @@ module Main
 import           Universum
 
 import           Data.Maybe (fromJust)
+import qualified Database.PostgreSQL.Simple as PGS
 import           Mockable (Production, runProduction)
 import           System.Wlog (LoggerName, logInfo)
 
-import           BlockchainImporterNodeOptions (BlockchainImporterArgs (..), BlockchainImporterNodeArgs (..),
-                                      getBlockchainImporterNodeOptions)
+import           BlockchainImporterNodeOptions (BlockchainImporterArgs (..),
+                                                BlockchainImporterNodeArgs (..),
+                                                getBlockchainImporterNodeOptions)
 import           Pos.Binary ()
+import           Pos.BlockchainImporter.Configuration (withPostGresDB)
+import           Pos.BlockchainImporter.DB (blockchainImporterInitDB)
+import           Pos.BlockchainImporter.ExtraContext (makeExtraCtx)
+import           Pos.BlockchainImporter.Socket (NotifierSettings (..))
+import           Pos.BlockchainImporter.Txp (BlockchainImporterExtraModifier,
+                                             blockchainImporterTxpGlobalSettings)
+import           Pos.BlockchainImporter.Web (BlockchainImporterProd, blockchainImporterPlugin,
+                                             notifierPlugin, runBlockchainImporterProd)
 import           Pos.Client.CLI (CommonNodeArgs (..), NodeArgs (..), getNodeParams)
 import qualified Pos.Client.CLI as CLI
 import           Pos.Communication (OutSpecs)
 import           Pos.Context (NodeContext (..))
-import           Pos.BlockchainImporter.DB (blockchainImporterInitDB)
-import           Pos.BlockchainImporter.ExtraContext (makeExtraCtx)
-import           Pos.BlockchainImporter.Socket (NotifierSettings (..))
-import           Pos.BlockchainImporter.Txp (BlockchainImporterExtraModifier, blockchainImporterTxpGlobalSettings)
-import           Pos.BlockchainImporter.Web (BlockchainImporterProd, blockchainImporterPlugin, notifierPlugin, runBlockchainImporterProd)
 import           Pos.Launcher (ConfigurationOptions (..), HasConfigurations, NodeParams (..),
                                NodeResources (..), bracketNodeResources, elimRealMode,
                                loggerBracket, runNode, runServer, withConfigurations)
@@ -54,25 +59,27 @@ main = do
 
 action :: BlockchainImporterNodeArgs -> Production ()
 action (BlockchainImporterNodeArgs (cArgs@CommonNodeArgs{..}) BlockchainImporterArgs{..}) =
-    withConfigurations conf $ \ntpConfig ->
-    withCompileInfo $(retrieveCompileTimeInfo) $ do
-        CLI.printInfoOnStart cArgs ntpConfig
-        logInfo $ "Blockchain importer is enabled!"
-        currentParams <- getNodeParams loggerName cArgs nodeArgs
+    withConfigurations conf $ \ntpConfig -> do
+      conn <- liftIO $ PGS.connect postGresConfig
+      withPostGresDB conn $
+        withCompileInfo $(retrieveCompileTimeInfo) $ do
+            CLI.printInfoOnStart cArgs ntpConfig
+            logInfo "Blockchain importer is enabled!"
+            currentParams <- getNodeParams loggerName cArgs nodeArgs
 
-        let vssSK = fromJust $ npUserSecret currentParams ^. usVss
-        let sscParams = CLI.gtSscParams cArgs vssSK (npBehaviorConfig currentParams)
+            let vssSK = fromJust $ npUserSecret currentParams ^. usVss
+            let sscParams = CLI.gtSscParams cArgs vssSK (npBehaviorConfig currentParams)
 
-        let plugins :: HasConfigurations => ([WorkerSpec BlockchainImporterProd], OutSpecs)
-            plugins = mconcatPair
-                [ blockchainImporterPlugin webPort
-                , notifierPlugin NotifierSettings{ nsPort = notifierPort }
-                , updateTriggerWorker
-                ]
-        bracketNodeResources currentParams sscParams
-            blockchainImporterTxpGlobalSettings
-            blockchainImporterInitDB $ \nr@NodeResources {..} ->
-                runBlockchainImporterRealMode nr (runNode nr plugins)
+            let plugins :: HasConfigurations => ([WorkerSpec BlockchainImporterProd], OutSpecs)
+                plugins = mconcatPair
+                    [ blockchainImporterPlugin webPort
+                    , notifierPlugin NotifierSettings{ nsPort = notifierPort }
+                    , updateTriggerWorker
+                    ]
+            bracketNodeResources currentParams sscParams
+                blockchainImporterTxpGlobalSettings
+                blockchainImporterInitDB $ \nr@NodeResources {..} ->
+                  runBlockchainImporterRealMode nr (runNode nr plugins)
   where
 
     conf :: ConfigurationOptions
