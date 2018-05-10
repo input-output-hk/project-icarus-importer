@@ -13,8 +13,7 @@ module Pos.BlockchainImporter.Web.ClientTypes
        , CBlockEntry (..)
        , CTxEntry (..)
        , CBlockSummary (..)
-       , CEncodedData (..)
-       , CSignedEncTx (..)
+       , CEncodedSTx (..)
        , CAddressType (..)
        , CAddressSummary (..)
        , CTxBrief (..)
@@ -56,9 +55,9 @@ import           Universum
 import           Control.Arrow ((&&&))
 import           Control.Lens (_Left)
 import           Control.Monad.Error.Class (throwError)
+import qualified Data.ByteArray as BA
 import qualified Data.ByteString.Base64.Lazy as B64
 import qualified Data.ByteString.Lazy as BSL
-import qualified Data.ByteArray as BA
 import           Data.Default (Default (..))
 import           Data.Fixed (Micro, showFixed)
 import qualified Data.List.NonEmpty as NE
@@ -66,13 +65,14 @@ import qualified Data.Text.Buildable
 import           Data.Text.Lazy.Builder (fromLazyText)
 import qualified Data.Text.Lazy.Encoding as TE
 import           Data.Time.Clock.POSIX (POSIXTime)
-import           Formatting (build, bprint, sformat, (%))
+import           Formatting (build, sformat, (%))
 import           Serokell.Data.Memory.Units (Byte)
 import           Serokell.Util.Base16 as SB16
 import           Servant.API (FromHttpApiData (..))
 import           Test.QuickCheck (Arbitrary (..))
 
-import           Pos.Binary (Bi, biSize)
+import           Pos.Binary (Bi (..))
+import qualified Pos.Binary as Bi
 import           Pos.Block.Types (Undo (..))
 import           Pos.Core (Address, Coin, EpochIndex, LocalSlotIndex, SlotId (..), StakeholderId,
                            Timestamp, addressF, coinToInteger, decodeTextAddress, gbHeader,
@@ -80,14 +80,14 @@ import           Pos.Core (Address, Coin, EpochIndex, LocalSlotIndex, SlotId (..
                            prevBlockL, sumCoins, timestampToPosix, unsafeAddCoin, unsafeGetCoin,
                            unsafeIntegerToCoin, unsafeSubCoin)
 import           Pos.Core.Block (MainBlock, mainBlockSlot, mainBlockTxPayload, mcdSlot)
-import           Pos.Core.Txp (Tx (..), TxId, TxOut (..), TxOutAux (..), TxUndo, txpTxs, _txOutputs, TxWitness)
+import           Pos.Core.Txp (Tx (..), TxId, TxOut (..), TxOutAux (..), TxUndo, txpTxs, _txOutputs)
 import           Pos.Crypto (AbstractHash, Hash, HashAlgorithm, hash)
 import qualified Pos.GState as GS
 import qualified Pos.Lrc as Lrc (getLeader)
-import           Pos.Merkle (getMerkleRoot, mtRoot, mkMerkleTree)
+import           Pos.Merkle (getMerkleRoot, mkMerkleTree, mtRoot)
 
-import           Pos.BlockchainImporter.Core (TxExtra (..))
 import           Pos.BlockchainImporter.BlockchainImporterMode (BlockchainImporterMode)
+import           Pos.BlockchainImporter.Core (TxExtra (..))
 import           Pos.BlockchainImporter.ExtraContext (HasBlockchainImporterCSLInterface (..))
 import           Pos.BlockchainImporter.TestUtil (secretKeyToAddress)
 -------------------------------------------------------------------------------------
@@ -229,7 +229,7 @@ toBlockEntry (blk, Undo{..}) = do
         totalRecvCoin = unsafeIntegerToCoin . sumCoins <$> traverse totalTxInMoney undoTx
         totalSentCoin = foldl' addOutCoins (mkCoin 0) txs
         cbeTotalSent  = mkCCoin $ totalSentCoin
-        cbeSize       = fromIntegral $ biSize blk
+        cbeSize       = fromIntegral $ Bi.biSize blk
         cbeFees       = mkCCoinMB $ (`unsafeSubCoin` totalSentCoin) <$> totalRecvCoin
 
         -- A simple reconstruction of the AbstractHash, could be better?
@@ -350,22 +350,15 @@ data CAddressesFilter
 instance Default CAddressesFilter where
     def = AllAddresses
 
--- | CBOR-encoded data.
-newtype CEncodedData = CEncodedData BSL.ByteString
-    deriving (Eq, Generic)
+-- | CBOR-encoded signed tx.
+newtype CEncodedSTx = CEncodedSTx BSL.ByteString
 
-data CSignedEncTx = CSignedEncTx
-  { encodedTx :: CEncodedData
-  , txWitness :: TxWitness
-  } deriving (Eq, Generic)
+instance Bi CEncodedSTx where
+  encode (CEncodedSTx bytes) = Bi.encode bytes
+  decode = CEncodedSTx <$> Bi.decode
 
-instance Buildable CEncodedData where
-    build (CEncodedData bs) = fromLazyText $ TE.decodeUtf8 $ B64.encode bs
-
-instance Buildable CSignedEncTx where
-    build (CSignedEncTx encTx txWitness) =
-        bprint ("CSignedEncTx: encodedTx = "%build%", txWitness = [ "%build%" ]")
-            encTx txWitness
+instance Buildable CEncodedSTx where
+    build (CEncodedSTx bs) = fromLazyText $ TE.decodeUtf8 $ B64.encode bs
 
 --------------------------------------------------------------------------------
 -- FromHttpApiData instances

@@ -15,16 +15,18 @@ import           Universum
 
 import           Control.Exception.Safe (try)
 import           Data.Proxy (Proxy (Proxy))
-import           Servant.API ((:>), Capture, Get, Post, JSON, QueryParam, ReqBody, Summary)
+import           Servant.API ((:>), Capture, Get, JSON, Post, QueryParam, ReqBody, Summary)
 import           Servant.Generic ((:-), AsApi, ToServant)
 import           Servant.Server (ServantErr (..))
 
-import           Pos.Core (EpochIndex)
 import           Pos.BlockchainImporter.Web.ClientTypes (Byte, CAda, CAddress, CAddressSummary,
-                                               CAddressesFilter, CBlockEntry, CBlockSummary,
-                                               CGenesisAddressInfo, CGenesisSummary, CHash,
-                                               CTxBrief, CTxEntry, CTxId, CTxSummary, CSignedEncTx)
+                                                         CAddressesFilter, CBlockEntry,
+                                                         CBlockSummary, CEncodedSTx,
+                                                         CGenesisAddressInfo, CGenesisSummary,
+                                                         CHash, CTxBrief, CTxEntry, CTxId,
+                                                         CTxSummary)
 import           Pos.BlockchainImporter.Web.Error (BlockchainImporterError)
+import           Pos.Core (EpochIndex)
 import           Pos.Util.Servant (DQueryParam, ModifiesApiRes (..), VerbMod)
 
 type PageNumber = Integer
@@ -164,8 +166,8 @@ data BlockchainImporterApiRecord route = BlockchainImporterApiRecord
   , _sendSignedTx :: route
         :- "txs"
         :> "signed"
-        :> ReqBody '[JSON] CSignedEncTx 
-        :> ExRes Post Bool 
+        :> ReqBody '[JSON] CEncodedSTx
+        :> ExRes Post Bool
   }
   deriving (Generic)
 
