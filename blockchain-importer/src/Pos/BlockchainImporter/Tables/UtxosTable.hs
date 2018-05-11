@@ -17,7 +17,6 @@ import qualified Database.PostgreSQL.Simple as PGS
 import           Opaleye
 
 import           Pos.BlockchainImporter.Tables.Utils
-import           Pos.Core.Common (Coin (..))
 import           Pos.Core.Txp (TxIn (..), TxOut (..), TxOutAux (..))
 import           Pos.Txp.Toil.Types (UtxoModifier)
 import qualified Pos.Util.Modifier as MM
@@ -51,7 +50,7 @@ toRecord txIn@(TxInUtxo txHash txIndex) (TxOutAux (TxOut receiver value)) = Just
   where sHash     = hashToString txHash
         iIndex    = fromIntegral txIndex
         sAddress  = addressToString receiver
-        iAmount   = fromIntegral $ getCoin value
+        iAmount   = coinToInt64 value
         row       = UtxoRow (pgString $ txId txIn)
                             (pgString sHash) (pgInt4 iIndex)
                             (pgString sAddress) (pgInt8 iAmount)
