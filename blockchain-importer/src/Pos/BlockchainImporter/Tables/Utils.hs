@@ -4,11 +4,11 @@ module Pos.BlockchainImporter.Tables.Utils
   ( hashToString
   , addressToString
   , coinToInt64
+  , runUpsertMany
   ) where
 
 import           Universum
 
-import qualified Data.List.NonEmpty as NE
 import           Database.PostgreSQL.Simple ()
 import qualified Database.PostgreSQL.Simple as PGS
 import           Formatting (sformat)
@@ -37,10 +37,10 @@ coinToInt64 = fromIntegral . getCoin
 
     [1] https://github.com/tomjaguarpaw/haskell-opaleye/pull/385#issuecomment-384313025
 -}
-runUpsertMany :: PGS.Connection	-> O.Table columns columns'	-> [columns] -> IO Int64
+runUpsertMany :: PGS.Connection -> O.Table columns columns'	-> [columns] -> IO Int64
 runUpsertMany conn table columns = case nonEmpty columns of
-    Just neColumns -> PGS.execute_ conn $ ((strUpsertQuery neColumns) :: PGS.Query)
+    Just neColumns -> (PGS.execute_ conn . fromString) $ (strUpsertQuery neColumns)
     Nothing        -> return 0
   where strInsertQuery col = (O.arrangeInsertManySql table col) :: String
-        strUpsertQuery col = (strInsertQuery col)  ++ " ON CONFLICT NOTHING"
+        strUpsertQuery col = (strInsertQuery col)  ++ " ON CONFLICT UPDATE"
 
