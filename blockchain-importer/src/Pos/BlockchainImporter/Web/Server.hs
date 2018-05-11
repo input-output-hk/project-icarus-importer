@@ -32,6 +32,7 @@ module Pos.BlockchainImporter.Web.Server
 
 import           Universum
 
+import           Control.Error.Util (exceptT, hoistEither)
 import           Control.Lens (at)
 import qualified Data.ByteString as BS
 import qualified Data.HashMap.Strict as HM
@@ -49,7 +50,6 @@ import           Servant.Generic (AsServerT, toServant)
 import           Servant.Server (Server, ServerT, serve)
 import           System.Wlog (logDebug)
 
-import qualified Pos.Binary.Class as Bi
 import           Pos.Crypto (WithHash (..), hash, redeemPkBuild, withHash)
 
 import           Pos.DB.Block (getBlund)
@@ -68,7 +68,8 @@ import           Pos.Core.Block (Block, MainBlock, mainBlockSlot, mainBlockTxPay
 import           Pos.Core.Txp (Tx (..), TxId, TxOutAux (..), taTx, txOutValue, txpTxs, _txOutputs)
 import           Pos.Slotting (MonadSlots (..), getSlotStart)
 import           Pos.Txp (MonadTxpMem, TxMap, getLocalTxs, getMemPool, mpLocalTxs, topsortTxs,
-                          withTxpLocalData)
+                          verifyTx, withTxpLocalData)
+import           Pos.Txp.DB.Utxo (getTxOut)
 import           Pos.Util (divRoundUp, maybeThrow)
 import           Pos.Util.Chrono (NewestFirst (..))
 import           Pos.Web (serveImpl)
@@ -91,11 +92,12 @@ import           Pos.BlockchainImporter.Web.ClientTypes (Byte, CAda (..), CAddre
                                                          CGenesisSummary (..), CHash, CTxBrief (..),
                                                          CTxEntry (..), CTxId (..), CTxSummary (..),
                                                          TxInternal (..), convertTxOutputs,
-                                                         convertTxOutputsMB, fromCAddress,
-                                                         fromCHash, fromCTxId, getEpochIndex,
-                                                         getSlotIndex, mkCCoin, mkCCoinMB,
-                                                         tiToTxEntry, toBlockEntry, toBlockSummary,
-                                                         toCAddress, toCHash, toCTxId, toTxBrief)
+                                                         convertTxOutputsMB, decodeSTx,
+                                                         fromCAddress, fromCHash, fromCTxId,
+                                                         getEpochIndex, getSlotIndex, mkCCoin,
+                                                         mkCCoinMB, tiToTxEntry, toBlockEntry,
+                                                         toBlockSummary, toCAddress, toCHash,
+                                                         toCTxId, toTxBrief)
 import           Pos.BlockchainImporter.Web.Error (BlockchainImporterError (..))
 
 
@@ -747,17 +749,25 @@ sendSignedTx
      :: BlockchainImporterMode ctx m
      => Diffusion m
      -> CEncodedSTx
-     -> m Bool
-sendSignedTx Diffusion{..} encodedSTx = do
-    let maybeTxAux = Bi.decodeFull $ Bi.serialize encodedSTx
-    case maybeTxAux of
-      Right txAux ->
-        -- This is done for two reasons:
-        -- 1. In order not to overflow relay.
-        -- 2. To let other things (e. g. block processing) happen if
-        -- `newPayment`s are done continuously.
-        notFasterThan (6 :: Second) $ sendTx txAux
-      Left _ -> return False
+     -> m ()
+sendSignedTx Diffusion{..} encodedSTx =
+  exceptT' (hoistEither $ decodeSTx encodedSTx) (const $ throwM eInvalidEnc) $ \txAux -> do
+    let txHash = hash $ taTx txAux
+    -- FIXME: We are using only the confirmed UTxO, we should also take into account the pending txs
+    exceptT' (verifyTx getTxOut False txAux) (throwM . eInvalidTx txHash) $ \_ -> do
+      -- This is done for two reasons:
+      -- 1. In order not to overflow relay.
+      -- 2. To let other things (e. g. block processing) happen if
+      -- `newPayment`s are done continuously.
+      wasAccepted <- notFasterThan (6 :: Second) $ sendTx txAux
+      void $ unless wasAccepted $ (throwM $ eNotAccepted txHash)
+        where eInvalidEnc = Internal "Tx not broadcasted: invalid encoded tx"
+              eInvalidTx txHash reason = Internal $
+                  sformat ("Tx not broadcasted "%build%": "%build) txHash reason
+              eNotAccepted txHash = Internal $
+                  sformat  ("Tx broadcasted "%build%", not accepted by any peer") txHash
+              exceptT' e f g = exceptT f g e
+
 
 --------------------------------------------------------------------------------
 -- Helpers

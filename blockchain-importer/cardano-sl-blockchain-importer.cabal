@@ -65,6 +65,7 @@ library
                       , conduit
                       , containers
                       , data-default
+                      , errors
                       , ether >= 0.5.1
                       , exceptions
                       , formatting

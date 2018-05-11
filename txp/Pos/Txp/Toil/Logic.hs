@@ -6,7 +6,8 @@
 -- 'GlobalToilM'.
 
 module Pos.Txp.Toil.Logic
-       ( verifyToil
+       ( verifyTx
+       , verifyToil
        , applyToil
        , rollbackToil
 
@@ -26,8 +27,8 @@ import           Pos.Core (AddrAttributes (..), AddrStakeDistribution (..), Addr
 import           Pos.Core.Common (integerToCoin)
 import qualified Pos.Core.Common as Fee (TxFeePolicy (..), calculateTxSizeLinear)
 import           Pos.Core.Configuration (HasConfiguration)
-import           Pos.Core.Txp (Tx (..), TxAux (..), TxId, TxOut (..), TxUndo, TxpUndo, checkTxAux,
-                               toaOut, txOutAddress)
+import           Pos.Core.Txp (Tx (..), TxAux (..), TxId, TxIn, TxOut (..), TxOutAux, TxUndo,
+                               TxpUndo, checkTxAux, toaOut, txOutAddress)
 import           Pos.Crypto (WithHash (..), hash)
 import           Pos.Txp.Configuration (HasTxpConfiguration, memPoolLimitTx)
 import           Pos.Txp.Toil.Failure (ToilVerFailure (..))
@@ -134,6 +135,25 @@ verifyAndApplyTx adoptedBVD curEpoch verifyVersions tx@(_, txAux) = do
     liftEither $ verifyGState adoptedBVD curEpoch txAux vtur
     lift $ applyTxToUtxo' tx
     pure vturUndo
+  where
+    ctx = Utxo.VTxContext verifyVersions
+
+{-  Verifies that a tx is valid
+    All validations from 'verifyAndApplyTx' are incorporated, except the ones
+    that require the block in which it will be incorporated:
+      - Verifying the tx fee
+      - Verifying the tx size
+      - If we are in the bootstrap era, checking the addresses used
+-}
+verifyTx ::
+       (HasConfiguration, Monad m)
+    => (TxIn -> m (Maybe TxOutAux))
+    -> Bool
+    -> TxAux
+    -> ExceptT ToilVerFailure m ()
+verifyTx utxoLookup verifyVersions txAux = do
+    whenLeft (checkTxAux txAux) (throwError . ToilInconsistentTxAux)
+    void $ Utxo.verifyTxUtxoFromLookup utxoLookup ctx txAux
   where
     ctx = Utxo.VTxContext verifyVersions
 
