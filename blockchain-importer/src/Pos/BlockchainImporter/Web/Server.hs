@@ -32,6 +32,7 @@ module Pos.BlockchainImporter.Web.Server
 
 import           Universum
 
+import           Control.Error.Util (exceptT, hoistEither)
 import           Control.Lens (at)
 import qualified Data.ByteString as BS
 import qualified Data.HashMap.Strict as HM
@@ -749,29 +750,24 @@ sendSignedTx
      => Diffusion m
      -> CEncodedSTx
      -> m ()
-sendSignedTx Diffusion{..} encodedSTx = do
-    let maybeTxAux = decodeSTx encodedSTx
-    case maybeTxAux of
-      Right txAux -> do
-        let txHash = hash $ taTx txAux
-        -- FIXME: We are using only the confirmed UTxO,
-        --        we should also take into account the pending txs
-        isValidTx <- runExceptT $ verifyTx getTxOut False txAux
-        case isValidTx of
-          Right _              -> do
-            -- This is done for two reasons:
-            -- 1. In order not to overflow relay.
-            -- 2. To let other things (e. g. block processing) happen if
-            -- `newPayment`s are done continuously.
-            wasAccepted <- notFasterThan (6 :: Second) $ sendTx txAux
-            unless  wasAccepted $
-                    throwM $ Internal $ sformat ("Tx broadcasted "%build%", not accepted by any peer")
-                                                txHash
-            return ()
-          Left validationError ->
-            throwM $ Internal $ sformat ("Tx not broadcasted "%build%": "%build)
-                                        txHash validationError
-      Left _ -> throwM $ Internal "Tx not broadcasted: invalid encoded tx"
+sendSignedTx Diffusion{..} encodedSTx =
+  exceptT' (hoistEither $ decodeSTx encodedSTx) (const $ throwM eInvalidEnc) $ \txAux -> do
+    let txHash = hash $ taTx txAux
+    -- FIXME: We are using only the confirmed UTxO, we should also take into account the pending txs
+    exceptT' (verifyTx getTxOut False txAux) (throwM . eInvalidTx txHash) $ \_ -> do
+      -- This is done for two reasons:
+      -- 1. In order not to overflow relay.
+      -- 2. To let other things (e. g. block processing) happen if
+      -- `newPayment`s are done continuously.
+      wasAccepted <- notFasterThan (6 :: Second) $ sendTx txAux
+      void $ unless wasAccepted $ (throwM $ eNotAccepted txHash)
+        where eInvalidEnc = Internal "Tx not broadcasted: invalid encoded tx"
+              eInvalidTx txHash reason = Internal $
+                  sformat ("Tx not broadcasted "%build%": "%build) txHash reason
+              eNotAccepted txHash = Internal $
+                  sformat  ("Tx broadcasted "%build%", not accepted by any peer") txHash
+              exceptT' e f g = exceptT f g e
+
 
 --------------------------------------------------------------------------------
 -- Helpers
