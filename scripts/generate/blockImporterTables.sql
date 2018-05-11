@@ -10,22 +10,28 @@ CREATE TABLE utxos  ( utxo_id   text      PRIMARY KEY
           					, amount 	  bigint
                     );
 
+-- FIXME: Not used, delete?
 CREATE TABLE bestBlock ( best_block_num bigint);
 
-CREATE TABLE txs 	( hash		  hash PRIMARY KEY
-        					, block_num bigint NULL
-        					, time      timestamp with time zone NULL
+CREATE TABLE txs 	( hash		          hash      PRIMARY KEY
+                  , inputs_address 		text[]
+                  , inputs_amount 		bigint[]
+        					, outputs_address   text[]
+                  , outputs_amount    bigint[]
+        					, block_num         bigint    NULL
+        					, time              timestamp with time zone NULL
                   );
 
-CREATE TABLE tx_details  ( hash     hash REFERENCES txs ON DELETE CASCADE
-												 , is_input boolean
-												 , address  address
-												 , amount   bigint
-                         ); 
+CREATE TABLE tx_addresses ( tx_hash  hash     REFERENCES txs ON DELETE CASCADE
+											    , address  address
+											    );
 
 -- FIXME: Add table of txs addr (tx_hash, addr, amount)
 
 
 -- Indexes
-CREATE INDEX ON "utxos" (receiver);
-CREATE INDEX address_idx ON tx_details (address);
+CREATE INDEX ON utxos (receiver);
+CREATE INDEX ON txs (hash);
+CREATE INDEX ON txs (time);
+CREATE INDEX ON tx_addresses (tx_hash);
+CREATE INDEX ON tx_addresses (address);

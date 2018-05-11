@@ -11,47 +11,77 @@ module Pos.BlockchainImporter.Tables.TxsTable
   , deleteTx
   ) where
 
+import           Universum
+
 import           Control.Monad (void)
+import qualified Data.List.NonEmpty as NE (toList)
 import           Data.Profunctor.Product.TH (makeAdaptorAndInstance)
 import qualified Database.PostgreSQL.Simple as PGS
 import           Opaleye
+
 import           Pos.BlockchainImporter.Core (TxExtra (..))
-import qualified Pos.BlockchainImporter.Tables.TxDetailsTable as TDT (insertTxDetails)
-import           Pos.BlockchainImporter.Tables.Utils (hashToString)
+import qualified Pos.BlockchainImporter.Tables.TxAddrTable as TAT (insertTxAddresses)
+import           Pos.BlockchainImporter.Tables.Utils
 import           Pos.Core (timestampToUTCTimeL)
-import           Pos.Core.Txp (Tx (..))
+import           Pos.Core.Txp (Tx (..), TxOut (..), TxOutAux (..))
 import           Pos.Crypto (hash)
-import           Universum
 
-data TxRowPoly a b c = TxRow { trHash     :: a
-                             , trBlockNum :: b
-                             , trTime     :: c
-                             } deriving (Show)
 
-type TxRowPGW = TxRowPoly (Column PGText) (Column (Nullable PGInt8)) (Column (Nullable PGTimestamptz))
-type TxRowPGR = TxRowPoly (Column PGText) (Column (Nullable PGInt8)) (Column (Nullable PGTimestamptz))
+data TxRowPoly a b c d e f g = TxRow  { trHash          :: a
+                                      , trInputsAddr    :: b
+                                      , trInputsAmount  :: c
+                                      , trOutputsAddr   :: d
+                                      , trOutputsAmount :: e
+                                      , trBlockNum      :: f
+                                      , trTime          :: g
+                                      } deriving (Show)
+
+type TxRowPGW = TxRowPoly (Column PGText)
+                          (Column (PGArray PGText))
+                          (Column (PGArray PGInt8))
+                          (Column (PGArray PGText))
+                          (Column (PGArray PGInt8))
+                          (Column (Nullable PGInt8))
+                          (Column (Nullable PGTimestamptz))
+type TxRowPGR = TxRowPoly (Column PGText)
+                          (Column (PGArray PGText))
+                          (Column (PGArray PGInt8))
+                          (Column (PGArray PGText))
+                          (Column (PGArray PGInt8))
+                          (Column (Nullable PGInt8))
+                          (Column (Nullable PGTimestamptz))
 
 $(makeAdaptorAndInstance "pTxs" ''TxRowPoly)
 
 txsTable :: Table TxRowPGW TxRowPGR
-txsTable = Table "txs" (pTxs TxRow { trHash     = required "hash"
-                                   , trBlockNum = required "block_num"
-                                   , trTime     = required "time"
-                                   })
+txsTable = Table "txs" (pTxs TxRow  { trHash            = required "hash"
+                                    , trInputsAddr      = required "inputs_address"
+                                    , trInputsAmount    = required "inputs_amount"
+                                    , trOutputsAddr     = required "outputs_address"
+                                    , trOutputsAmount   = required "outputs_amount"
+                                    , trBlockNum        = required "block_num"
+                                    , trTime            = required "time"
+                                    })
 
 -- | Inserts a given Tx into the Tx history tables.
 insertTx :: PGS.Connection -> Tx -> TxExtra -> Word64 -> IO ()
 insertTx conn tx txExtra blockHeight = PGS.withTransaction conn $ do
-  insertTxHeader conn tx txExtra blockHeight
-  TDT.insertTxDetails conn tx txExtra
+  insertTxToHistory conn tx txExtra blockHeight
+  TAT.insertTxAddresses conn tx txExtra
 
 -- | Inserts the basic info of a given Tx into the master Tx history table.
-insertTxHeader :: PGS.Connection -> Tx -> TxExtra -> Word64 -> IO ()
-insertTxHeader conn tx txExtra blockHeight = void $ runInsertMany conn txsTable [row]
+insertTxToHistory :: PGS.Connection -> Tx -> TxExtra -> Word64 -> IO ()
+insertTxToHistory conn tx txExtra blockHeight = void $ runInsertMany conn txsTable [row]
   where
-    row = TxRow { trHash     = pgString $ hashToString (hash tx)
-                , trBlockNum = toNullable $ pgInt8 $ fromIntegral blockHeight
-                , trTime     = maybeToNullable utcTime
+    inputs  = toaOut <$> (catMaybes $ NE.toList $ teInputOutputs txExtra)
+    outputs = NE.toList $ _txOutputs tx
+    row = TxRow { trHash          = pgString $ hashToString (hash tx)
+                , trInputsAddr    = pgArray (pgString . addressToString . txOutAddress) inputs
+                , trInputsAmount  = pgArray (pgInt8 . coinToInt64 . txOutValue) inputs
+                , trOutputsAddr   = pgArray (pgString . addressToString . txOutAddress) outputs
+                , trOutputsAmount = pgArray (pgInt8 . coinToInt64 . txOutValue) outputs
+                , trBlockNum      = toNullable $ pgInt8 $ fromIntegral blockHeight
+                , trTime          = maybeToNullable utcTime
                 }
     utcTime = pgUTCTime . (^. timestampToUTCTimeL) <$> teReceivedTime txExtra
 
