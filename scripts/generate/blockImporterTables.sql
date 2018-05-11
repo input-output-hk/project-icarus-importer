@@ -1,4 +1,5 @@
 -- Auxiliary datatypes
+-- FIXME: Delete
 CREATE DOMAIN hash AS text;
 CREATE DOMAIN address AS text;
 

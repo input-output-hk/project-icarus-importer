@@ -62,5 +62,5 @@ applyModifierToUtxos conn modifier = do
   let toInsert = catMaybes $ (uncurry toRecord) <$> MM.insertions modifier
       toDelete = (pgString . txId) <$> MM.deletions modifier
   PGS.withTransaction conn $ do
-    void $ runInsertMany conn utxosTable toInsert
+    void $ runUpsertMany conn utxosTable toInsert
     void $ runDelete conn utxosTable $ \(UtxoRow sId _ _ _ _) -> in_ toDelete sId
