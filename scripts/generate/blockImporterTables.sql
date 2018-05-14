@@ -6,8 +6,7 @@ CREATE TABLE utxos  ( utxo_id   text      PRIMARY KEY
           					, amount 	  bigint
                     );
 
--- FIXME: Not used, delete?
-CREATE TABLE bestBlock ( best_block_num bigint);
+CREATE TABLE bestblock ( best_block_num bigint );
 
 CREATE TABLE txs 	( hash		          text      PRIMARY KEY
                   , inputs_address 		text[]
@@ -21,9 +20,6 @@ CREATE TABLE txs 	( hash		          text      PRIMARY KEY
 CREATE TABLE tx_addresses ( tx_hash  hash     REFERENCES txs ON DELETE CASCADE
 											    , address  text
 											    );
-
--- FIXME: Add table of txs addr (tx_hash, addr, amount)
-
 
 -- Indexes
 CREATE INDEX ON utxos (receiver);

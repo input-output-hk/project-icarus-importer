@@ -21,6 +21,7 @@ import           System.Wlog (logError)
 
 import           Pos.BlockchainImporter.Configuration (HasPostGresDB, postGresDB)
 import           Pos.BlockchainImporter.Core (AddrHistory, TxExtra (..))
+import qualified Pos.BlockchainImporter.Tables.BestBlockTable as BBT
 import qualified Pos.BlockchainImporter.Tables.TxsTable as TxsT
 import qualified Pos.BlockchainImporter.Tables.UtxosTable as UT
 import           Pos.BlockchainImporter.Txp.Toil.Monad (BlockchainImporterExtraM, EGlobalToilM,
@@ -57,6 +58,9 @@ eApplyToil ::
     -> (HeaderHash, Word64)
     -> m (EGlobalToilM ())
 eApplyToil mTxTimestamp txun (hh, blockHeight) = do
+    -- Update best block
+    liftIO $ BBT.updateBestBlock postGresDB blockHeight
+
     -- Update UTxOs
     let toilApplyUTxO = extendGlobalToilM $ Txp.applyToil txun
 
@@ -85,8 +89,11 @@ eApplyToil mTxTimestamp txun (hh, blockHeight) = do
 -- | Rollback transactions from one block.
 eRollbackToil ::
      forall m. (HasConfiguration, HasPostGresDB, MonadIO m)
-  => [(TxAux, TxUndo)] -> m (EGlobalToilM ())
-eRollbackToil txun = do
+  => [(TxAux, TxUndo)] -> Word64 -> m (EGlobalToilM ())
+eRollbackToil txun blockHeight = do
+    -- Update best block
+    liftIO $ BBT.updateBestBlock postGresDB (blockHeight - 1)
+
     -- Update UTxOs
     let toilRollbackUtxo = extendGlobalToilM $ Txp.rollbackToil txun
 
