@@ -10,7 +10,7 @@ CREATE TABLE utxos  ( utxo_id   text      PRIMARY KEY
           					, amount 	  bigint
                     );
 
-CREATE TABLE bestBlock ( best_block_num bigint);
+CREATE TABLE bestblock ( best_block_num bigint );
 
 CREATE TABLE txs 	( hash		  hash PRIMARY KEY
         					, block_num bigint NULL
