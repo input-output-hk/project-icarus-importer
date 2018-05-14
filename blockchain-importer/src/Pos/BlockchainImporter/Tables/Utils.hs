@@ -37,10 +37,10 @@ coinToInt64 = fromIntegral . getCoin
 
     [1] https://github.com/tomjaguarpaw/haskell-opaleye/pull/385#issuecomment-384313025
 -}
-runUpsertMany :: PGS.Connection -> O.Table columns columns'	-> [columns] -> String -> IO Int64
+runUpsertMany :: PGS.Connection -> O.Table columns columns' -> [columns] -> String -> IO Int64
 runUpsertMany conn table columns keyCol = case nonEmpty columns of
-    Just neColumns -> (PGS.execute_ conn . fromString) $ (strUpsertQuery neColumns)
+    Just neColumns -> PGS.execute_ conn . fromString $ strUpsertQuery neColumns
     Nothing        -> return 0
-  where strInsertQuery col = (O.arrangeInsertManySql table col) :: String
+  where strInsertQuery col = O.arrangeInsertManySql table col
         strUpsertQuery col = (strInsertQuery col)  ++ " ON CONFLICT (" ++ keyCol  ++ ") DO NOTHING"
 

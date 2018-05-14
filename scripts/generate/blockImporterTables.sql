@@ -1,20 +1,15 @@
--- Auxiliary datatypes
--- FIXME: Delete
-CREATE DOMAIN hash AS text;
-CREATE DOMAIN address AS text;
-
 -- Tables
 CREATE TABLE utxos  ( utxo_id   text      PRIMARY KEY
-                    , tx_hash   hash
+                    , tx_hash   text
           					, tx_index	integer
-          					, receiver	address
+          					, receiver	text
           					, amount 	  bigint
                     );
 
 -- FIXME: Not used, delete?
 CREATE TABLE bestBlock ( best_block_num bigint);
 
-CREATE TABLE txs 	( hash		          hash      PRIMARY KEY
+CREATE TABLE txs 	( hash		          text      PRIMARY KEY
                   , inputs_address 		text[]
                   , inputs_amount 		bigint[]
         					, outputs_address   text[]
@@ -24,7 +19,7 @@ CREATE TABLE txs 	( hash		          hash      PRIMARY KEY
                   );
 
 CREATE TABLE tx_addresses ( tx_hash  hash     REFERENCES txs ON DELETE CASCADE
-											    , address  address
+											    , address  text
 											    );
 
 -- FIXME: Add table of txs addr (tx_hash, addr, amount)
