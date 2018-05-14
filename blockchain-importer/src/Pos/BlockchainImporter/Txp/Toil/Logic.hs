@@ -74,13 +74,13 @@ eApplyToil mTxTimestamp txun (hh, blockHeight) = do
 
         liftIO $ TxsT.insertTx postGresDB tx newExtra blockHeight
 
-        let resultStorage = do
+        let keyValueDBUpdate = do
                   extra <- fromMaybe newExtra <$> getTxExtra id
                   putTxExtraWithHistory id extra $ getTxRelatedAddrs txAux txUndo
                   let balanceUpdate = getBalanceUpdate txAux txUndo
                   updateAddrBalances balanceUpdate
                   updateUtxoSumFromBalanceUpdate balanceUpdate
-        pure $ resultStorage
+        pure keyValueDBUpdate
 
 -- | Rollback transactions from one block.
 eRollbackToil ::
@@ -93,20 +93,24 @@ eRollbackToil txun = do
     liftIO $ UT.applyModifierToUtxos postGresDB $ rollbackUTxOModifier txun
 
     -- Update tx history
-    let toilRollbackTxsM = blockchainImporterExtraMToEGlobalToilM . extraRollback <$> reverse txun
-    pure $ sequence_ (toilRollbackUtxo : toilRollbackTxsM)
+    let rollbacksM = mapM extraRollback $ reverse txun
+    sequence_ . (toilRollbackUtxo :) . (map blockchainImporterExtraMToEGlobalToilM) <$> rollbacksM
   where
-    extraRollback :: (TxAux, TxUndo) -> BlockchainImporterExtraM ()
+    extraRollback :: (TxAux, TxUndo) -> m (BlockchainImporterExtraM ())
     extraRollback (txAux, txUndo) = do
-        delTxExtraWithHistory (hash (taTx txAux)) $
-          getTxRelatedAddrs txAux txUndo
-        let BalanceUpdate {..} = getBalanceUpdate txAux txUndo
-        let balanceUpdate = BalanceUpdate {
-            plusBalance = minusBalance,
-            minusBalance = plusBalance
-        }
-        updateAddrBalances balanceUpdate
-        updateUtxoSumFromBalanceUpdate balanceUpdate
+        liftIO $ TxsT.deleteTx postGresDB $ taTx txAux
+
+        let keyValueDBUpdate = do
+                  delTxExtraWithHistory (hash (taTx txAux)) $
+                    getTxRelatedAddrs txAux txUndo
+                  let BalanceUpdate {..} = getBalanceUpdate txAux txUndo
+                  let balanceUpdate = BalanceUpdate {
+                      plusBalance = minusBalance,
+                      minusBalance = plusBalance
+                  }
+                  updateAddrBalances balanceUpdate
+                  updateUtxoSumFromBalanceUpdate balanceUpdate
+        pure keyValueDBUpdate
 
 ----------------------------------------------------------------------------
 -- Local
