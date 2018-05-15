@@ -74,7 +74,7 @@ blockchainImporterArgsParser = do
     notifierPort   <- option auto $
         long    "notifier-port" <>
         metavar "PORT" <>
-        value   8200 <> showDefault <>
+        value   8210 <> showDefault <>
         help    "Port for update notifier, the socket.io backend."
     postGresConfig <- connectInfoParser
     pure $ BlockchainImporterNodeArgs commonNodeArgs BlockchainImporterArgs{..}
