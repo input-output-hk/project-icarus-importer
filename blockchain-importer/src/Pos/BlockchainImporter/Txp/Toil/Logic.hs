@@ -21,6 +21,7 @@ import           System.Wlog (logError)
 
 import           Pos.BlockchainImporter.Configuration (HasPostGresDB, postGresDB)
 import           Pos.BlockchainImporter.Core (AddrHistory, TxExtra (..))
+import qualified Pos.BlockchainImporter.Tables.BestBlockTable as BBT
 import qualified Pos.BlockchainImporter.Tables.TxsTable as TxsT
 import qualified Pos.BlockchainImporter.Tables.UtxosTable as UT
 import           Pos.BlockchainImporter.Txp.Toil.Monad (BlockchainImporterExtraM, EGlobalToilM,
@@ -57,6 +58,9 @@ eApplyToil ::
     -> (HeaderHash, Word64)
     -> m (EGlobalToilM ())
 eApplyToil mTxTimestamp txun (hh, blockHeight) = do
+    -- Update best block
+    liftIO $ BBT.updateBestBlock postGresDB blockHeight
+
     -- Update UTxOs
     let toilApplyUTxO = extendGlobalToilM $ Txp.applyToil txun
 
@@ -74,39 +78,46 @@ eApplyToil mTxTimestamp txun (hh, blockHeight) = do
 
         liftIO $ TxsT.insertTx postGresDB tx newExtra blockHeight
 
-        let resultStorage = do
+        let keyValueDBUpdate = do
                   extra <- fromMaybe newExtra <$> getTxExtra id
                   putTxExtraWithHistory id extra $ getTxRelatedAddrs txAux txUndo
                   let balanceUpdate = getBalanceUpdate txAux txUndo
                   updateAddrBalances balanceUpdate
                   updateUtxoSumFromBalanceUpdate balanceUpdate
-        pure $ resultStorage
+        pure keyValueDBUpdate
 
 -- | Rollback transactions from one block.
 eRollbackToil ::
      forall m. (HasConfiguration, HasPostGresDB, MonadIO m)
-  => [(TxAux, TxUndo)] -> m (EGlobalToilM ())
-eRollbackToil txun = do
+  => [(TxAux, TxUndo)] -> Word64 -> m (EGlobalToilM ())
+eRollbackToil txun blockHeight = do
+    -- Update best block
+    liftIO $ BBT.updateBestBlock postGresDB (blockHeight - 1)
+
     -- Update UTxOs
     let toilRollbackUtxo = extendGlobalToilM $ Txp.rollbackToil txun
 
     liftIO $ UT.applyModifierToUtxos postGresDB $ rollbackUTxOModifier txun
 
     -- Update tx history
-    let toilRollbackTxsM = blockchainImporterExtraMToEGlobalToilM . extraRollback <$> reverse txun
-    pure $ sequence_ (toilRollbackUtxo : toilRollbackTxsM)
+    let rollbacksM = mapM extraRollback $ reverse txun
+    sequence_ . (toilRollbackUtxo :) . (map blockchainImporterExtraMToEGlobalToilM) <$> rollbacksM
   where
-    extraRollback :: (TxAux, TxUndo) -> BlockchainImporterExtraM ()
+    extraRollback :: (TxAux, TxUndo) -> m (BlockchainImporterExtraM ())
     extraRollback (txAux, txUndo) = do
-        delTxExtraWithHistory (hash (taTx txAux)) $
-          getTxRelatedAddrs txAux txUndo
-        let BalanceUpdate {..} = getBalanceUpdate txAux txUndo
-        let balanceUpdate = BalanceUpdate {
-            plusBalance = minusBalance,
-            minusBalance = plusBalance
-        }
-        updateAddrBalances balanceUpdate
-        updateUtxoSumFromBalanceUpdate balanceUpdate
+        liftIO $ TxsT.deleteTx postGresDB $ taTx txAux
+
+        let keyValueDBUpdate = do
+                  delTxExtraWithHistory (hash (taTx txAux)) $
+                    getTxRelatedAddrs txAux txUndo
+                  let BalanceUpdate {..} = getBalanceUpdate txAux txUndo
+                  let balanceUpdate = BalanceUpdate {
+                      plusBalance = minusBalance,
+                      minusBalance = plusBalance
+                  }
+                  updateAddrBalances balanceUpdate
+                  updateUtxoSumFromBalanceUpdate balanceUpdate
+        pure keyValueDBUpdate
 
 ----------------------------------------------------------------------------
 -- Local
