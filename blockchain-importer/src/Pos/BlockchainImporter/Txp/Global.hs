@@ -51,7 +51,7 @@ rollbackSettings ::
     => ProcessBlundsSettings BlockchainImporterExtraLookup BlockchainImporterExtraModifier m
 rollbackSettings =
     ProcessBlundsSettings
-        { pbsProcessSingle = eRollbackToil . blundToAuxNUndo
+        { pbsProcessSingle = rollbackSingle
         , pbsCreateEnv = buildBlockchainImporterExtraLookup
         , pbsExtraOperations = extraOps
         , pbsIsRollback = True
@@ -80,7 +80,7 @@ applySingle txpBlund = do
                         -- Genesis block doesn't have a slot, set to minBound
                         }
                     ,
-                    0 -- TODO: Confirm
+                    0
                 )
             ComponentBlockMain mainHeader _  ->
                 (
@@ -93,6 +93,17 @@ applySingle txpBlund = do
 
     let (txAuxesAndUndos, hHash) = blundToAuxNUndoWHash txpBlund
     eApplyToil mTxTimestamp txAuxesAndUndos (hHash, blockHeight)
+
+rollbackSingle ::
+       forall m. (HasConfiguration, HasPostGresDB, MonadIO m)
+    => TxpBlund -> m (EGlobalToilM ())
+rollbackSingle txpBlund =
+  let txpBlock        = txpBlund ^. _1
+      blockHeight     = case txpBlock of
+            ComponentBlockGenesis _         -> 0
+            ComponentBlockMain mainHeader _ -> fromIntegral $ mainHeader ^. difficultyL
+      txAuxesAndUndos = blundToAuxNUndo txpBlund
+  in eRollbackToil txAuxesAndUndos blockHeight
 
 extraOps :: HasConfiguration => BlockchainImporterExtraModifier -> SomeBatchOp
 extraOps (BlockchainImporterExtraModifier em (HM.toList -> histories) balances utxoNewSum) =
