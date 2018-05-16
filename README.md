@@ -17,6 +17,8 @@ information.
 
 ## Building Cardano SL from Source Code
 
+**Pre-requesites**: `sudo apt-get install liblzma-dev libpq-dev`
+
 Please see [this guide](https://cardanodocs.com/for-contributors/building-from-source/) for
 more information.
 
