@@ -27,28 +27,28 @@ import           Pos.Core.Txp (Tx (..), TxOut (..), TxOutAux (..))
 import           Pos.Crypto (hash)
 
 
-data TxRowPoly a b c d e f g = TxRow  { trHash          :: a
-                                      , trInputsAddr    :: b
-                                      , trInputsAmount  :: c
-                                      , trOutputsAddr   :: d
-                                      , trOutputsAmount :: e
-                                      , trBlockNum      :: f
-                                      , trTime          :: g
-                                      } deriving (Show)
+data TxRowPoly h iAddrs iAmts oAddrs oAmts bn t = TxRow   { trHash          :: h
+                                                          , trInputsAddr    :: iAddrs
+                                                          , trInputsAmount  :: iAmts
+                                                          , trOutputsAddr   :: oAddrs
+                                                          , trOutputsAmount :: oAmts
+                                                          , trBlockNum      :: bn
+                                                          , trTime          :: t
+                                                          } deriving (Show)
 
 type TxRowPGW = TxRowPoly (Column PGText)
                           (Column (PGArray PGText))
                           (Column (PGArray PGInt8))
                           (Column (PGArray PGText))
                           (Column (PGArray PGInt8))
-                          (Column (Nullable PGInt8))
+                          (Column PGInt8)
                           (Column (Nullable PGTimestamptz))
 type TxRowPGR = TxRowPoly (Column PGText)
                           (Column (PGArray PGText))
                           (Column (PGArray PGInt8))
                           (Column (PGArray PGText))
                           (Column (PGArray PGInt8))
-                          (Column (Nullable PGInt8))
+                          (Column PGInt8)
                           (Column (Nullable PGTimestamptz))
 
 $(makeAdaptorAndInstance "pTxs" ''TxRowPoly)
@@ -80,7 +80,8 @@ insertTxToHistory conn tx txExtra blockHeight = void $ runUpsertMany conn txsTab
                 , trInputsAmount  = pgArray (pgInt8 . coinToInt64 . txOutValue) inputs
                 , trOutputsAddr   = pgArray (pgString . addressToString . txOutAddress) outputs
                 , trOutputsAmount = pgArray (pgInt8 . coinToInt64 . txOutValue) outputs
-                , trBlockNum      = toNullable $ pgInt8 $ fromIntegral blockHeight
+                , trBlockNum      = pgInt8 $ fromIntegral blockHeight
+                  -- FIXME: Tx time should never be None at this stage
                 , trTime          = maybeToNullable utcTime
                 }
     utcTime = pgUTCTime . (^. timestampToUTCTimeL) <$> teReceivedTime txExtra
