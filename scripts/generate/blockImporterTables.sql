@@ -13,7 +13,7 @@ CREATE TABLE txs 	( hash		          text      PRIMARY KEY
                   , inputs_amount 		bigint[]
         					, outputs_address   text[]
                   , outputs_amount    bigint[]
-        					, block_num         bigint    NULL
+        					, block_num         bigint
         					, time              timestamp with time zone NULL
                   );
 
