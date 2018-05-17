@@ -37,18 +37,20 @@ import qualified Pos.Slotting as Slot
 import           Pos.Txp (GenericTxpLocalData (..), MempoolExt, MonadTxpMem, TxpHolderTag,
                           mkTxpLocalData)
 import           Pos.Util (postfixLFields)
+import           Pos.Util.Mockable ()
 import           Pos.Util.Util (HasLens (..))
 
-import           Pos.BlockchainImporter.ExtraContext (ExtraContext, ExtraContextT, HasBlockchainImporterCSLInterface,
-                                            HasGenesisRedeemAddressInfo, makeExtraCtx,
-                                            runExtraContextT)
+import           Pos.BlockchainImporter.ExtraContext (ExtraContext, ExtraContextT,
+                                                      HasBlockchainImporterCSLInterface,
+                                                      HasGenesisRedeemAddressInfo, makeExtraCtx,
+                                                      runExtraContextT)
 import           Pos.BlockchainImporter.Socket.Holder (ConnectionsState)
 import           Pos.BlockchainImporter.Txp (BlockchainImporterExtraModifier (..))
 
 -- Need Emulation because it has instance Mockable CurrentTime
 import           Mockable (Production, currentTime, runProduction)
 import           Pos.Launcher.Configuration (HasConfigurations)
-import           Pos.Util.JsonLog (HasJsonLogConfig (..), jsonLogDefault)
+import           Pos.Util.JsonLog.Events (HasJsonLogConfig (..), jsonLogDefault)
 import           Pos.Util.LoggerName (HasLoggerName' (..), askLoggerNameDefault,
                                       modifyLoggerNameDefault)
 import           Pos.Util.TimeWarp (CanJsonLog (..))

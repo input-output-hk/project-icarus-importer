@@ -15,16 +15,20 @@ import           Network.Wai.Handler.Warp (run)
 import           Servant.Generic (AsServerT, toServant)
 import           Servant.Server (Handler, Server, serve)
 
-import           Pos.Core (EpochIndex (..), mkCoin)
 import           Pos.BlockchainImporter.Aeson.ClientTypes ()
-import           Pos.BlockchainImporter.Web.Api (BlockchainImporterApi, BlockchainImporterApiRecord (..), blockchainImporterApi)
-import           Pos.BlockchainImporter.Web.ClientTypes (Byte, CAda (..), CAddress (..), CAddressSummary (..),
-                                               CAddressType (..), CAddressesFilter (..),
-                                               CBlockEntry (..), CBlockSummary (..),
-                                               CGenesisAddressInfo (..), CGenesisSummary (..),
-                                               CHash (..), CTxBrief (..), CTxEntry (..), CTxId (..),
-                                               CTxSummary (..), mkCCoin)
+import           Pos.BlockchainImporter.Web.Api (BlockchainImporterApi,
+                                                 BlockchainImporterApiRecord (..),
+                                                 blockchainImporterApi)
+import           Pos.BlockchainImporter.Web.ClientTypes (Byte, CAda (..), CAddress (..),
+                                                         CAddressSummary (..), CAddressType (..),
+                                                         CAddressesFilter (..), CBlockEntry (..),
+                                                         CBlockSummary (..), CEncodedSTx,
+                                                         CGenesisAddressInfo (..),
+                                                         CGenesisSummary (..), CHash (..),
+                                                         CTxBrief (..), CTxEntry (..), CTxId (..),
+                                                         CTxSummary (..), mkCCoin)
 import           Pos.BlockchainImporter.Web.Error (BlockchainImporterError (..))
+import           Pos.Core (EpochIndex (..), mkCoin)
 import           Pos.Web ()
 
 ----------------------------------------------------------------
@@ -60,6 +64,7 @@ blockchainImporterHandlers =
         , _genesisAddressInfo = testGenesisAddressInfo
         , _statsTxs           = testStatsTxs
         , _blockCount         = getBlocksTotal
+        , _sendSignedTx       = sendSignedTx
         }
         :: BlockchainImporterApiRecord (AsServerT Handler))
 
@@ -107,6 +112,9 @@ testTotalAda = pure $ CAda 123.456789
 
 getBlocksTotal :: Handler Integer
 getBlocksTotal = pure 10
+
+sendSignedTx :: CEncodedSTx -> Handler ()
+sendSignedTx = const $ pure ()
 
 testBlocksPagesTotal
     :: Maybe Word

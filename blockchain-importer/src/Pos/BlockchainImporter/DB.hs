@@ -42,6 +42,7 @@ import           System.Wlog (WithLogger, logError)
 import           UnliftIO (MonadUnliftIO)
 
 import           Pos.Binary.Class (serialize')
+import           Pos.BlockchainImporter.Core (AddrHistory, TxExtra (..))
 import           Pos.Core (Address, Coin, EpochIndex (..), HasConfiguration, HeaderHash,
                            coinToInteger, unsafeAddCoin)
 import           Pos.Core.Txp (Tx, TxId, TxOut (..), TxOutAux (..))
@@ -50,7 +51,6 @@ import           Pos.DB (DBError (..), DBIteratorClass (..), DBTag (GStateDB), M
                          encodeWithKeyPrefix)
 import           Pos.DB.DB (initNodeDBs)
 import           Pos.DB.GState.Common (gsGetBi, gsPutBi, writeBatchGState)
-import           Pos.BlockchainImporter.Core (AddrHistory, TxExtra (..))
 import           Pos.Ssc (HasSscConfiguration)
 import           Pos.Txp.DB (getAllPotentiallyHugeUtxo, utxoSource)
 import           Pos.Txp.GenesisUtxo (genesisUtxo)
@@ -168,7 +168,7 @@ getLastTransactions = gsGetBi lastTxsPrefix
 -- Initialization
 ----------------------------------------------------------------------------
 
-prepareBlockchainImporterDB :: (MonadDB m, MonadUnliftIO m) => m ()
+prepareBlockchainImporterDB :: (MonadDB m, MonadUnliftIO m, HasConfiguration) => m ()
 prepareBlockchainImporterDB = do
     unlessM balancesInitializedM $ do
         let GenesisUtxo utxo = genesisUtxo
@@ -264,7 +264,7 @@ balancesInitializedM = isJust <$> dbGet GStateDB balancesInitFlag
 putInitFlag :: MonadDB m => m ()
 putInitFlag = gsPutBi balancesInitFlag True
 
-putGenesisBalances :: MonadDB m => [(Address, Coin)] -> m ()
+putGenesisBalances :: (MonadDB m, HasConfiguration) => [(Address, Coin)] -> m ()
 putGenesisBalances addressCoinPairs = writeBatchGState putAddrBalancesOp
   where
     putAddrBalancesOp :: [BlockchainImporterOp]
@@ -273,7 +273,7 @@ putGenesisBalances addressCoinPairs = writeBatchGState putAddrBalancesOp
 utxoSumInitializedM :: MonadDBRead m => m Bool
 utxoSumInitializedM = isJust <$> dbGet GStateDB utxoSumPrefix
 
-putCurrentUtxoSum :: (MonadDB m, MonadUnliftIO m) => m ()
+putCurrentUtxoSum :: (MonadDB m, MonadUnliftIO m, HasConfiguration) => m ()
 putCurrentUtxoSum = do
     utxoSum <- computeUtxoSum
     writeBatchGState [PutUtxoSum utxoSum]

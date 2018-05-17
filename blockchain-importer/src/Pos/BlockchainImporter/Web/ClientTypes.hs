@@ -47,6 +47,7 @@ module Pos.BlockchainImporter.Web.ClientTypes
        , tiToTxEntry
        , encodeHashHex
        , decodeHashHex
+       , decodeSTx
        ) where
 
 import qualified Prelude
@@ -80,7 +81,8 @@ import           Pos.Core (Address, Coin, EpochIndex, LocalSlotIndex, SlotId (..
                            prevBlockL, sumCoins, timestampToPosix, unsafeAddCoin, unsafeGetCoin,
                            unsafeIntegerToCoin, unsafeSubCoin)
 import           Pos.Core.Block (MainBlock, mainBlockSlot, mainBlockTxPayload, mcdSlot)
-import           Pos.Core.Txp (Tx (..), TxId, TxOut (..), TxOutAux (..), TxUndo, txpTxs, _txOutputs)
+import           Pos.Core.Txp (Tx (..), TxAux, TxId, TxOut (..), TxOutAux (..), TxUndo, txpTxs,
+                               _txOutputs)
 import           Pos.Crypto (AbstractHash, Hash, HashAlgorithm, hash)
 import qualified Pos.GState as GS
 import qualified Pos.Lrc as Lrc (getLeader)
@@ -353,9 +355,8 @@ instance Default CAddressesFilter where
 -- | CBOR-encoded signed tx.
 newtype CEncodedSTx = CEncodedSTx BSL.ByteString
 
-instance Bi CEncodedSTx where
-  encode (CEncodedSTx bytes) = Bi.encode bytes
-  decode = CEncodedSTx <$> Bi.decode
+decodeSTx :: CEncodedSTx -> Either Text TxAux
+decodeSTx (CEncodedSTx encodedSTx) = Bi.decodeFull encodedSTx
 
 instance Buildable CEncodedSTx where
     build (CEncodedSTx bs) = fromLazyText $ TE.decodeUtf8 $ B64.encode bs

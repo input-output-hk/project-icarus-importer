@@ -36,7 +36,7 @@ blockchainImporterTxpGlobalSettings =
     }
 
 applySettings ::
-       (TxpGlobalApplyMode ctx m, HasPostGresDB)
+       (TxpGlobalApplyMode ctx m, HasConfiguration, HasPostGresDB)
     => ProcessBlundsSettings BlockchainImporterExtraLookup BlockchainImporterExtraModifier m
 applySettings =
     ProcessBlundsSettings
@@ -47,7 +47,7 @@ applySettings =
         }
 
 rollbackSettings ::
-       (TxpGlobalRollbackMode m, MonadIO m, HasPostGresDB)
+       (TxpGlobalRollbackMode m, HasConfiguration, MonadIO m, HasPostGresDB)
     => ProcessBlundsSettings BlockchainImporterExtraLookup BlockchainImporterExtraModifier m
 rollbackSettings =
     ProcessBlundsSettings

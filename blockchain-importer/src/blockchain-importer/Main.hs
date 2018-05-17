@@ -30,17 +30,16 @@ import           Pos.BlockchainImporter.Web (BlockchainImporterProd, blockchainI
                                              notifierPlugin, runBlockchainImporterProd)
 import           Pos.Client.CLI (CommonNodeArgs (..), NodeArgs (..), getNodeParams)
 import qualified Pos.Client.CLI as CLI
-import           Pos.Communication (OutSpecs)
 import           Pos.Context (NodeContext (..))
+import           Pos.Diffusion.Types (Diffusion)
 import           Pos.Launcher (ConfigurationOptions (..), HasConfigurations, NodeParams (..),
                                NodeResources (..), bracketNodeResources, elimRealMode,
                                loggerBracket, runNode, runServer, withConfigurations)
 import           Pos.Reporting.Ekg (EkgNodeMetrics (..))
 import           Pos.Update.Worker (updateTriggerWorker)
-import           Pos.Util (logException, mconcatPair)
+import           Pos.Util (logException)
 import           Pos.Util.CompileInfo (HasCompileInfo, retrieveCompileTimeInfo, withCompileInfo)
 import           Pos.Util.UserSecret (usVss)
-import           Pos.Worker.Types (WorkerSpec)
 
 loggerName :: LoggerName
 loggerName = "node"
@@ -70,8 +69,8 @@ action (BlockchainImporterNodeArgs (cArgs@CommonNodeArgs{..}) BlockchainImporter
             let vssSK = fromJust $ npUserSecret currentParams ^. usVss
             let sscParams = CLI.gtSscParams cArgs vssSK (npBehaviorConfig currentParams)
 
-            let plugins :: HasConfigurations => ([WorkerSpec BlockchainImporterProd], OutSpecs)
-                plugins = mconcatPair
+            let plugins :: HasConfigurations => [Diffusion BlockchainImporterProd -> BlockchainImporterProd ()]
+                plugins =
                     [ blockchainImporterPlugin webPort
                     , notifierPlugin NotifierSettings{ nsPort = notifierPort }
                     , updateTriggerWorker
@@ -88,21 +87,19 @@ action (BlockchainImporterNodeArgs (cArgs@CommonNodeArgs{..}) BlockchainImporter
     runBlockchainImporterRealMode
         :: (HasConfigurations,HasCompileInfo)
         => NodeResources BlockchainImporterExtraModifier
-        -> (WorkerSpec BlockchainImporterProd, OutSpecs)
+        -> (Diffusion BlockchainImporterProd -> BlockchainImporterProd ())
         -> Production ()
-    runBlockchainImporterRealMode nr@NodeResources{..} (go, outSpecs) =
+    runBlockchainImporterRealMode nr@NodeResources{..} go =
         let NodeContext {..} = nrContext
             extraCtx = makeExtraCtx
             blockchainImporterModeToRealMode  = runBlockchainImporterProd extraCtx
             elim = elimRealMode nr
             ekgNodeMetrics = EkgNodeMetrics
                 nrEkgStore
-                (runProduction . elim . blockchainImporterModeToRealMode)
             serverRealMode = blockchainImporterModeToRealMode $ runServer
                 (runProduction . elim . blockchainImporterModeToRealMode)
                 ncNodeParams
                 ekgNodeMetrics
-                outSpecs
                 go
         in  elim serverRealMode
 

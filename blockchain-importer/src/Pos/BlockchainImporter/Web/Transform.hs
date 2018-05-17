@@ -20,7 +20,6 @@ import           Mockable (runProduction)
 import           Servant.Server (Handler, hoistServer)
 
 import           Pos.Block.Configuration (HasBlockConfiguration)
-import           Pos.Communication (OutSpecs)
 import           Pos.Configuration (HasNodeConfiguration)
 import           Pos.Core (HasConfiguration)
 import           Pos.Diffusion.Types (Diffusion)
@@ -29,16 +28,20 @@ import           Pos.Ssc.Configuration (HasSscConfiguration)
 import           Pos.Txp (HasTxpConfiguration, MempoolExt, MonadTxpLocal (..))
 import           Pos.Update.Configuration (HasUpdateConfiguration)
 import           Pos.Util.CompileInfo (HasCompileInfo)
-import           Pos.Worker.Types (WorkerSpec, worker)
+import           Pos.Util.Mockable ()
 import           Pos.WorkMode (RealMode, RealModeContext (..))
 
-import           Pos.BlockchainImporter.BListener (BlockchainImporterBListener, runBlockchainImporterBListener)
+import           Pos.BlockchainImporter.BListener (BlockchainImporterBListener,
+                                                   runBlockchainImporterBListener)
 import           Pos.BlockchainImporter.ExtraContext (ExtraContext, ExtraContextT, makeExtraCtx,
-                                            runExtraContextT)
+                                                      runExtraContextT)
 import           Pos.BlockchainImporter.Socket.App (NotifierSettings, notifierApp)
-import           Pos.BlockchainImporter.Txp (BlockchainImporterExtraModifier, eTxNormalize, eTxProcessTransaction)
+import           Pos.BlockchainImporter.Txp (BlockchainImporterExtraModifier, eTxNormalize,
+                                             eTxProcessTransaction)
 import           Pos.BlockchainImporter.Web.Api (blockchainImporterApi)
-import           Pos.BlockchainImporter.Web.Server (blockchainImporterApp, blockchainImporterHandlers, blockchainImporterServeImpl)
+import           Pos.BlockchainImporter.Web.Server (blockchainImporterApp,
+                                                    blockchainImporterHandlers,
+                                                    blockchainImporterServeImpl)
 
 -----------------------------------------------------------------
 -- Transformation to `Handler`
@@ -77,17 +80,16 @@ type HasBlockchainImporterConfiguration =
 notifierPlugin
     :: HasBlockchainImporterConfiguration
     => NotifierSettings
-    -> ([WorkerSpec BlockchainImporterProd], OutSpecs)
-notifierPlugin = first pure . worker mempty .
-    \settings _sa -> notifierApp settings
+    -> Diffusion BlockchainImporterProd
+    -> BlockchainImporterProd ()
+notifierPlugin settings _ = notifierApp settings
 
 blockchainImporterPlugin
     :: HasBlockchainImporterConfiguration
     => Word16
-    -> ([WorkerSpec BlockchainImporterProd], OutSpecs)
-blockchainImporterPlugin port =
-    first pure $ worker mempty $
-    (\sa -> blockchainImporterServeWebReal sa port)
+    -> Diffusion BlockchainImporterProd
+    -> BlockchainImporterProd ()
+blockchainImporterPlugin = flip blockchainImporterServeWebReal
 
 blockchainImporterServeWebReal
     :: HasBlockchainImporterConfiguration

@@ -14,18 +14,22 @@ import           Test.QuickCheck (arbitrary, counterexample, forAll, (==>))
 import           Test.QuickCheck.Monadic (assert, monadicIO, run)
 
 import           Pos.Arbitrary.Block ()
+import           Pos.BlockchainImporter.BlockchainImporterMode (runBlockchainImporterTestMode)
+import           Pos.BlockchainImporter.ExtraContext (ExtraContext (..), makeExtraCtx,
+                                                      makeMockExtraCtx)
+import           Pos.BlockchainImporter.TestUtil (emptyBlk,
+                                                  generateValidBlockchainImporterMockableMode,
+                                                  generateValidBlocksSlotsNumber, leftToCounter)
+import           Pos.BlockchainImporter.Web.ClientTypes (CBlockEntry)
+import           Pos.BlockchainImporter.Web.Server (getBlockDifficulty, getBlocksLastPage,
+                                                    getBlocksPage, getBlocksPagesTotal,
+                                                    getBlocksTotal, getEpochPage, getEpochSlot)
 import qualified Pos.Communication ()
 import           Pos.Core (EpochIndex (..), HasConfiguration)
-import           Pos.BlockchainImporter.BlockchainImporterMode (runBlockchainImporterTestMode)
-import           Pos.BlockchainImporter.ExtraContext (ExtraContext (..), makeExtraCtx, makeMockExtraCtx)
-import           Pos.BlockchainImporter.TestUtil (emptyBlk, generateValidBlocksSlotsNumber,
-                                        generateValidBlockchainImporterMockableMode, leftToCounter)
-import           Pos.BlockchainImporter.Web.ClientTypes (CBlockEntry)
-import           Pos.BlockchainImporter.Web.Server (getBlockDifficulty, getBlocksLastPage, getBlocksPage,
-                                          getBlocksPagesTotal, getBlocksTotal, getEpochPage,
-                                          getEpochSlot)
 import           Pos.Launcher.Configuration (HasConfigurations)
 import           Pos.Util (divRoundUp)
+-- Orphan mockable instances.
+import           Pos.Util.Mockable ()
 import           Test.Pos.Configuration (withDefConfigurations)
 
 
