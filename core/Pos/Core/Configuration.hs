@@ -16,7 +16,6 @@ import           Universum
 
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BSL
-import qualified Database.PostgreSQL.Simple as PGS
 import           System.FilePath ((</>))
 import qualified Text.JSON.Canonical as Canonical
 
