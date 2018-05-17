@@ -34,6 +34,8 @@ Run it from project root.
 
 ### Dev version
 
+**Pre-requesites**: `sudo apt-get install liblzma-dev libpq-dev`
+
 - run `./scripts/build/cardano-sl.sh`
 - run `./scripts/launch/blockchain-importer-with-nodes.sh`
 
