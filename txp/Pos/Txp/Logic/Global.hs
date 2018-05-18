@@ -56,6 +56,8 @@ txpGlobalSettings =
     { tgsVerifyBlocks = verifyBlocks
     , tgsApplyBlocks = applyBlocksWith (processBlundsSettings False applyToil)
     , tgsRollbackBlocks = rollbackBlocks
+    , tgsApplyBlockModifier = identity
+    , tgsRollbackBlockModifier = identity
     }
 
 ----------------------------------------------------------------------------
