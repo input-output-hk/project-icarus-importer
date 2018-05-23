@@ -7108,6 +7108,68 @@ inherit (pkgs) mesa;};
            description = "Cardano SL - block processing";
            license = stdenv.lib.licenses.mit;
          }) {};
+      "cardano-sl-blockchain-importer" = callPackage
+        ({ mkDerivation, aeson, base, base64-bytestring, bytestring
+         , cardano-sl, cardano-sl-binary, cardano-sl-block
+         , cardano-sl-client, cardano-sl-core, cardano-sl-crypto
+         , cardano-sl-db, cardano-sl-delegation, cardano-sl-generator
+         , cardano-sl-infra, cardano-sl-networking, cardano-sl-ssc
+         , cardano-sl-txp, cardano-sl-update, cardano-sl-util, conduit
+         , containers, cpphs, criterion, cryptonite, data-default, engine-io
+         , engine-io-wai, errors, ether, exceptions, formatting, free
+         , generic-arbitrary, hspec, http-types, lens, log-warper, memory
+         , mmorph, MonadRandom, mtl, opaleye, optparse-applicative
+         , postgresql-simple, product-profunctors, QuickCheck, reflection
+         , resourcet, rocksdb-haskell-ng, safe-exceptions, serokell-util
+         , servant, servant-generic, servant-server, socket-io, stdenv, stm
+         , text, text-format, time, time-units, transformers, universum
+         , unliftio, unordered-containers, vector, wai, wai-cors, wai-extra
+         , warp, weigh
+         }:
+         mkDerivation {
+           pname = "cardano-sl-blockchain-importer";
+           version = "1.1.1";
+           src = ./../blockchain-importer;
+           isLibrary = true;
+           isExecutable = true;
+           libraryHaskellDepends = [
+             aeson base base64-bytestring bytestring cardano-sl
+             cardano-sl-binary cardano-sl-block cardano-sl-client
+             cardano-sl-core cardano-sl-crypto cardano-sl-db
+             cardano-sl-delegation cardano-sl-generator cardano-sl-infra
+             cardano-sl-networking cardano-sl-ssc cardano-sl-txp
+             cardano-sl-update cardano-sl-util conduit containers data-default
+             engine-io engine-io-wai errors ether exceptions formatting free
+             generic-arbitrary http-types lens log-warper memory mmorph mtl
+             opaleye postgresql-simple product-profunctors QuickCheck reflection
+             resourcet rocksdb-haskell-ng safe-exceptions serokell-util servant
+             servant-generic servant-server socket-io stm text text-format time
+             time-units transformers universum unliftio unordered-containers
+             vector wai wai-cors wai-extra warp
+           ];
+           libraryToolDepends = [ cpphs ];
+           executableHaskellDepends = [
+             base cardano-sl cardano-sl-core cardano-sl-infra
+             cardano-sl-networking cardano-sl-update cardano-sl-util formatting
+             log-warper optparse-applicative postgresql-simple universum
+           ];
+           executableToolDepends = [ cpphs ];
+           testHaskellDepends = [
+             base bytestring cardano-sl cardano-sl-block cardano-sl-core
+             cardano-sl-crypto cardano-sl-txp cardano-sl-util containers
+             cryptonite data-default engine-io hspec lens log-warper MonadRandom
+             mtl QuickCheck universum warp
+           ];
+           testToolDepends = [ cpphs ];
+           benchmarkHaskellDepends = [
+             base cardano-sl cardano-sl-core cardano-sl-txp criterion
+             data-default lens QuickCheck text-format universum weigh
+           ];
+           benchmarkToolDepends = [ cpphs ];
+           doHaddock = false;
+           description = "Blockchain Importer";
+           license = stdenv.lib.licenses.mit;
+         }) {};
       "cardano-sl-client" = callPackage
         ({ mkDerivation, base, bytestring, cardano-sl, cardano-sl-block
          , cardano-sl-core, cardano-sl-crypto, cardano-sl-db
@@ -7342,64 +7404,6 @@ inherit (pkgs) mesa;};
            benchmarkToolDepends = [ cpphs ];
            doHaddock = false;
            description = "Cardano explorer";
-           license = stdenv.lib.licenses.mit;
-         }) {};
-      "cardano-sl-blockchain-importer" = callPackage
-        ({ mkDerivation, aeson, base, bytestring, cardano-sl
-         , cardano-sl-binary, cardano-sl-block, cardano-sl-client
-         , cardano-sl-core, cardano-sl-crypto, cardano-sl-db
-         , cardano-sl-delegation, cardano-sl-generator, cardano-sl-infra
-         , cardano-sl-networking, cardano-sl-ssc, cardano-sl-txp
-         , cardano-sl-update, cardano-sl-util, conduit, containers, cpphs
-         , cryptonite, data-default, engine-io, engine-io-wai, ether
-         , exceptions, formatting, free, generic-arbitrary, hspec
-         , http-types, lens, log-warper, memory, mmorph, MonadRandom, mtl
-         , optparse-applicative, optparse-simple, purescript-bridge
-         , QuickCheck, resourcet, rocksdb-haskell-ng, safe-exceptions
-         , serokell-util, servant, servant-generic, servant-multipart
-         , servant-server, servant-swagger, socket-io, stdenv, stm, swagger2
-         , text, text-format, time, time-units, transformers, universum
-         , unliftio, unordered-containers, vector, wai, wai-cors, wai-extra
-         , warp
-         }:
-         mkDerivation {
-           pname = "cardano-sl-blockchain-importer";
-           version = "1.1.1";
-           src = ./../blockchain-importer;
-           isLibrary = true;
-           isExecutable = true;
-           libraryHaskellDepends = [
-             aeson base bytestring cardano-sl cardano-sl-binary cardano-sl-block
-             cardano-sl-client cardano-sl-core cardano-sl-crypto cardano-sl-db
-             cardano-sl-delegation cardano-sl-generator cardano-sl-infra
-             cardano-sl-networking cardano-sl-ssc cardano-sl-txp
-             cardano-sl-update cardano-sl-util conduit containers data-default
-             engine-io engine-io-wai ether exceptions formatting free
-             generic-arbitrary http-types lens log-warper memory mmorph mtl
-             QuickCheck resourcet rocksdb-haskell-ng safe-exceptions
-             serokell-util servant servant-generic servant-server socket-io stm
-             text text-format time time-units transformers universum unliftio
-             unordered-containers vector wai wai-cors wai-extra warp
-           ];
-           libraryToolDepends = [ cpphs ];
-           executableHaskellDepends = [
-             aeson base bytestring cardano-sl cardano-sl-core cardano-sl-infra
-             cardano-sl-networking cardano-sl-update cardano-sl-util formatting
-             lens log-warper optparse-applicative optparse-simple
-             purescript-bridge servant-multipart servant-server servant-swagger
-             swagger2 text universum
-           ];
-           executableToolDepends = [ cpphs ];
-           testHaskellDepends = [
-             base bytestring cardano-sl cardano-sl-block cardano-sl-core
-             cardano-sl-crypto cardano-sl-txp cardano-sl-util containers
-             cryptonite data-default engine-io hspec lens log-warper MonadRandom
-             mtl QuickCheck universum warp
-           ];
-           testToolDepends = [ cpphs ];
-           benchmarkToolDepends = [ cpphs ];
-           doHaddock = false;
-           description = "Cardano blockchain importer";
            license = stdenv.lib.licenses.mit;
          }) {};
       "cardano-sl-generator" = callPackage
@@ -28381,20 +28385,24 @@ inherit (pkgs) which;};
            license = stdenv.lib.licenses.gpl2;
          }) {};
       "opaleye" = callPackage
-        ({ mkDerivation, aeson, attoparsec, base, base16-bytestring
-         , bytestring, case-insensitive, contravariant, postgresql-simple
-         , pretty, product-profunctors, profunctors, semigroups, stdenv
-         , text, time, time-locale-compat, transformers, uuid, void
+        ({ mkDerivation, aeson, base, base16-bytestring, bytestring
+         , case-insensitive, contravariant, fetchgit, postgresql-simple
+         , pretty, product-profunctors, profunctors, scientific, semigroups
+         , stdenv, text, time, time-locale-compat, transformers, uuid, void
          }:
          mkDerivation {
            pname = "opaleye";
-           version = "0.5.4.0";
-           sha256 = "db9333c0b0f0305c6af84d2f2e80fa3b0a5e0555614540b2cda5dd862253db37";
+           version = "0.6.7000.0";
+           src = fetchgit {
+             url = "https://github.com/tomjaguarpaw/haskell-opaleye";
+             sha256 = "0m1yhkjf9a1236d1n9pppvg41l4mvnazbfmanz65pwzwdwqdxl18";
+             rev = "d3cee224fdb2a3cfc00254151f179c1e6d15fd02";
+           };
            libraryHaskellDepends = [
-             aeson attoparsec base base16-bytestring bytestring case-insensitive
+             aeson base base16-bytestring bytestring case-insensitive
              contravariant postgresql-simple pretty product-profunctors
-             profunctors semigroups text time time-locale-compat transformers
-             uuid void
+             profunctors scientific semigroups text time time-locale-compat
+             transformers uuid void
            ];
            doHaddock = false;
            doCheck = false;
@@ -30550,20 +30558,23 @@ inherit (pkgs) which;};
          }) {};
       "postgresql-simple" = callPackage
         ({ mkDerivation, aeson, attoparsec, base, bytestring
-         , bytestring-builder, case-insensitive, containers, hashable
-         , postgresql-libpq, scientific, stdenv, template-haskell, text
-         , time, transformers, uuid-types, vector
+         , bytestring-builder, case-insensitive, containers, fetchgit
+         , hashable, Only, postgresql-libpq, scientific, semigroups, stdenv
+         , template-haskell, text, time, transformers, uuid-types, vector
          }:
          mkDerivation {
            pname = "postgresql-simple";
            version = "0.5.3.0";
-           sha256 = "1e0d7b646d60d79bcc827e3c0b2d3425dfb2ca7dbb57f16903b7089740230e41";
-           revision = "1";
-           editedCabalFile = "1hvry7nhk629yas6nbm3wnyy0bgwh6r8511rmsq9r8xkl7qm76r2";
+           src = fetchgit {
+             url = "https://github.com/lpsmith/postgresql-simple";
+             sha256 = "1zz60nn44jcpwjwhj8f8c7g6a4qrj2gafb5qv2kjzhaqhizwcm4d";
+             rev = "14d00c22713aab7d55a81a81b47cc5bb7280398f";
+           };
            libraryHaskellDepends = [
              aeson attoparsec base bytestring bytestring-builder
-             case-insensitive containers hashable postgresql-libpq scientific
-             template-haskell text time transformers uuid-types vector
+             case-insensitive containers hashable Only postgresql-libpq
+             scientific semigroups template-haskell text time transformers
+             uuid-types vector
            ];
            doHaddock = false;
            doCheck = false;
@@ -31092,15 +31103,19 @@ inherit (pkgs) which;};
            license = stdenv.lib.licenses.mit;
          }) {};
       "product-profunctors" = callPackage
-        ({ mkDerivation, base, contravariant, profunctors, stdenv, tagged
-         , template-haskell
+        ({ mkDerivation, base, bifunctors, contravariant, fetchgit
+         , profunctors, stdenv, tagged, template-haskell
          }:
          mkDerivation {
            pname = "product-profunctors";
-           version = "0.8.0.3";
-           sha256 = "4fa4b1c6ba4f84305ef11e001695a7027f37d4a88bf34996ed3724233ac40cc9";
+           version = "0.10.0.0";
+           src = fetchgit {
+             url = "https://github.com/tomjaguarpaw/product-profunctors";
+             sha256 = "1kf8c162vv6jpcb9yy4aifqz4ppba6912042iywvmq6v34lvki80";
+             rev = "3ee7a5450c99260f6368ea44ce6ce48b0f0e4f39";
+           };
            libraryHaskellDepends = [
-             base contravariant profunctors tagged template-haskell
+             base bifunctors contravariant profunctors tagged template-haskell
            ];
            doHaddock = false;
            doCheck = false;
