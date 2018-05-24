@@ -71,7 +71,7 @@ insertTx conn tx txExtra blockHeight = PGS.withTransaction conn $ do
 
 -- | Inserts the basic info of a given Tx into the master Tx history table.
 insertTxToHistory :: PGS.Connection -> Tx -> TxExtra -> Word64 -> IO ()
-insertTxToHistory conn tx txExtra blockHeight = void $ runUpsertMany conn txsTable [row]
+insertTxToHistory conn tx txExtra blockHeight = void $ runUpsert_ conn txsTable [row]
   where
     inputs  = toaOut <$> (catMaybes $ NE.toList $ teInputOutputs txExtra)
     outputs = NE.toList $ _txOutputs tx

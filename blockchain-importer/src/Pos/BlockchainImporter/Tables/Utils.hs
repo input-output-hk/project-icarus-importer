@@ -4,7 +4,7 @@ module Pos.BlockchainImporter.Tables.Utils
   ( hashToString
   , addressToString
   , coinToInt64
-  , runUpsertMany
+  , runUpsert_
   ) where
 
 import           Universum
@@ -29,6 +29,6 @@ coinToInt64 :: Coin -> Int64
 coinToInt64 = fromIntegral . getCoin
 
 -- Insert rows into a table, only if they are not already present
-runUpsertMany :: PGS.Connection -> O.Table columns columns' -> [columns] -> IO Int64
-runUpsertMany conn table columns = O.runInsert_ conn sqlInsert
+runUpsert_ :: PGS.Connection -> O.Table columns columns' -> [columns] -> IO Int64
+runUpsert_ conn table columns = O.runInsert_ conn sqlInsert
   where sqlInsert = O.Insert table columns O.rCount (Just O.DoNothing)

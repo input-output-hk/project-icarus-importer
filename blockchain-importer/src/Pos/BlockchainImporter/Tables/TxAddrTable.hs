@@ -49,7 +49,7 @@ makeRowPGW txHash txAddr = TxAddrRow {..}
 
 -- | Inserts the senders and receivers of a given Tx into the Tx addresses table.
 insertTxAddresses :: PGS.Connection -> Tx -> TxExtra -> IO ()
-insertTxAddresses conn tx txExtra = void $ runUpsertMany conn txAddressesTable rows
+insertTxAddresses conn tx txExtra = void $ runUpsert_ conn txAddressesTable rows
   where
     txHash    = hashToString (hash tx)
     senders   = txOutAddress . toaOut <$> (catMaybes $ NE.toList $ teInputOutputs txExtra)
