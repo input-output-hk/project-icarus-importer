@@ -231,7 +231,7 @@ ghc-options:
   cardano-sl-auxx:                  -Werror
   cardano-sl-wallet:                -Werror
   cardano-sl-explorer:              -Werror
-#  cardano-sl-blockchain-importer:   -Werror  FIXME: Add when usage of arrangeInsertManySql is removed
+  cardano-sl-blockchain-importer:   -Werror
   cardano-sl-node:                  -Werror
   cardano-sl-wallet-new:            -Werror
 

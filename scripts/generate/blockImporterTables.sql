@@ -17,7 +17,7 @@ CREATE TABLE txs 	( hash		          text      PRIMARY KEY
         					, time              timestamp with time zone NULL
                   );
 
-CREATE TABLE tx_addresses ( tx_hash  hash     REFERENCES txs ON DELETE CASCADE
+CREATE TABLE tx_addresses ( tx_hash  text     REFERENCES txs ON DELETE CASCADE
 											    , address  text
 											    );
 

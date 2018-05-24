@@ -76,7 +76,7 @@ library
                       , log-warper
                       , memory
                       , mmorph
-                      , opaleye
+                      , opaleye >= 0.6.7000.0
                       , postgresql-simple
                       , product-profunctors
                       , reflection
