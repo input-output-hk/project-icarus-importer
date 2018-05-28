@@ -16,6 +16,9 @@ https://github.com/input-output-hk/cardano-report-server.git
 https://github.com/input-output-hk/plutus-prototype.git
 https://github.com/serokell/engine.io.git
 https://github.com/input-output-hk/cardano-sl.git
+https://github.com/tomjaguarpaw/haskell-opaleye.git
+https://github.com/lpsmith/postgresql-simple.git
+https://github.com/tomjaguarpaw/product-profunctors.git
 "
 
 echo "#!/usr/bin/env nix-shell
