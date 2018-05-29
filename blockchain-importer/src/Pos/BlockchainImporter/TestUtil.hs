@@ -13,19 +13,14 @@ module Pos.BlockchainImporter.TestUtil
     , produceSlotLeaders
     , produceSecretKeys
     , generateValidBlocksSlotsNumber
-    , createEmptyUndo
     , secretKeyToAddress
     ) where
 
 import qualified Prelude
 import           Universum
 
-import           Control.Lens (at)
 import           Data.Default (def)
-import           Data.Function (on)
-import           Data.List (groupBy)
 import qualified Data.List.NonEmpty as NE
-import           Data.Map (fromList, fromListWith, keys, unions)
 import           Serokell.Data.Memory.Units (Byte, Gigabyte, convertUnit)
 import           Test.QuickCheck (Arbitrary (..), Gen, Property, Testable, choose, counterexample,
                                   forAll, generate, property, suchThat)
@@ -33,12 +28,12 @@ import           Test.QuickCheck (Arbitrary (..), Gen, Property, Testable, choos
 import           Pos.Arbitrary.Block ()
 import           Pos.Block.Base (mkGenesisBlock)
 import           Pos.Block.Logic (RawPayload (..), createMainBlockPure)
-import           Pos.Block.Types (Blund, SlogUndo (..), Undo (..))
+import           Pos.Block.Types (SlogUndo (..), Undo (..))
 import qualified Pos.Communication ()
 import           Pos.Core (Address, BlockCount (..), ChainDifficulty (..), EpochIndex (..),
-                           HasConfiguration, HeaderHash, LocalSlotIndex (..), SlotId (..),
-                           SlotLeaders, StakeholderId, difficultyL, headerHash,
-                           makePubKeyAddressBoot, protocolMagic, GenesisHash (..), genesisHash)
+                           GenesisHash (..), HasConfiguration, LocalSlotIndex (..), SlotId (..),
+                           SlotLeaders, StakeholderId, difficultyL, genesisHash,
+                           makePubKeyAddressBoot, protocolMagic)
 import           Pos.Core.Block (Block, BlockHeader, GenesisBlock, MainBlock, getBlockHeader)
 import           Pos.Core.Ssc (SscPayload)
 import           Pos.Core.Txp (TxAux)
@@ -49,8 +44,6 @@ import           Pos.Ssc.Base (defaultSscPayload)
 import           Pos.Update.Configuration (HasUpdateConfiguration)
 import           Test.Pos.Configuration (withDefConfigurations)
 
-import           Pos.BlockchainImporter.BListener (createPagedHeaderHashesPair)
-import           Pos.BlockchainImporter.DB (Epoch, EpochPagedBlocksKey, Page, convertToPagedMap)
 import           Pos.BlockchainImporter.ExtraContext (BlockchainImporterMockableMode (..))
 
 
@@ -75,8 +68,6 @@ generateValidBlockchainImporterMockableMode
     -> IO BlockchainImporterMockableMode
 generateValidBlockchainImporterMockableMode blocksNumber slotsPerEpoch = do
 
-    slotStart     <- liftIO $ generate $ arbitrary
-
     slotLeaders   <- produceSlotLeaders blocksNumber
     secretKeys    <- produceSecretKeys blocksNumber
 
@@ -84,79 +75,10 @@ generateValidBlockchainImporterMockableMode blocksNumber slotsPerEpoch = do
         produceBlocksByBlockNumberAndSlots blocksNumber slotsPerEpoch slotLeaders secretKeys
 
     let tipBlock         = Prelude.last blocks
-    let pagedHHs         = withDefConfigurations $ const $ createMapPageHHs blocks
-    let hHsBlunds        = withDefConfigurations $ const $ createMapHHsBlund blocks
-    let epochPageHHs     = withDefConfigurations $ const $ createMapEpochPageHHs blocks slotsPerEpoch
-    let mapEpochMaxPages = withDefConfigurations $ const $ createMapEpochMaxPages $ keys epochPageHHs
 
     pure $ BlockchainImporterMockableMode
         { emmGetTipBlock          = pure tipBlock
-        , emmGetPageBlocks        = \page       -> pure $ pagedHHs ^. at page
-        , emmGetBlundFromHH       = \hh         -> pure $ hHsBlunds ^. at hh
-        , emmGetSlotStart         = \_          -> pure $ Just slotStart
-        , emmGetLeadersFromEpoch  = \_          -> pure $ Just slotLeaders
-        , emmGetEpochBlocks       = \epoch page -> pure $ epochPageHHs ^. at (epoch, page)
-        , emmGetEpochPages        = \epoch      -> pure $ mapEpochMaxPages ^. at epoch
         }
-
-  where
-    createMapPageHHs :: (HasConfiguration) => [Block] -> Map Page [HeaderHash]
-    createMapPageHHs blocks =
-        fromListWith (++) [ (page, [hHash]) | (page, hHash) <- createPagedHeaderHashesPair blocks]
-
-    createMapHHsBlund :: (HasConfiguration) => [Block] -> Map HeaderHash Blund
-    createMapHHsBlund blocks = fromList $ map blockHH blocks
-      where
-        blockHH :: Block -> (HeaderHash, Blund)
-        blockHH block = (headerHash block, (block, createEmptyUndo))
-
-    -- | TODO(ks): Need to add `getSlotIndex $ siSlot $ fst blund ^. mainBlockSlot`.
-    createMapEpochPageHHs
-        :: (HasConfiguration)
-        => [Block]
-        -> SlotsPerEpoch
-        -> Map EpochPagedBlocksKey [HeaderHash]
-    createMapEpochPageHHs blocks slotsPerEpoch' =
-        unions $ map convertToPagedMap epochBlock
-      where
-        epochBlock :: [(EpochIndex, [HeaderHash])]
-        epochBlock = zip [minBound..] epochHHs
-
-        epochHHs :: [[HeaderHash]]
-        epochHHs = headerHash <<$>> epochBlocks
-
-        epochBlocks :: [[Block]]
-        epochBlocks = splitEvery (fromIntegral slotsPerEpoch') blocks
-          where
-            splitEvery :: Int -> [a] -> [[a]]
-            splitEvery _ [] = []
-            splitEvery n xs = as : splitEvery n bs
-              where
-                (as,bs) = splitAt n xs
-
-    createMapEpochMaxPages
-        :: (HasConfiguration)
-        => [EpochPagedBlocksKey]
-        -> Map Epoch Page
-    createMapEpochMaxPages epochPages = do
-        let groupedEpochPages :: [[(Epoch, Page)]]
-            groupedEpochPages = groupBy ((==) `on` fst) epochPages
-
-        fromList $ maximumBy (compare `on` fst) <$> groupedEpochPages
-
--- | The first aproximation. Ideally, I wanted to have something to generate @Undo@ from
--- @Block@. We could generate @Undo@ from _produceBlocksByBlockNumberAndSlots_, but we
--- need to add quite a bit of logic to it. For now, it's good enough, since we are
--- testing just the "sunny day" scenario, and we don't worry about rollbacks. There
--- are already tests that cover a lot of rollback logic.
--- For a more realistic @Undo@, check @Pos.Block.Logic.VAR.verifyBlocksPrefix@.
-createEmptyUndo :: Undo
-createEmptyUndo = Undo
-    { undoTx = mempty
-    , undoDlg = DlgUndo mempty mempty
-    , undoUS = def
-    , undoSlog = SlogUndo Nothing
-    }
 
 -- | Simplify the generation of blocks number and slots.
 -- For now we have a minimum of one epoch.

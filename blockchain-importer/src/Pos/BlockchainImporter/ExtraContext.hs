@@ -8,7 +8,6 @@ module Pos.BlockchainImporter.ExtraContext
     , runExtraContextT
     , makeExtraCtx
 
-    , HasGenesisRedeemAddressInfo (..)
     , GenesisRedeemAddressInfo
     -- * Genesis address info
 
@@ -25,17 +24,12 @@ import qualified Data.Vector as V
 import qualified Ether
 
 import           Data.Default (Default (..), def)
-import           Pos.Block.Types (Blund)
 import           Pos.Core.Block (Block)
 import qualified Pos.DB.Block as DB
 import           Pos.DB.Class (MonadDBRead)
 
-import           Pos.BlockchainImporter.DB (Epoch, Page, getEpochBlocks, getEpochPages, getPageBlocks)
-
-import           Pos.Core (Address, Coin, EpochIndex, HasConfiguration, HeaderHash, SlotId (..),
-                           SlotLeaders, Timestamp, isRedeemAddress)
-import           Pos.Lrc (getLeadersForEpoch)
-import           Pos.Slotting (MonadSlotsData, getSlotStart)
+import           Pos.Core (Address, Coin, HasConfiguration, isRedeemAddress)
+import           Pos.Slotting (MonadSlotsData)
 import           Pos.Txp (GenesisUtxo (..), genesisUtxo, utxoToAddressCoinPairs)
 
 
@@ -49,7 +43,7 @@ runExtraContextT :: Monad m => ExtraContext -> ExtraContextT m a -> m a
 runExtraContextT = flip Ether.runReaderT
 
 data ExtraContext = ExtraContext
-    { ecAddressCoinPairs     :: !GenesisRedeemAddressInfo
+    { ecAddressCoinPairs               :: !GenesisRedeemAddressInfo
     , ecBlockchainImporterMockableMode :: !BlockchainImporterMockableMode
     }
 
@@ -76,14 +70,6 @@ makeMockExtraCtx blockchainImporterMockMode =
 
 type GenesisRedeemAddressInfo = V.Vector (Address, Coin)
 
-class HasGenesisRedeemAddressInfo m where
-    getGenesisRedeemAddressInfo :: m GenesisRedeemAddressInfo
-
-instance Monad m => HasGenesisRedeemAddressInfo (ExtraContextT m) where
-    getGenesisRedeemAddressInfo = do
-        extraCtx <- Ether.ask @ExtraContext
-        pure $ ecAddressCoinPairs extraCtx
-
 -------------------------------------------------------------------------------------
 -- BlockchainImporter mock mode
 --
@@ -94,30 +80,12 @@ instance Monad m => HasGenesisRedeemAddressInfo (ExtraContextT m) where
 data BlockchainImporterMockableMode = BlockchainImporterMockableMode
     { emmGetTipBlock
           :: forall m. MonadDBRead m => m Block
-    , emmGetPageBlocks
-          :: forall m. MonadDBRead m => Page -> m (Maybe [HeaderHash])
-    , emmGetBlundFromHH
-          :: forall m. MonadDBRead m => HeaderHash -> m (Maybe Blund)
-    , emmGetSlotStart
-          :: forall ctx m. MonadSlotsData ctx m => SlotId -> m (Maybe Timestamp)
-    , emmGetLeadersFromEpoch
-          :: forall m. MonadDBRead m => EpochIndex -> m (Maybe SlotLeaders)
-    , emmGetEpochBlocks
-          :: forall m. MonadDBRead m => Epoch -> Page -> m (Maybe [HeaderHash])
-    , emmGetEpochPages
-          :: forall m. MonadDBRead m => Epoch -> m (Maybe Page)
     }
 
 -- | This is what we use in production when we run BlockchainImporter.
 prodMode :: BlockchainImporterMockableMode
 prodMode = BlockchainImporterMockableMode {
-      emmGetTipBlock            = DB.getTipBlock,
-      emmGetPageBlocks          = getPageBlocks,
-      emmGetBlundFromHH         = DB.getBlund,
-      emmGetSlotStart           = getSlotStart,
-      emmGetLeadersFromEpoch    = getLeadersForEpoch,
-      emmGetEpochBlocks         = getEpochBlocks,
-      emmGetEpochPages          = getEpochPages
+      emmGetTipBlock            = DB.getTipBlock
     }
 
 -- | So we can just reuse the default instance and change individial functions.
@@ -127,13 +95,7 @@ prodMode = BlockchainImporterMockableMode {
 -- and this gives us the flexibility to "mock" whichever we want.
 instance Default (BlockchainImporterMockableMode) where
   def = BlockchainImporterMockableMode {
-        emmGetTipBlock            = errorImpl,
-        emmGetPageBlocks          = errorImpl,
-        emmGetBlundFromHH         = errorImpl,
-        emmGetSlotStart           = errorImpl,
-        emmGetLeadersFromEpoch    = errorImpl,
-        emmGetEpochBlocks         = errorImpl,
-        emmGetEpochPages          = errorImpl
+        emmGetTipBlock            = errorImpl
       }
     where
       errorImpl = error "Cannot be used, please implement this function!"
@@ -147,12 +109,6 @@ instance Default (BlockchainImporterMockableMode) where
 -- testing.
 class HasBlockchainImporterCSLInterface m where
     getTipBlockCSLI :: m Block
-    getPageBlocksCSLI :: Page -> m (Maybe [HeaderHash])
-    getBlundFromHHCSLI :: HeaderHash -> m (Maybe Blund)
-    getSlotStartCSLI :: SlotId -> m (Maybe Timestamp)
-    getLeadersFromEpochCSLI :: EpochIndex -> m (Maybe SlotLeaders)
-    getEpochBlocksCSLI :: Epoch -> Page -> m (Maybe [HeaderHash])
-    getEpochPagesCSLI :: Epoch -> m (Maybe Page)
 
 -- | The instance for external CSL functions.
 instance (Monad m, MonadDBRead m, MonadSlotsData ctx m) =>
@@ -162,34 +118,4 @@ instance (Monad m, MonadDBRead m, MonadSlotsData ctx m) =>
         extraCtx <- Ether.ask @ExtraContext
         let blockchainImporterMockMode = ecBlockchainImporterMockableMode extraCtx
         emmGetTipBlock blockchainImporterMockMode
-
-    getPageBlocksCSLI page = do
-        extraCtx <- Ether.ask @ExtraContext
-        let blockchainImporterMockMode = ecBlockchainImporterMockableMode extraCtx
-        emmGetPageBlocks blockchainImporterMockMode page
-
-    getBlundFromHHCSLI headerHash = do
-        extraCtx <- Ether.ask @ExtraContext
-        let blockchainImporterMockMode = ecBlockchainImporterMockableMode extraCtx
-        emmGetBlundFromHH blockchainImporterMockMode headerHash
-
-    getSlotStartCSLI slotId = do
-        extraCtx <- Ether.ask @ExtraContext
-        let blockchainImporterMockMode = ecBlockchainImporterMockableMode extraCtx
-        emmGetSlotStart blockchainImporterMockMode slotId
-
-    getLeadersFromEpochCSLI epochIndex = do
-        extraCtx <- Ether.ask @ExtraContext
-        let blockchainImporterMockMode = ecBlockchainImporterMockableMode extraCtx
-        emmGetLeadersFromEpoch blockchainImporterMockMode epochIndex
-
-    getEpochBlocksCSLI epoch page = do
-        extraCtx <- Ether.ask @ExtraContext
-        let blockchainImporterMockMode = ecBlockchainImporterMockableMode extraCtx
-        emmGetEpochBlocks blockchainImporterMockMode epoch page
-
-    getEpochPagesCSLI epoch = do
-        extraCtx <- Ether.ask @ExtraContext
-        let blockchainImporterMockMode = ecBlockchainImporterMockableMode extraCtx
-        emmGetEpochPages blockchainImporterMockMode epoch
 
