@@ -33,14 +33,10 @@ module Pos.BlockchainImporter.Web.Server
 import           Universum
 
 import           Control.Error.Util (exceptT, hoistEither)
-import           Control.Lens (at)
 import qualified Data.ByteString as BS
-import qualified Data.HashMap.Strict as HM
-import qualified Data.List.NonEmpty as NE
 import           Data.Maybe (fromMaybe)
 import           Data.Time.Units (Second)
-import qualified Data.Vector as V
-import           Formatting (build, int, sformat, (%))
+import           Formatting (build, sformat, (%))
 import           Mockable (Concurrently, Delay, Mockable, concurrently, delay)
 import           Network.Wai (Application)
 import           Network.Wai.Middleware.RequestLogger (logStdoutDev)
@@ -48,56 +44,32 @@ import           Network.Wai.Middleware.RequestLogger (logStdoutDev)
 import qualified Serokell.Util.Base64 as B64
 import           Servant.Generic (AsServerT, toServant)
 import           Servant.Server (Server, ServerT, serve)
-import           System.Wlog (logDebug)
 
-import           Pos.Crypto (WithHash (..), hash, redeemPkBuild, withHash)
-
-import           Pos.DB.Block (getBlund)
-import           Pos.DB.Class (MonadDBRead)
+import           Pos.Crypto (WithHash (..), hash, redeemPkBuild)
 
 import           Pos.Diffusion.Types (Diffusion (..))
 
-import           Pos.Binary.Class (biSize)
 import           Pos.Block.Types (Blund, Undo)
-import           Pos.Core (AddrType (..), Address (..), Coin, EpochIndex, HeaderHash, Timestamp,
-                           TxAux (..), coinToInteger, difficultyL, gbHeader, gbhConsensus,
-                           getChainDifficulty, isUnknownAddressType, makeRedeemAddress, siEpoch,
-                           siSlot, sumCoins, timestampToPosix, unsafeAddCoin, unsafeIntegerToCoin,
-                           unsafeSubCoin)
-import           Pos.Core.Block (Block, MainBlock, mainBlockSlot, mainBlockTxPayload, mcdSlot)
-import           Pos.Core.Txp (Tx (..), TxId, TxOutAux (..), taTx, txOutValue, txpTxs, _txOutputs)
-import           Pos.Slotting (MonadSlots (..), getSlotStart)
-import           Pos.Txp (MonadTxpMem, TxMap, getLocalTxs, getMemPool, mpLocalTxs, topsortTxs,
-                          verifyTx, withTxpLocalData)
+import           Pos.Core (Address (..), EpochIndex, HeaderHash, TxAux (..), difficultyL,
+                           getChainDifficulty, makeRedeemAddress, siSlot)
+import           Pos.Core.Block (Block, MainBlock, mainBlockSlot)
+import           Pos.Core.Txp (Tx (..), TxId, taTx)
+import           Pos.Txp (MonadTxpMem, getLocalTxs, topsortTxs, verifyTx, withTxpLocalData)
 import           Pos.Txp.DB.Utxo (getTxOut)
 import           Pos.Util (divRoundUp, maybeThrow)
-import           Pos.Util.Chrono (NewestFirst (..))
 import           Pos.Web (serveImpl)
 
 import           Pos.BlockchainImporter.Aeson.ClientTypes ()
 import           Pos.BlockchainImporter.BlockchainImporterMode (BlockchainImporterMode)
-import           Pos.BlockchainImporter.Core (TxExtra (..))
-import           Pos.BlockchainImporter.DB (Page, defaultPageSize, getAddrBalance, getAddrHistory,
-                                            getLastTransactions, getTxExtra, getUtxoSum)
-import           Pos.BlockchainImporter.ExtraContext (HasBlockchainImporterCSLInterface (..),
-                                                      HasGenesisRedeemAddressInfo (..))
+import           Pos.BlockchainImporter.DB (Page, defaultPageSize, getTxExtra)
+import           Pos.BlockchainImporter.ExtraContext (HasBlockchainImporterCSLInterface (..))
 import           Pos.BlockchainImporter.Web.Api (BlockchainImporterApi,
                                                  BlockchainImporterApiRecord (..),
                                                  blockchainImporterApi)
-import           Pos.BlockchainImporter.Web.ClientTypes (Byte, CAda (..), CAddress (..),
-                                                         CAddressSummary (..), CAddressType (..),
-                                                         CAddressesFilter (..), CBlockEntry (..),
-                                                         CBlockSummary (..), CEncodedSTx (..),
-                                                         CGenesisAddressInfo (..),
-                                                         CGenesisSummary (..), CHash, CTxBrief (..),
-                                                         CTxEntry (..), CTxId (..), CTxSummary (..),
-                                                         TxInternal (..), convertTxOutputs,
-                                                         convertTxOutputsMB, decodeSTx,
-                                                         fromCAddress, fromCHash, fromCTxId,
-                                                         getEpochIndex, getSlotIndex, mkCCoin,
-                                                         mkCCoinMB, tiToTxEntry, toBlockEntry,
-                                                         toBlockSummary, toCAddress, toCHash,
-                                                         toCTxId, toTxBrief)
+import           Pos.BlockchainImporter.Web.ClientTypes (CAddress (..), CBlockEntry (..),
+                                                         CEncodedSTx (..), TxInternal (..),
+                                                         decodeSTx, fromCAddress, getSlotIndex,
+                                                         toBlockEntry)
 import           Pos.BlockchainImporter.Web.Error (BlockchainImporterError (..))
 
 
@@ -129,21 +101,7 @@ blockchainImporterHandlers
     => Diffusion m -> ServerT BlockchainImporterApi m
 blockchainImporterHandlers _diffusion =
     toServant (BlockchainImporterApiRecord
-        { _totalAda           = getTotalAda
-        , _blocksPages        = getBlocksPage
-        , _blocksPagesTotal   = getBlocksPagesTotal
-        , _blocksSummary      = getBlockSummary
-        , _blocksTxs          = getBlockTxs
-        , _txsLast            = getLastTxs
-        , _txsSummary         = getTxSummary
-        , _addressSummary     = getAddressSummary
-        , _epochPages         = getEpochPage
-        , _epochSlots         = getEpochSlot
-        , _genesisSummary     = getGenesisSummary
-        , _genesisPagesTotal  = getGenesisPagesTotal
-        , _genesisAddressInfo = getGenesisAddressInfo
-        , _statsTxs           = getStatsTxs
-        , _blockCount         = getBlocksTotal
+        { _blockCount         = getBlocksTotal
         , _sendSignedTx       = sendSignedTx(_diffusion)
         }
         :: BlockchainImporterApiRecord (AsServerT m))
@@ -151,20 +109,6 @@ blockchainImporterHandlers _diffusion =
 ----------------------------------------------------------------
 -- API Functions
 ----------------------------------------------------------------
-
-getTotalAda :: BlockchainImporterMode ctx m => m CAda
-getTotalAda = do
-    utxoSum <- getUtxoSum
-    validateUtxoSum utxoSum
-    pure $ CAda $ fromInteger utxoSum / 1e6
-  where
-    validateUtxoSum :: BlockchainImporterMode ctx m => Integer -> m ()
-    validateUtxoSum n
-        | n < 0 = throwM $ Internal $
-            sformat ("Internal tracker of utxo sum has a negative value: "%build) n
-        | n > coinToInteger (maxBound :: Coin) = throwM $ Internal $
-            sformat ("Internal tracker of utxo sum overflows: "%build) n
-        | otherwise = pure ()
 
 -- | Get the total number of blocks/slots currently available.
 -- Total number of main blocks   = difficulty of the topmost (tip) header.
@@ -268,342 +212,6 @@ getBlocksLastPage
     => m (Integer, [CBlockEntry])
 getBlocksLastPage = getBlocksPage Nothing (Just defaultPageSizeWord)
 
-
--- | Get last transactions from the blockchain.
-getLastTxs
-    :: BlockchainImporterMode ctx m
-    => m [CTxEntry]
-getLastTxs = do
-    mempoolTxs     <- getMempoolTxs
-    blockTxsWithTs <- getBlockchainLastTxs
-
-    -- We take the mempool txs first, then topsorted blockchain ones.
-    let newTxs      = mempoolTxs <> blockTxsWithTs
-
-    pure $ tiToTxEntry <$> newTxs
-  where
-    -- Get last transactions from the blockchain.
-    getBlockchainLastTxs
-        :: BlockchainImporterMode ctx m
-        => m [TxInternal]
-    getBlockchainLastTxs = do
-        mLastTxs     <- getLastTransactions
-        let lastTxs   = fromMaybe [] mLastTxs
-        let lastTxsWH = map withHash lastTxs
-
-        forM lastTxsWH toTxInternal
-      where
-        -- Convert transaction to TxInternal.
-        toTxInternal
-            :: (MonadThrow m, MonadDBRead m)
-            => WithHash Tx
-            -> m TxInternal
-        toTxInternal (WithHash tx txId) = do
-            extra <- getTxExtra txId >>=
-                maybeThrow (Internal "No extra info for tx in DB!")
-            pure $ TxInternal extra tx
-
-
--- | Get block summary.
-getBlockSummary
-    :: BlockchainImporterMode ctx m
-    => CHash
-    -> m CBlockSummary
-getBlockSummary cHash = do
-    headerHash <- unwrapOrThrow $ fromCHash cHash
-    mainBlund  <- getMainBlund headerHash
-    toBlockSummary mainBlund
-
-
--- | Get transactions from a block.
-getBlockTxs
-    :: BlockchainImporterMode ctx m
-    => CHash
-    -> Maybe Word
-    -> Maybe Word
-    -> m [CTxBrief]
-getBlockTxs cHash mLimit mSkip = do
-    let limit = fromIntegral $ fromMaybe defaultPageSizeWord mLimit
-    let skip = fromIntegral $ fromMaybe 0 mSkip
-    txs <- getMainBlockTxs cHash
-
-    forM (take limit . drop skip $ txs) $ \tx -> do
-        extra <- getTxExtra (hash tx) >>=
-                 maybeThrow (Internal "In-block transaction doesn't \
-                                      \have extra info in DB")
-        pure $ makeTxBrief tx extra
-
-
--- | Get address summary. Can return several addresses.
--- @PubKeyAddress@, @ScriptAddress@, @RedeemAddress@ and finally
--- @UnknownAddressType@.
-getAddressSummary
-    :: BlockchainImporterMode ctx m
-    => CAddress
-    -> m CAddressSummary
-getAddressSummary cAddr = do
-    addr <- cAddrToAddr cAddr
-
-    when (isUnknownAddressType addr) $
-        throwM $ Internal "Unknown address type"
-
-    balance <- mkCCoin . fromMaybe minBound <$> getAddrBalance addr
-    txIds <- getNewestFirst <$> getAddrHistory addr
-
-    let nTxs = length txIds
-
-    -- FIXME [CBR-119] Waiting for design discussion
-    when (nTxs > 1000) $
-        throwM $ Internal $ "Response too large: no more than 1000 transactions"
-            <> " can be returned at once. This issue is known and being worked on"
-
-    transactions <- forM txIds $ \id -> do
-        extra <- getTxExtraOrFail id
-        tx <- getTxMain id extra
-        pure $ makeTxBrief tx extra
-
-    pure CAddressSummary {
-        caAddress = cAddr,
-        caType = getAddressType addr,
-        caTxNum = fromIntegral $ length transactions,
-        caBalance = balance,
-        caTxList = transactions
-    }
-  where
-    getAddressType :: Address -> CAddressType
-    getAddressType Address {..} =
-        case addrType of
-            ATPubKey     -> CPubKeyAddress
-            ATScript     -> CScriptAddress
-            ATRedeem     -> CRedeemAddress
-            ATUnknown {} -> CUnknownAddress
-
--- | Get transaction summary from transaction id. Looks at both the database
--- and the memory (mempool) for the transaction. What we have at the mempool
--- are transactions that have to be written in the blockchain.
-getTxSummary
-    :: BlockchainImporterMode ctx m
-    => CTxId
-    -> m CTxSummary
-getTxSummary cTxId = do
-    -- There are two places whence we can fetch a transaction: MemPool and DB.
-    -- However, TxExtra should be added in the DB when a transaction is added
-    -- to MemPool. So we start with TxExtra and then figure out whence to fetch
-    -- the rest.
-    txId                   <- cTxIdToTxId cTxId
-    -- Get from database, @TxExtra
-    txExtra                <- getTxExtra txId
-
-    -- If we found @TxExtra@ that means we found something saved on the
-    -- blockchain and we don't have to fetch @MemPool@. But if we don't find
-    -- anything on the blockchain, we go searching in the @MemPool@.
-    if isJust txExtra
-      then getTxSummaryFromBlockchain cTxId
-      else getTxSummaryFromMemPool cTxId
-
-  where
-    -- Get transaction from blockchain (the database).
-    getTxSummaryFromBlockchain
-        :: (BlockchainImporterMode ctx m)
-        => CTxId
-        -> m CTxSummary
-    getTxSummaryFromBlockchain cTxId' = do
-        txId                   <- cTxIdToTxId cTxId'
-        txExtra                <- getTxExtraOrFail txId
-
-        -- Return transaction extra (txExtra) fields
-        let mBlockchainPlace    = teBlockchainPlace txExtra
-        blockchainPlace        <- maybeThrow (Internal "No blockchain place.") mBlockchainPlace
-
-        let headerHashBP        = fst blockchainPlace
-        let txIndexInBlock      = snd blockchainPlace
-
-        mb                     <- getMainBlock headerHashBP
-        blkSlotStart           <- getBlkSlotStart mb
-
-        let blockHeight         = fromIntegral $ mb ^. difficultyL
-        let receivedTime        = teReceivedTime txExtra
-        let blockTime           = timestampToPosix <$> blkSlotStart
-
-        -- Get block epoch and slot index
-        let blkHeaderSlot       = mb ^. mainBlockSlot
-        let epochIndex          = getEpochIndex $ siEpoch blkHeaderSlot
-        let slotIndex           = getSlotIndex  $ siSlot  blkHeaderSlot
-        let blkHash             = toCHash headerHashBP
-
-        tx <- maybeThrow (Internal "TxExtra return tx index that is out of bounds") $
-              atMay (toList $ mb ^. mainBlockTxPayload . txpTxs) (fromIntegral txIndexInBlock)
-
-        let inputOutputsMB      = map (fmap toaOut) $ NE.toList $ teInputOutputs txExtra
-        let txOutputs           = convertTxOutputs . NE.toList $ _txOutputs tx
-
-        let totalInputMB        = unsafeIntegerToCoin . sumCoins . map txOutValue <$> sequence inputOutputsMB
-        let totalOutput         = unsafeIntegerToCoin $ sumCoins $ map snd txOutputs
-
-        -- Verify that strange things don't happen with transactions
-        whenJust totalInputMB $ \totalInput -> when (totalOutput > totalInput) $
-            throwM $ Internal "Detected tx with output greater than input"
-
-        pure $ CTxSummary
-            { ctsId              = cTxId'
-            , ctsTxTimeIssued    = timestampToPosix <$> receivedTime
-            , ctsBlockTimeIssued = blockTime
-            , ctsBlockHeight     = Just blockHeight
-            , ctsBlockEpoch      = Just epochIndex
-            , ctsBlockSlot       = Just slotIndex
-            , ctsBlockHash       = Just blkHash
-            , ctsRelayedBy       = Nothing
-            , ctsTotalInput      = mkCCoinMB totalInputMB
-            , ctsTotalOutput     = mkCCoin totalOutput
-            , ctsFees            = mkCCoinMB $ (`unsafeSubCoin` totalOutput) <$> totalInputMB
-            , ctsInputs          = map (fmap (second mkCCoin)) $ convertTxOutputsMB inputOutputsMB
-            , ctsOutputs         = map (second mkCCoin) txOutputs
-            }
-
-    -- Get transaction from mempool (the memory).
-    getTxSummaryFromMemPool
-        :: (BlockchainImporterMode ctx m)
-        => CTxId
-        -> m CTxSummary
-    getTxSummaryFromMemPool cTxId' = do
-        txId                   <- cTxIdToTxId cTxId'
-        tx                     <- fetchTxFromMempoolOrFail txId
-
-        let inputOutputs        = NE.toList . _txOutputs $ taTx tx
-        let txOutputs           = convertTxOutputs inputOutputs
-
-        let totalInput          = unsafeIntegerToCoin $ sumCoins $ map txOutValue inputOutputs
-        let totalOutput         = unsafeIntegerToCoin $ sumCoins $ map snd txOutputs
-
-        -- Verify that strange things don't happen with transactions
-        when (totalOutput > totalInput) $
-            throwM $ Internal "Detected tx with output greater than input"
-
-        pure $ CTxSummary
-            { ctsId              = cTxId'
-            , ctsTxTimeIssued    = Nothing
-            , ctsBlockTimeIssued = Nothing
-            , ctsBlockHeight     = Nothing
-            , ctsBlockEpoch      = Nothing
-            , ctsBlockSlot       = Nothing
-            , ctsBlockHash       = Nothing
-            , ctsRelayedBy       = Nothing
-            , ctsTotalInput      = mkCCoin totalInput
-            , ctsTotalOutput     = mkCCoin totalOutput
-            , ctsFees            = mkCCoin $ unsafeSubCoin totalInput totalOutput
-            , ctsInputs          = map (Just . second mkCCoin) $ convertTxOutputs inputOutputs
-            , ctsOutputs         = map (second mkCCoin) txOutputs
-            }
-
-data GenesisSummaryInternal = GenesisSummaryInternal
-    { gsiNumRedeemed            :: !Int
-    , gsiRedeemedAmountTotal    :: !Coin
-    , gsiNonRedeemedAmountTotal :: !Coin
-    }
-
-getGenesisSummary
-    :: BlockchainImporterMode ctx m
-    => m CGenesisSummary
-getGenesisSummary = do
-    grai <- getGenesisRedeemAddressInfo
-    redeemAddressInfo <- V.mapM (uncurry getRedeemAddressInfo) grai
-    let GenesisSummaryInternal {..} =
-            V.foldr folder (GenesisSummaryInternal 0 minBound minBound)
-            redeemAddressInfo
-    let numTotal = length grai
-    pure CGenesisSummary
-        { cgsNumTotal = numTotal
-        , cgsNumRedeemed = gsiNumRedeemed
-        , cgsNumNotRedeemed = numTotal - gsiNumRedeemed
-        , cgsRedeemedAmountTotal = mkCCoin gsiRedeemedAmountTotal
-        , cgsNonRedeemedAmountTotal = mkCCoin gsiNonRedeemedAmountTotal
-        }
-  where
-    getRedeemAddressInfo
-        :: (MonadDBRead m, MonadThrow m)
-        => Address -> Coin -> m GenesisSummaryInternal
-    getRedeemAddressInfo address initialBalance = do
-        currentBalance <- fromMaybe minBound <$> getAddrBalance address
-        if currentBalance > initialBalance then
-            throwM $ Internal $ sformat
-                ("Redeem address "%build%" had "%build%" at genesis, but now has "%build)
-                address initialBalance currentBalance
-        else
-            -- Abusing gsiNumRedeemed here. We'd like to keep
-            -- only one wrapper datatype, so we're storing an Int
-            -- with a 0/1 value in a field that we call isRedeemed.
-            let isRedeemed = if currentBalance == minBound then 1 else 0
-                redeemedAmount = initialBalance `unsafeSubCoin` currentBalance
-                amountLeft = currentBalance
-            in pure $ GenesisSummaryInternal isRedeemed redeemedAmount amountLeft
-    folder
-        :: GenesisSummaryInternal
-        -> GenesisSummaryInternal
-        -> GenesisSummaryInternal
-    folder
-        (GenesisSummaryInternal isRedeemed redeemedAmount amountLeft)
-        (GenesisSummaryInternal numRedeemed redeemedAmountTotal nonRedeemedAmountTotal) =
-        GenesisSummaryInternal
-            { gsiNumRedeemed = numRedeemed + isRedeemed
-            , gsiRedeemedAmountTotal = redeemedAmountTotal `unsafeAddCoin` redeemedAmount
-            , gsiNonRedeemedAmountTotal = nonRedeemedAmountTotal `unsafeAddCoin` amountLeft
-            }
-
-isAddressRedeemed :: MonadDBRead m => Address -> m Bool
-isAddressRedeemed address = do
-    currentBalance <- fromMaybe minBound <$> getAddrBalance address
-    pure $ currentBalance == minBound
-
-getFilteredGrai :: BlockchainImporterMode ctx m => CAddressesFilter -> m (V.Vector (Address, Coin))
-getFilteredGrai addrFilt = do
-    grai <- getGenesisRedeemAddressInfo
-    case addrFilt of
-            AllAddresses         ->
-                pure grai
-            RedeemedAddresses    ->
-                V.filterM (isAddressRedeemed . fst) grai
-            NonRedeemedAddresses ->
-                V.filterM (isAddressNotRedeemed . fst) grai
-  where
-    isAddressNotRedeemed :: MonadDBRead m => Address -> m Bool
-    isAddressNotRedeemed = fmap not . isAddressRedeemed
-
-getGenesisAddressInfo
-    :: (BlockchainImporterMode ctx m)
-    => Maybe Word  -- ^ pageNumber
-    -> Maybe Word  -- ^ pageSize
-    -> CAddressesFilter
-    -> m [CGenesisAddressInfo]
-getGenesisAddressInfo (fmap fromIntegral -> mPage) mPageSize addrFilt = do
-    filteredGrai <- getFilteredGrai addrFilt
-    let pageNumber    = fromMaybe 1 mPage
-        pageSize      = fromIntegral $ toPageSize mPageSize
-        skipItems     = (pageNumber - 1) * pageSize
-        requestedPage = V.slice skipItems pageSize filteredGrai
-    V.toList <$> V.mapM toGenesisAddressInfo requestedPage
-  where
-    toGenesisAddressInfo :: BlockchainImporterMode ctx m => (Address, Coin) -> m CGenesisAddressInfo
-    toGenesisAddressInfo (address, coin) = do
-        cgaiIsRedeemed <- isAddressRedeemed address
-        -- Commenting out RSCoin address until it can actually be displayed.
-        -- See comment in src/Pos/BlockchainImporter/Web/ClientTypes.hs for more information.
-        pure CGenesisAddressInfo
-            { cgaiCardanoAddress = toCAddress address
-            -- , cgaiRSCoinAddress  = toCAddress address
-            , cgaiGenesisAmount  = mkCCoin coin
-            , ..
-            }
-
-getGenesisPagesTotal
-    :: BlockchainImporterMode ctx m
-    => Maybe Word
-    -> CAddressesFilter
-    -> m Integer
-getGenesisPagesTotal mPageSize addrFilt = do
-    filteredGrai <- getFilteredGrai addrFilt
-    pure $ fromIntegral $ (length filteredGrai + pageSize - 1) `div` pageSize
-  where
-    pageSize = fromIntegral $ toPageSize mPageSize
 
 -- | Search the blocks by epoch and slot.
 getEpochSlot
@@ -711,39 +319,6 @@ getEpochPage epochIndex mPage = do
         getBlockIndex (Right block) =
             fromIntegral $ (+1) $ getSlotIndex $ siSlot $ block ^. mainBlockSlot
 
-getStatsTxs
-    :: forall ctx m. BlockchainImporterMode ctx m
-    => Maybe Word
-    -> m (Integer, [(CTxId, Byte)])
-getStatsTxs mPageNumber = do
-    -- Get blocks from the requested page
-    blocksPage <- getBlocksPage mPageNumber (Just defaultPageSizeWord)
-
-    blockPageTxsInfo <- getBlockPageTxsInfo blocksPage
-    pure blockPageTxsInfo
-  where
-    getBlockPageTxsInfo
-        :: (Integer, [CBlockEntry])
-        -> m (Integer, [(CTxId, Byte)])
-    getBlockPageTxsInfo (blockPageNumber, cBlockEntries) = do
-        blockTxsInfo <- blockPageTxsInfo
-        pure (blockPageNumber, blockTxsInfo)
-      where
-        cHashes :: [CHash]
-        cHashes = cbeBlkHash <$> cBlockEntries
-
-        blockPageTxsInfo :: m [(CTxId, Byte)]
-        blockPageTxsInfo = concatForM cHashes getBlockTxsInfo
-
-        getBlockTxsInfo
-            :: CHash
-            -> m [(CTxId, Byte)]
-        getBlockTxsInfo cHash = do
-            txs <- getMainBlockTxs cHash
-            pure $ txToTxIdSize <$> txs
-          where
-            txToTxIdSize :: Tx -> (CTxId, Byte)
-            txToTxIdSize tx = (toCTxId $ hash tx, biSize tx)
 
 sendSignedTx
      :: BlockchainImporterMode ctx m
@@ -792,40 +367,6 @@ defaultPageSizeWord = fromIntegral defaultPageSize
 toPageSize :: Maybe Word -> Integer
 toPageSize = fromIntegral . fromMaybe defaultPageSizeWord
 
-getMainBlockTxs :: BlockchainImporterMode ctx m => CHash -> m [Tx]
-getMainBlockTxs cHash = do
-    hash' <- unwrapOrThrow $ fromCHash cHash
-    blk   <- getMainBlock hash'
-    txs   <- topsortTxsOrFail withHash $ toList $ blk ^. mainBlockTxPayload . txpTxs
-
-    pure txs
-
-makeTxBrief :: Tx -> TxExtra -> CTxBrief
-makeTxBrief tx extra = toTxBrief (TxInternal extra tx)
-
-unwrapOrThrow :: BlockchainImporterMode ctx m => Either Text a -> m a
-unwrapOrThrow = either (throwM . Internal) pure
-
--- | Get transaction from memory (STM) or throw exception.
-fetchTxFromMempoolOrFail :: BlockchainImporterMode ctx m => TxId -> m TxAux
-fetchTxFromMempoolOrFail txId = do
-    memPoolTxs        <- localMemPoolTxs
-    let memPoolTxsSize = HM.size memPoolTxs
-
-    logDebug $ sformat ("Mempool size "%int%" found!") memPoolTxsSize
-
-    let maybeTxAux = memPoolTxs ^. at txId
-    maybeThrow (Internal "Transaction missing in MemPool!") maybeTxAux
-
-  where
-    -- type TxMap = HashMap TxId TxAux
-    localMemPoolTxs
-        :: (MonadIO m, MonadTxpMem ext ctx m)
-        => m TxMap
-    localMemPoolTxs = do
-      memPool <- withTxpLocalData getMemPool
-      pure $ memPool ^. mpLocalTxs
-
 getMempoolTxs :: BlockchainImporterMode ctx m => m [TxInternal]
 getMempoolTxs = do
 
@@ -840,9 +381,6 @@ getMempoolTxs = do
 
     mkWhTx :: (TxId, TxAux) -> WithHash Tx
     mkWhTx (txid, txAux) = WithHash (taTx txAux) txid
-
-getBlkSlotStart :: MonadSlots ctx m => MainBlock -> m (Maybe Timestamp)
-getBlkSlotStart blk = getSlotStart $ blk ^. gbHeader . gbhConsensus . mcdSlot
 
 topsortTxsOrFail :: (MonadThrow m, Eq a) => (a -> WithHash Tx) -> [a] -> m [a]
 topsortTxsOrFail f =
@@ -884,35 +422,6 @@ cAddrToAddr cAddr@(CAddress rawAddrText) =
 
     badCardanoAddress = const $ throwM $ Internal "Invalid Cardano address!"
 
--- | Deserialize transaction ID.
--- Throw exception on failure.
-cTxIdToTxId :: MonadThrow m => CTxId -> m TxId
-cTxIdToTxId cTxId = either exception pure (fromCTxId cTxId)
-  where
-    exception = const $ throwM $ Internal "Invalid transaction id!"
-
-getMainBlund :: BlockchainImporterMode ctx m => HeaderHash -> m MainBlund
-getMainBlund h = do
-    (blk, undo) <- getBlund h >>= maybeThrow (Internal "No block found")
-    either (const $ throwM $ Internal "Block is genesis block") (pure . (,undo)) blk
-
-getMainBlock :: BlockchainImporterMode ctx m => HeaderHash -> m MainBlock
-getMainBlock = fmap fst . getMainBlund
-
--- | Get transaction extra from the database, and if you don't find it
--- throw an exception.
-getTxExtraOrFail :: MonadDBRead m => TxId -> m TxExtra
-getTxExtraOrFail txId = getTxExtra txId >>= maybeThrow exception
-  where
-    exception = Internal "Transaction not found"
-
-getTxMain :: BlockchainImporterMode ctx m => TxId -> TxExtra -> m Tx
-getTxMain id TxExtra {..} = case teBlockchainPlace of
-    Nothing -> taTx <$> fetchTxFromMempoolOrFail id
-    Just (hh, idx) -> do
-        mb <- getMainBlock hh
-        maybeThrow (Internal "TxExtra return tx index that is out of bounds") $
-            atMay (toList $ mb ^. mainBlockTxPayload . txpTxs) $ fromIntegral idx
 
 -- | Get @Page@ numbers from an @Epoch@ or throw an exception.
 getEpochPagesOrThrow

@@ -19,12 +19,9 @@ import qualified Data.Text.Lazy.Encoding as TE
 
 import           Pos.Aeson ()
 import           Pos.Aeson.Txp ()
-import           Pos.BlockchainImporter.Web.ClientTypes (CAda (..), CAddress, CAddressSummary,
-                                                         CAddressType, CBlockEntry, CBlockSummary,
-                                                         CCoin, CEncodedSTx (..),
-                                                         CGenesisAddressInfo, CGenesisSummary,
-                                                         CHash, CNetworkAddress, CTxBrief, CTxEntry,
-                                                         CTxId, CTxSummary)
+import           Pos.BlockchainImporter.Web.ClientTypes (CAda (..), CAddress, CBlockEntry, CCoin,
+                                                         CEncodedSTx (..), CHash, CTxBrief,
+                                                         CTxEntry, CTxId)
 import           Pos.BlockchainImporter.Web.Error (BlockchainImporterError)
 
 deriveJSON defaultOptions ''CHash
@@ -36,13 +33,6 @@ deriveToJSON defaultOptions ''BlockchainImporterError
 deriveToJSON defaultOptions ''CBlockEntry
 deriveToJSON defaultOptions ''CTxEntry
 deriveToJSON defaultOptions ''CTxBrief
-deriveToJSON defaultOptions ''CAddressType
-deriveToJSON defaultOptions ''CAddressSummary
-deriveToJSON defaultOptions ''CBlockSummary
-deriveToJSON defaultOptions ''CNetworkAddress
-deriveToJSON defaultOptions ''CTxSummary
-deriveToJSON defaultOptions ''CGenesisSummary
-deriveToJSON defaultOptions ''CGenesisAddressInfo
 
 instance ToJSON CAda where
     -- https://github.com/bos/aeson/issues/227#issuecomment-245400284

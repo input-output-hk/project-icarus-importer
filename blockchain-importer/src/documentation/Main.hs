@@ -79,21 +79,13 @@ instance ToParamSchema C.CTxId
 instance ToSchema      C.CAddress
 instance ToParamSchema C.CAddress
 instance ToParamSchema C.EpochIndex
-instance ToSchema      C.CTxSummary
 instance ToSchema      C.CTxEntry
 instance ToSchema      C.CTxBrief
-instance ToSchema      C.CBlockSummary
 instance ToSchema      C.CBlockEntry
-instance ToSchema      C.CAddressType
-instance ToSchema      C.CAddressSummary
 instance ToSchema      C.CCoin
 instance ToSchema      C.CAda
-instance ToSchema      C.CNetworkAddress
-instance ToSchema      C.CGenesisSummary
-instance ToSchema      C.CGenesisAddressInfo
 instance ToSchema      C.Byte
 instance ToSchema      BlockchainImporterError
-instance ToParamSchema C.CAddressesFilter
 
 deriving instance Generic Micro
 

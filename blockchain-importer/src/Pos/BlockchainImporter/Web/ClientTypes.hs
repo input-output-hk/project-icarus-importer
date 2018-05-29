@@ -12,16 +12,8 @@ module Pos.BlockchainImporter.Web.ClientTypes
        , CTxId (..)
        , CBlockEntry (..)
        , CTxEntry (..)
-       , CBlockSummary (..)
        , CEncodedSTx (..)
-       , CAddressType (..)
-       , CAddressSummary (..)
        , CTxBrief (..)
-       , CNetworkAddress (..)
-       , CTxSummary (..)
-       , CGenesisSummary (..)
-       , CGenesisAddressInfo (..)
-       , CAddressesFilter (..)
        , TxInternal (..)
        , CCoin
        , CAda (..)
@@ -39,7 +31,6 @@ module Pos.BlockchainImporter.Web.ClientTypes
        , fromCTxId
        , toBlockEntry
        , toTxEntry
-       , toBlockSummary
        , toTxBrief
        , timestampToPosix
        , convertTxOutputs
@@ -55,18 +46,16 @@ import           Universum
 
 import           Control.Arrow ((&&&))
 import           Control.Lens (_Left)
-import           Control.Monad.Error.Class (throwError)
 import qualified Data.ByteArray as BA
 import qualified Data.ByteString.Base64.Lazy as B64
 import qualified Data.ByteString.Lazy as BSL
-import           Data.Default (Default (..))
 import           Data.Fixed (Micro, showFixed)
 import qualified Data.List.NonEmpty as NE
 import qualified Data.Text.Buildable
 import           Data.Text.Lazy.Builder (fromLazyText)
 import qualified Data.Text.Lazy.Encoding as TE
 import           Data.Time.Clock.POSIX (POSIXTime)
-import           Formatting (build, sformat, (%))
+import           Formatting (sformat)
 import           Serokell.Data.Memory.Units (Byte)
 import           Serokell.Util.Base16 as SB16
 import           Servant.API (FromHttpApiData (..))
@@ -77,16 +66,14 @@ import qualified Pos.Binary as Bi
 import           Pos.Block.Types (Undo (..))
 import           Pos.Core (Address, Coin, EpochIndex, LocalSlotIndex, SlotId (..), StakeholderId,
                            Timestamp, addressF, coinToInteger, decodeTextAddress, gbHeader,
-                           gbhConsensus, getEpochIndex, getSlotIndex, headerHash, mkCoin,
-                           prevBlockL, sumCoins, timestampToPosix, unsafeAddCoin, unsafeGetCoin,
-                           unsafeIntegerToCoin, unsafeSubCoin)
+                           gbhConsensus, getEpochIndex, getSlotIndex, headerHash, mkCoin, sumCoins,
+                           timestampToPosix, unsafeAddCoin, unsafeGetCoin, unsafeIntegerToCoin,
+                           unsafeSubCoin)
 import           Pos.Core.Block (MainBlock, mainBlockSlot, mainBlockTxPayload, mcdSlot)
 import           Pos.Core.Txp (Tx (..), TxAux, TxId, TxOut (..), TxOutAux (..), TxUndo, txpTxs,
                                _txOutputs)
 import           Pos.Crypto (AbstractHash, Hash, HashAlgorithm, hash)
-import qualified Pos.GState as GS
 import qualified Pos.Lrc as Lrc (getLeader)
-import           Pos.Merkle (getMerkleRoot, mkMerkleTree, mtRoot)
 
 import           Pos.BlockchainImporter.BlockchainImporterMode (BlockchainImporterMode)
 import           Pos.BlockchainImporter.Core (TxExtra (..))
@@ -263,44 +250,6 @@ toTxEntry ts tx = CTxEntry {..}
     cteTimeIssued = timestampToPosix <$> ts
     cteAmount     = mkCCoin $ totalTxOutMoney tx
 
--- | Data displayed on block summary page
-data CBlockSummary = CBlockSummary
-    { cbsEntry      :: !CBlockEntry
-    , cbsPrevHash   :: !CHash
-    , cbsNextHash   :: !(Maybe CHash)
-    , cbsMerkleRoot :: !CHash
-    } deriving (Show, Generic)
-
-toBlockSummary
-    :: BlockchainImporterMode ctx m
-    => (MainBlock, Undo)
-    -> m CBlockSummary
-toBlockSummary blund@(blk, _) = do
-    cbsEntry    <- toBlockEntry blund
-    cbsNextHash <- fmap toCHash <$> GS.resolveForwardLink blk
-
-    let blockTxs      = blk ^. mainBlockTxPayload . txpTxs
-
-    let cbsPrevHash   = toCHash $ blk ^. prevBlockL
-    let cbsMerkleRoot = toCHash . getMerkleRoot . mtRoot . mkMerkleTree $ blockTxs
-
-    return CBlockSummary {..}
-
-data CAddressType
-    = CPubKeyAddress
-    | CScriptAddress
-    | CRedeemAddress
-    | CUnknownAddress
-    deriving (Show, Generic)
-
-data CAddressSummary = CAddressSummary
-    { caAddress :: !CAddress
-    , caType    :: !CAddressType
-    , caTxNum   :: !Word
-    , caBalance :: !CCoin
-    , caTxList  :: ![CTxBrief]
-    } deriving (Show, Generic)
-
 data CTxBrief = CTxBrief
     { ctbId         :: !CTxId
     , ctbTimeIssued :: !(Maybe POSIXTime)
@@ -310,47 +259,6 @@ data CTxBrief = CTxBrief
     , ctbOutputSum  :: !CCoin
     } deriving (Show, Generic)
 
-newtype CNetworkAddress = CNetworkAddress Text
-    deriving (Show, Generic)
-
-data CTxSummary = CTxSummary
-    { ctsId              :: !CTxId
-    , ctsTxTimeIssued    :: !(Maybe POSIXTime)
-    , ctsBlockTimeIssued :: !(Maybe POSIXTime)
-    , ctsBlockHeight     :: !(Maybe Word)
-    , ctsBlockEpoch      :: !(Maybe Word64)
-    , ctsBlockSlot       :: !(Maybe Word16)
-    , ctsBlockHash       :: !(Maybe CHash)
-    , ctsRelayedBy       :: !(Maybe CNetworkAddress)
-    , ctsTotalInput      :: !CCoin
-    , ctsTotalOutput     :: !CCoin
-    , ctsFees            :: !CCoin
-    , ctsInputs          :: ![Maybe (CAddress, CCoin)]
-    , ctsOutputs         :: ![(CAddress, CCoin)]
-    } deriving (Show, Generic)
-
-data CGenesisSummary = CGenesisSummary
-    { cgsNumTotal               :: !Int
-    , cgsNumRedeemed            :: !Int
-    , cgsNumNotRedeemed         :: !Int
-    , cgsRedeemedAmountTotal    :: !CCoin
-    , cgsNonRedeemedAmountTotal :: !CCoin
-    } deriving (Show, Generic)
-
-data CGenesisAddressInfo = CGenesisAddressInfo
-    { cgaiCardanoAddress :: !CAddress
-    , cgaiGenesisAmount  :: !CCoin
-    , cgaiIsRedeemed     :: !Bool
-    } deriving (Show, Generic)
-
-data CAddressesFilter
-    = RedeemedAddresses
-    | NonRedeemedAddresses
-    | AllAddresses
-    deriving (Show, Generic)
-
-instance Default CAddressesFilter where
-    def = AllAddresses
 
 -- | CBOR-encoded signed tx.
 newtype CEncodedSTx = CEncodedSTx BSL.ByteString
@@ -375,14 +283,6 @@ instance FromHttpApiData CAddress where
 
 instance FromHttpApiData CTxId where
     parseUrlPiece = pure . CTxId . CHash
-
-instance FromHttpApiData CAddressesFilter where
-    parseUrlPiece "all" = pure AllAddresses
-    parseUrlPiece "redeemed" = pure RedeemedAddresses
-    parseUrlPiece "notredeemed" = pure NonRedeemedAddresses
-    parseUrlPiece other = throwError $
-        sformat ("Unknown option '"%build%"'. "%
-            "Valid options are 'all', 'redeemed' and 'notredeemed'.") other
 
 -- TODO: When we have a generic enough `readEither`
 -- instance FromHttpApiData LocalSlotIndex where
