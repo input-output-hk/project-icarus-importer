@@ -57,8 +57,8 @@ toRecord txIn@(TxInUtxo txHash txIndex) (TxOutAux (TxOut receiver value)) = Just
 toRecord _ _ = Nothing
 
 -- | Applies a UtxoModifier to the UTxOs in the table
-applyModifierToUtxos :: PGS.Connection -> UtxoModifier -> IO ()
-applyModifierToUtxos conn modifier = do
+applyModifierToUtxos :: UtxoModifier -> PGS.Connection -> IO ()
+applyModifierToUtxos modifier conn = do
   let toInsert = catMaybes $ (uncurry toRecord) <$> MM.insertions modifier
       toDelete = (pgString . txId) <$> MM.deletions modifier
   void $ runUpsertMany conn utxosTable toInsert "utxo_id"

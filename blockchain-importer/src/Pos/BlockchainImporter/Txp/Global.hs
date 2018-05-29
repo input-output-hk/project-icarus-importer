@@ -7,7 +7,6 @@ module Pos.BlockchainImporter.Txp.Global
 import           Universum
 
 import qualified Data.HashMap.Strict as HM
-import qualified Database.PostgreSQL.Simple as PGS
 import           UnliftIO (MonadUnliftIO, withRunInIO)
 
 import           Pos.Core (ComponentBlock (..), HasConfiguration, HeaderHash, SlotId (..),
@@ -21,7 +20,7 @@ import           Pos.Txp (ProcessBlundsSettings (..), TxpBlund, TxpGlobalApplyMo
 import           Pos.Util.Chrono (NewestFirst (..))
 import qualified Pos.Util.Modifier as MM
 
-import           Pos.BlockchainImporter.Configuration (HasPostGresDB, postGresDB)
+import           Pos.BlockchainImporter.Configuration (HasPostGresDB, withPostGreTransaction)
 import qualified Pos.BlockchainImporter.DB as GS
 import           Pos.BlockchainImporter.Txp.Common (buildBlockchainImporterExtraLookup)
 import           Pos.BlockchainImporter.Txp.Toil (BlockchainImporterExtraLookup (..),
@@ -40,7 +39,7 @@ blockchainImporterTxpGlobalSettings =
     }
 
 withPGSTransaction :: forall m . (MonadUnliftIO m, MonadIO m, HasPostGresDB) => m () -> m ()
-withPGSTransaction m = withRunInIO $ \runInIO -> PGS.withTransaction postGresDB $ runInIO m
+withPGSTransaction m = withRunInIO $ \runInIO -> withPostGreTransaction $ runInIO m
 
 applySettings ::
        (TxpGlobalApplyMode ctx m, HasConfiguration, HasPostGresDB)
