@@ -72,12 +72,6 @@ instance HasSwagger api => HasSwagger (MultipartForm a :> api) where
 -- | Instances we need to build Swagger-specification for 'blockchainImporterApi':
 -- 'ToParamSchema' - for types in parameters ('Capture', etc.),
 -- 'ToSchema' - for types in bodies.
-instance ToSchema      C.CHash
-instance ToParamSchema C.CHash
-instance ToSchema      C.CTxId
-instance ToParamSchema C.CTxId
-instance ToSchema      C.CAddress
-instance ToParamSchema C.CAddress
 instance ToParamSchema C.EpochIndex
 instance ToSchema      C.Byte
 instance ToSchema      BlockchainImporterError

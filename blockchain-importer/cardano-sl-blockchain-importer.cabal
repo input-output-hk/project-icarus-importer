@@ -264,7 +264,6 @@ test-suite cardano-blockchain-importer-test
                        Test.Pos.BlockchainImporter.MockFactory
                        -- Tests
                        Test.Pos.BlockchainImporter.Web.ServerSpec
-                       Test.Pos.BlockchainImporter.Web.ClientTypesSpec
 
                        -- Test.Pos.BlockchainImporter.BListenerSpec -- TODO(KS): To merge when we merge tests.
                        Test.Pos.BlockchainImporter.Identity.BinarySpec

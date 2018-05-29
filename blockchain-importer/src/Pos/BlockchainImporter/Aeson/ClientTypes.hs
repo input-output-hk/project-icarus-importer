@@ -7,7 +7,7 @@ module Pos.BlockchainImporter.Aeson.ClientTypes
 
 import           Universum
 
-import           Data.Aeson.TH (defaultOptions, deriveJSON, deriveToJSON)
+import           Data.Aeson.TH (defaultOptions, deriveToJSON)
 import           Data.Aeson.Types (FromJSON (..), Parser, Value (String), typeMismatch, withObject,
                                    (.:))
 import qualified Data.ByteString.Base64.Lazy as B64
@@ -16,12 +16,8 @@ import qualified Data.Text.Lazy.Encoding as TE
 
 import           Pos.Aeson ()
 import           Pos.Aeson.Txp ()
-import           Pos.BlockchainImporter.Web.ClientTypes (CAddress, CEncodedSTx (..), CHash, CTxId)
+import           Pos.BlockchainImporter.Web.ClientTypes (CEncodedSTx (..))
 import           Pos.BlockchainImporter.Web.Error (BlockchainImporterError)
-
-deriveJSON defaultOptions ''CHash
-deriveJSON defaultOptions ''CAddress
-deriveJSON defaultOptions ''CTxId
 
 deriveToJSON defaultOptions ''BlockchainImporterError
 
