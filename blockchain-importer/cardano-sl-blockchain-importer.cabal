@@ -19,11 +19,6 @@ library
                         Pos.BlockchainImporter.Core
                         Pos.BlockchainImporter.DB
                         Pos.BlockchainImporter.ExtraContext
-                        Pos.BlockchainImporter.Socket
-                        Pos.BlockchainImporter.Socket.App
-                        Pos.BlockchainImporter.Socket.Holder
-                        Pos.BlockchainImporter.Socket.Methods
-                        Pos.BlockchainImporter.Socket.Util
 
                         Pos.BlockchainImporter.Txp
 
@@ -268,9 +263,6 @@ test-suite cardano-blockchain-importer-test
                        -- Utils
                        Test.Pos.BlockchainImporter.MockFactory
                        -- Tests
-                       Test.Pos.BlockchainImporter.Socket.AppSpec
-                       Test.Pos.BlockchainImporter.Socket.MethodsSpec
-                       Test.Pos.BlockchainImporter.Socket.UtilSpec
                        Test.Pos.BlockchainImporter.Web.ServerSpec
                        Test.Pos.BlockchainImporter.Web.ClientTypesSpec
 
