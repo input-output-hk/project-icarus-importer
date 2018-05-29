@@ -31,6 +31,8 @@ explorerTxpGlobalSettings =
     txpGlobalSettings
     { tgsApplyBlocks = applyBlocksWith applySettings
     , tgsRollbackBlocks = processBlunds rollbackSettings . getNewestFirst
+    , tgsApplyBlockModifier = identity
+    , tgsRollbackBlockModifier = identity
     }
 
 applySettings ::

@@ -5,6 +5,7 @@
 module Pos.BlockchainImporter.Configuration
        ( HasPostGresDB
        , withPostGresDB
+       , withPostGreTransaction
        , maybePostGreStore
        ) where
 
@@ -23,6 +24,9 @@ data PostGresDBConfiguration = PostGresDBConfiguration
     , pgStartBlock :: !Word64
       -- ^ Starting block number from which data will be stored on the DB
     }
+
+withPostGreTransaction :: HasPostGresDB => IO a -> IO a
+withPostGreTransaction = PGS.withTransaction (pgConnection given)
 
 maybePostGreStore :: HasPostGresDB => Word64 -> (PGS.Connection -> IO ()) -> IO ()
 maybePostGreStore currBN storeFn

@@ -65,7 +65,7 @@ txsTable = Table "txs" (pTxs TxRow  { trHash            = required "hash"
 
 -- | Inserts a given Tx into the Tx history tables.
 insertTx :: Tx -> TxExtra -> Word64 -> PGS.Connection -> IO ()
-insertTx tx txExtra blockHeight conn = PGS.withTransaction conn $ do
+insertTx tx txExtra blockHeight conn = do
   insertTxToHistory conn tx txExtra blockHeight
   TAT.insertTxAddresses conn tx txExtra
 
