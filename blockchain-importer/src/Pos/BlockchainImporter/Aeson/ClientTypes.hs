@@ -7,39 +7,23 @@ module Pos.BlockchainImporter.Aeson.ClientTypes
 
 import           Universum
 
-import           Data.Aeson.Encoding (unsafeToEncoding)
 import           Data.Aeson.TH (defaultOptions, deriveJSON, deriveToJSON)
-import           Data.Aeson.Types (FromJSON (..), Parser, ToJSON (..), Value (String), typeMismatch,
-                                   withObject, (.:))
+import           Data.Aeson.Types (FromJSON (..), Parser, Value (String), typeMismatch, withObject,
+                                   (.:))
 import qualified Data.ByteString.Base64.Lazy as B64
-import qualified Data.ByteString.Builder as BS (string8)
 import qualified Data.ByteString.Lazy as BSL
-import           Data.Fixed (showFixed)
 import qualified Data.Text.Lazy.Encoding as TE
 
 import           Pos.Aeson ()
 import           Pos.Aeson.Txp ()
-import           Pos.BlockchainImporter.Web.ClientTypes (CAda (..), CAddress, CBlockEntry, CCoin,
-                                                         CEncodedSTx (..), CHash, CTxBrief,
-                                                         CTxEntry, CTxId)
+import           Pos.BlockchainImporter.Web.ClientTypes (CAddress, CEncodedSTx (..), CHash, CTxId)
 import           Pos.BlockchainImporter.Web.Error (BlockchainImporterError)
 
 deriveJSON defaultOptions ''CHash
 deriveJSON defaultOptions ''CAddress
 deriveJSON defaultOptions ''CTxId
 
-deriveToJSON defaultOptions ''CCoin
 deriveToJSON defaultOptions ''BlockchainImporterError
-deriveToJSON defaultOptions ''CBlockEntry
-deriveToJSON defaultOptions ''CTxEntry
-deriveToJSON defaultOptions ''CTxBrief
-
-instance ToJSON CAda where
-    -- https://github.com/bos/aeson/issues/227#issuecomment-245400284
-    toEncoding (CAda ada) =
-        showFixed True ada & -- convert Micro to String chopping off trailing zeros
-        BS.string8 &         -- convert String to ByteString using Latin1 encoding
-        unsafeToEncoding     -- convert ByteString to Aeson's Encoding
 
 instance FromJSON CEncodedSTx where
   parseJSON = withObject "signedTx" $ \v -> CEncodedSTx <$> v .: "signedTx"

@@ -79,11 +79,6 @@ instance ToParamSchema C.CTxId
 instance ToSchema      C.CAddress
 instance ToParamSchema C.CAddress
 instance ToParamSchema C.EpochIndex
-instance ToSchema      C.CTxEntry
-instance ToSchema      C.CTxBrief
-instance ToSchema      C.CBlockEntry
-instance ToSchema      C.CCoin
-instance ToSchema      C.CAda
 instance ToSchema      C.Byte
 instance ToSchema      BlockchainImporterError
 
