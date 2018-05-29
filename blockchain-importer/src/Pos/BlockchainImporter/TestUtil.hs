@@ -28,7 +28,6 @@ import           Test.QuickCheck (Arbitrary (..), Gen, Property, Testable, choos
 import           Pos.Arbitrary.Block ()
 import           Pos.Block.Base (mkGenesisBlock)
 import           Pos.Block.Logic (RawPayload (..), createMainBlockPure)
-import           Pos.Block.Types (SlogUndo (..), Undo (..))
 import qualified Pos.Communication ()
 import           Pos.Core (Address, BlockCount (..), ChainDifficulty (..), EpochIndex (..),
                            GenesisHash (..), HasConfiguration, LocalSlotIndex (..), SlotId (..),
@@ -39,7 +38,7 @@ import           Pos.Core.Ssc (SscPayload)
 import           Pos.Core.Txp (TxAux)
 import           Pos.Core.Update (UpdatePayload (..))
 import           Pos.Crypto (ProtocolMagic, SecretKey, toPublic)
-import           Pos.Delegation (DlgPayload, DlgUndo (..), ProxySKBlockInfo)
+import           Pos.Delegation (DlgPayload, ProxySKBlockInfo)
 import           Pos.Ssc.Base (defaultSscPayload)
 import           Pos.Update.Configuration (HasUpdateConfiguration)
 import           Test.Pos.Configuration (withDefConfigurations)
