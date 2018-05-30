@@ -64,8 +64,8 @@ txsTable = Table "txs" (pTxs TxRow  { trHash            = required "hash"
                                     })
 
 -- | Inserts a given Tx into the Tx history tables.
-insertTx :: PGS.Connection -> Tx -> TxExtra -> Word64 -> IO ()
-insertTx conn tx txExtra blockHeight = PGS.withTransaction conn $ do
+insertTx :: Tx -> TxExtra -> Word64 -> PGS.Connection -> IO ()
+insertTx tx txExtra blockHeight conn = do
   insertTxToHistory conn tx txExtra blockHeight
   TAT.insertTxAddresses conn tx txExtra
 
@@ -87,7 +87,8 @@ insertTxToHistory conn tx txExtra blockHeight = void $ runUpsert_ conn txsTable 
     utcTime = pgUTCTime . (^. timestampToUTCTimeL) <$> teReceivedTime txExtra
 
 -- | Deletes a Tx by Tx hash from the Tx history tables.
-deleteTx :: PGS.Connection -> Tx -> IO ()
-deleteTx conn tx = void $ runDelete conn txsTable $ \row -> trHash row .== txHash
+deleteTx :: Tx -> PGS.Connection -> IO ()
+deleteTx tx conn = void $ runDelete_  conn $
+                                      Delete txsTable (\row -> trHash row .== txHash) rCount
   where
     txHash = pgString $ hashToString (hash tx)

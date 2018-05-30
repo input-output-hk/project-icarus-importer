@@ -19,7 +19,7 @@ import qualified Data.List.NonEmpty as NE
 import           Formatting (build, sformat, (%))
 import           System.Wlog (logError)
 
-import           Pos.BlockchainImporter.Configuration (HasPostGresDB, postGresDB)
+import           Pos.BlockchainImporter.Configuration (HasPostGresDB, maybePostGreStore)
 import           Pos.BlockchainImporter.Core (AddrHistory, TxExtra (..))
 import qualified Pos.BlockchainImporter.Tables.BestBlockTable as BBT
 import qualified Pos.BlockchainImporter.Tables.TxsTable as TxsT
@@ -59,12 +59,12 @@ eApplyToil ::
     -> m (EGlobalToilM ())
 eApplyToil mTxTimestamp txun (hh, blockHeight) = do
     -- Update best block
-    liftIO $ BBT.updateBestBlock postGresDB blockHeight
+    liftIO $ maybePostGreStore blockHeight $ BBT.updateBestBlock blockHeight
 
     -- Update UTxOs
     let toilApplyUTxO = extendGlobalToilM $ Txp.applyToil txun
 
-    liftIO $ UT.applyModifierToUtxos postGresDB $ applyUTxOModifier txun
+    liftIO $ maybePostGreStore blockHeight $ UT.applyModifierToUtxos $ applyUTxOModifier txun
 
     -- Update tx history
     let appliersM = zipWithM (curry applier) [0..] txun
@@ -76,7 +76,7 @@ eApplyToil mTxTimestamp txun (hh, blockHeight) = do
             id = hash tx
             newExtra = TxExtra (Just (hh, i)) mTxTimestamp txUndo
 
-        liftIO $ TxsT.insertTx postGresDB tx newExtra blockHeight
+        liftIO $ maybePostGreStore blockHeight $ TxsT.insertTx tx newExtra blockHeight
 
         let keyValueDBUpdate = do
                   extra <- fromMaybe newExtra <$> getTxExtra id
@@ -92,12 +92,12 @@ eRollbackToil ::
   => [(TxAux, TxUndo)] -> Word64 -> m (EGlobalToilM ())
 eRollbackToil txun blockHeight = do
     -- Update best block
-    liftIO $ BBT.updateBestBlock postGresDB (blockHeight - 1)
+    liftIO $ maybePostGreStore blockHeight $ BBT.updateBestBlock (blockHeight - 1)
 
     -- Update UTxOs
     let toilRollbackUtxo = extendGlobalToilM $ Txp.rollbackToil txun
 
-    liftIO $ UT.applyModifierToUtxos postGresDB $ rollbackUTxOModifier txun
+    liftIO $ maybePostGreStore blockHeight $ UT.applyModifierToUtxos $ rollbackUTxOModifier txun
 
     -- Update tx history
     let rollbacksM = mapM extraRollback $ reverse txun
@@ -105,7 +105,7 @@ eRollbackToil txun blockHeight = do
   where
     extraRollback :: (TxAux, TxUndo) -> m (BlockchainImporterExtraM ())
     extraRollback (txAux, txUndo) = do
-        liftIO $ TxsT.deleteTx postGresDB $ taTx txAux
+        liftIO $ maybePostGreStore blockHeight $ TxsT.deleteTx $ taTx txAux
 
         let keyValueDBUpdate = do
                   delTxExtraWithHistory (hash (taTx txAux)) $

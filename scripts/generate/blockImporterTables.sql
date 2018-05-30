@@ -24,6 +24,6 @@ CREATE TABLE tx_addresses ( tx_hash  text     REFERENCES txs ON DELETE CASCADE
 -- Indexes
 CREATE INDEX ON utxos (receiver);
 CREATE INDEX ON txs (hash);
-CREATE INDEX ON txs (time);
+CREATE INDEX ON txs (hash, time);
 CREATE INDEX ON tx_addresses (tx_hash);
 CREATE INDEX ON tx_addresses (address);
