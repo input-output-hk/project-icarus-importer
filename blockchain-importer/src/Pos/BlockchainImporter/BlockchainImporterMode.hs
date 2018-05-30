@@ -9,15 +9,12 @@ module Pos.BlockchainImporter.BlockchainImporterMode
     , etcParams_L
     , BlockchainImporterProperty
     , blockchainImporterPropertyToProperty
-    -- BlockchainImporter Socket Subscription
-    , SubscriptionTestMode
-    , runSubTestMode
     ) where
 
 import           Universum
 
 import           Control.Lens (lens, makeLensesWith)
-import           System.Wlog (CanLog, HasLoggerName (..), LoggerName (..))
+import           System.Wlog (HasLoggerName (..), LoggerName (..))
 
 import           Test.QuickCheck (Gen, Property, Testable (..), arbitrary, forAll, ioProperty)
 import           Test.QuickCheck.Monadic (PropertyM, monadic)
@@ -44,7 +41,6 @@ import           Pos.BlockchainImporter.ExtraContext (ExtraContext, ExtraContext
                                                       HasBlockchainImporterCSLInterface,
                                                       HasGenesisRedeemAddressInfo, makeExtraCtx,
                                                       runExtraContextT)
-import           Pos.BlockchainImporter.Socket.Holder (ConnectionsState)
 import           Pos.BlockchainImporter.Txp (BlockchainImporterExtraModifier (..))
 
 -- Need Emulation because it has instance Mockable CurrentTime
@@ -273,22 +269,6 @@ instance {-# OVERLAPPING #-} HasLoggerName BlockchainImporterTestMode where
 instance {-# OVERLAPPING #-} CanJsonLog BlockchainImporterTestMode where
     jsonLog = jsonLogDefault
 
-
-----------------------------------------------------------------------------
--- SubscriptionMode
-----------------------------------------------------------------------------
-
-newtype SubscriptionTestMode a = SubscriptionTestMode
-    { runSubscriptionTestMode :: (StateT ConnectionsState IO a)
-    } deriving (Functor, Applicative, Monad, MonadThrow, CanLog, MonadState ConnectionsState)
-
-runSubTestMode :: ConnectionsState -> SubscriptionTestMode a -> IO (a, ConnectionsState)
-runSubTestMode connectionsState m =
-    runStateT (runSubscriptionTestMode m) connectionsState
-
-instance HasLoggerName SubscriptionTestMode where
-    askLoggerName        = pure "blockchainImporter-subscription-test"
-    modifyLoggerName _ a = a
 
 ----------------------------------------------------------------------------
 -- Property

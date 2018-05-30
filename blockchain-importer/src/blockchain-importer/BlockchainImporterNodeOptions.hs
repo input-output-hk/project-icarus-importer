@@ -32,8 +32,6 @@ data BlockchainImporterNodeArgs = BlockchainImporterNodeArgs
 data BlockchainImporterArgs = BlockchainImporterArgs
     { webPort             :: !Word16
     -- ^ The port for the blockchainImporter backend
-    , notifierPort        :: !Word16
-    -- ^ The port for the socket.io backend
     , postGresConfig      :: !PGS.ConnectInfo
     -- ^ Configuration of the PostGres DB
     , storingStartBlockPG :: !Word64
@@ -74,11 +72,6 @@ blockchainImporterArgsParser :: Parser BlockchainImporterNodeArgs
 blockchainImporterArgsParser = do
     commonNodeArgs <- CLI.commonNodeArgsParser
     webPort        <- CLI.webPortOption 8200 "Port for web API."
-    notifierPort   <- option auto $
-        long    "notifier-port" <>
-        metavar "PORT" <>
-        value   8210 <> showDefault <>
-        help    "Port for update notifier, the socket.io backend."
     postGresConfig <- connectInfoParser
     storingStartBlockPG     <- option auto $
         long    "postgres-startblock" <>

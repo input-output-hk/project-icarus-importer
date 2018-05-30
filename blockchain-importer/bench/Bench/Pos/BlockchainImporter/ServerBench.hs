@@ -15,13 +15,12 @@ import           Pos.Arbitrary.Txp.Unsafe ()
 
 import           Test.Pos.Configuration (withDefConfigurations)
 
-import           Pos.BlockchainImporter.DB (defaultPageSize)
-import           Pos.BlockchainImporter.BlockchainImporterMode (BlockchainImporterTestParams, runBlockchainImporterTestMode)
+import           Pos.BlockchainImporter.BlockchainImporterMode (BlockchainImporterTestParams,
+                                                                runBlockchainImporterTestMode)
 import           Pos.BlockchainImporter.ExtraContext (ExtraContext (..), makeMockExtraCtx)
 import           Pos.BlockchainImporter.TestUtil (BlockNumber, SlotsPerEpoch,
-                                        generateValidBlockchainImporterMockableMode)
-import           Pos.BlockchainImporter.Web.ClientTypes (CBlockEntry)
-import           Pos.BlockchainImporter.Web.Server (getBlocksPage, getBlocksTotal)
+                                                  generateValidBlockchainImporterMockableMode)
+import           Pos.BlockchainImporter.Web.Server (getBlocksTotal)
 
 
 ----------------------------------------------------------------
@@ -37,15 +36,6 @@ getBlocksTotalBench
 getBlocksTotalBench (testParams, extraContext) =
     withDefConfigurations $ \_ ->
         runBlockchainImporterTestMode testParams extraContext getBlocksTotal
-
--- | @getBlocksPage@ function for the last page for benchmarks.
-getBlocksPageBench
-    :: BenchmarkTestParams
-    -> IO (Integer, [CBlockEntry])
-getBlocksPageBench (testParams, extraContext) =
-    withDefConfigurations $ \_ ->
-        runBlockchainImporterTestMode testParams extraContext $
-            getBlocksPage Nothing (Just $ fromIntegral defaultPageSize)
 
 -- | This is used to generate the test environment. We don't do this while benchmarking
 -- the functions since that would include the time/memory required for the generation of the
@@ -95,10 +85,6 @@ runTimeBenchmark = do
         [ bench "getBlocksTotal 100 blocks" $ nfIO $ getBlocksTotalBench blocks100
         , bench "getBlocksTotal 1000 blocks" $ nfIO $ getBlocksTotalBench blocks1000
         , bench "getBlocksTotal 10000 blocks" $ nfIO $ getBlocksTotalBench blocks10000
-
-        , bench "getBlocksPage 100 blocks" $ nfIO $ getBlocksPageBench blocks100
-        , bench "getBlocksPage 1000 blocks" $ nfIO $ getBlocksPageBench blocks1000
-        , bench "getBlocksPage 10000 blocks" $ nfIO $ getBlocksPageBench blocks10000
         ]
 
   where
@@ -122,7 +108,3 @@ runSpaceBenchmark = do
         io "getBlocksTotal 100 blocks" getBlocksTotalBench blocks100
         io "getBlocksTotal 1000 blocks" getBlocksTotalBench blocks1000
         io "getBlocksTotal 10000 blocks" getBlocksTotalBench blocks10000
-
-        io "getBlocksPage 100 blocks" getBlocksPageBench blocks100
-        io "getBlocksPage 1000 blocks" getBlocksPageBench blocks1000
-        io "getBlocksPage 10000 blocks" getBlocksPageBench blocks10000

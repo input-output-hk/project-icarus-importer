@@ -23,11 +23,10 @@ import           Pos.Binary ()
 import           Pos.BlockchainImporter.Configuration (withPostGresDB)
 import           Pos.BlockchainImporter.DB (blockchainImporterInitDB)
 import           Pos.BlockchainImporter.ExtraContext (makeExtraCtx)
-import           Pos.BlockchainImporter.Socket (NotifierSettings (..))
 import           Pos.BlockchainImporter.Txp (BlockchainImporterExtraModifier,
                                              blockchainImporterTxpGlobalSettings)
 import           Pos.BlockchainImporter.Web (BlockchainImporterProd, blockchainImporterPlugin,
-                                             notifierPlugin, runBlockchainImporterProd)
+                                             runBlockchainImporterProd)
 import           Pos.Client.CLI (CommonNodeArgs (..), NodeArgs (..), getNodeParams)
 import qualified Pos.Client.CLI as CLI
 import           Pos.Context (NodeContext (..))
@@ -72,7 +71,6 @@ action (BlockchainImporterNodeArgs (cArgs@CommonNodeArgs{..}) BlockchainImporter
             let plugins :: HasConfigurations => [Diffusion BlockchainImporterProd -> BlockchainImporterProd ()]
                 plugins =
                     [ blockchainImporterPlugin webPort
-                    , notifierPlugin NotifierSettings{ nsPort = notifierPort }
                     , updateTriggerWorker
                     ]
             bracketNodeResources currentParams sscParams

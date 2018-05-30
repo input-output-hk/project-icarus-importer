@@ -8,7 +8,6 @@ module Pos.BlockchainImporter.Web.Transform
        , liftToBlockchainImporterProd
        , blockchainImporterServeWebReal
        , blockchainImporterPlugin
-       , notifierPlugin
        ) where
 
 import           Universum
@@ -35,7 +34,6 @@ import           Pos.BlockchainImporter.BListener (BlockchainImporterBListener,
                                                    runBlockchainImporterBListener)
 import           Pos.BlockchainImporter.ExtraContext (ExtraContext, ExtraContextT, makeExtraCtx,
                                                       runExtraContextT)
-import           Pos.BlockchainImporter.Socket.App (NotifierSettings, notifierApp)
 import           Pos.BlockchainImporter.Txp (BlockchainImporterExtraModifier, eTxNormalize,
                                              eTxProcessTransaction)
 import           Pos.BlockchainImporter.Web.Api (blockchainImporterApi)
@@ -76,13 +74,6 @@ type HasBlockchainImporterConfiguration =
     , HasSscConfiguration
     , HasCompileInfo
     )
-
-notifierPlugin
-    :: HasBlockchainImporterConfiguration
-    => NotifierSettings
-    -> Diffusion BlockchainImporterProd
-    -> BlockchainImporterProd ()
-notifierPlugin settings _ = notifierApp settings
 
 blockchainImporterPlugin
     :: HasBlockchainImporterConfiguration
