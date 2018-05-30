@@ -11,6 +11,7 @@ import           UnliftIO (MonadUnliftIO, withRunInIO)
 import           Pos.Core (ComponentBlock (..), HasConfiguration, HeaderHash, SlotId (..),
                            difficultyL, epochIndexL, headerHash, headerSlotL)
 import           Pos.Core.Txp (TxAux, TxUndo)
+import           Pos.DB (SomeBatchOp (..))
 import           Pos.Slotting (getSlotStart)
 import           Pos.Txp (ProcessBlundsSettings (..), TxpBlund, TxpGlobalApplyMode,
                           TxpGlobalRollbackMode, TxpGlobalSettings (..), applyBlocksWith,
@@ -41,8 +42,8 @@ applySettings ::
 applySettings =
     ProcessBlundsSettings
         { pbsProcessSingle = applySingle
-        , pbsCreateEnv = const $ const $ pure ()
-        , pbsExtraOperations = const $ mempty
+        , pbsCreateEnv = createEmptyEnv
+        , pbsExtraOperations = emptyExtraOp
         , pbsIsRollback = False
         }
 
@@ -52,8 +53,8 @@ rollbackSettings ::
 rollbackSettings =
     ProcessBlundsSettings
         { pbsProcessSingle = rollbackSingle
-        , pbsCreateEnv = const $ const $ pure ()
-        , pbsExtraOperations = const $ mempty
+        , pbsCreateEnv = createEmptyEnv
+        , pbsExtraOperations = emptyExtraOp
         , pbsIsRollback = True
         }
 
@@ -104,6 +105,12 @@ rollbackSingle txpBlund =
             ComponentBlockMain mainHeader _ -> fromIntegral $ mainHeader ^. difficultyL
       txAuxesAndUndos = blundToAuxNUndo txpBlund
   in eRollbackToil txAuxesAndUndos blockHeight
+
+createEmptyEnv :: Utxo -> [TxAux] -> m ()
+createEmptyEnv _ _ = pure ()
+
+emptyExtraOp :: BlockchainImporterExtraModifier -> SomeBatchOp
+emptyExtraOp _ = mempty
 
 -- Zip block's TxAuxes and also add block hash
 blundToAuxNUndoWHash :: TxpBlund -> ([(TxAux, TxUndo)], HeaderHash)
