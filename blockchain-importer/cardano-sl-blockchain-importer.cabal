@@ -17,7 +17,6 @@ library
                         Pos.BlockchainImporter.Configuration
 
                         Pos.BlockchainImporter.Core
-                        Pos.BlockchainImporter.DB
                         Pos.BlockchainImporter.ExtraContext
 
                         Pos.BlockchainImporter.Txp
@@ -39,7 +38,6 @@ library
 
                         Pos.Binary.BlockchainImporter
                         Pos.BlockchainImporter.Core.Types
-                        Pos.BlockchainImporter.Txp.Common
                         Pos.BlockchainImporter.Txp.Global
                         Pos.BlockchainImporter.Txp.Local
                         Pos.BlockchainImporter.Txp.Toil

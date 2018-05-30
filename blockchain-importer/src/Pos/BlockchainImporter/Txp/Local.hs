@@ -25,9 +25,7 @@ import qualified Pos.Util.Modifier as MM
 import           Pos.Util.Util (HasLens')
 
 import           Pos.BlockchainImporter.Core (TxExtra (..))
-import           Pos.BlockchainImporter.Txp.Common (buildBlockchainImporterExtraLookup)
-import           Pos.BlockchainImporter.Txp.Toil (BlockchainImporterExtraLookup (..),
-                                                  BlockchainImporterExtraModifier, ELocalToilM,
+import           Pos.BlockchainImporter.Txp.Toil (BlockchainImporterExtraModifier, ELocalToilM,
                                                   eNormalizeToil, eProcessTx, eemLocalTxsExtra)
 
 
@@ -58,10 +56,10 @@ eTxProcessTransactionNoLock itw = getCurrentSlot >>= \case
         -- First get the current @SlotId@ so we can calculate the time.
         -- Then get when that @SlotId@ started and use that as a time for @Tx@.
         mTxTimestamp <- getSlotStart slot
-        txProcessTransactionAbstract buildContext (processTx' mTxTimestamp) itw
+        txProcessTransactionAbstract buildEmptyContext (processTx' mTxTimestamp) itw
   where
-    buildContext :: Utxo -> TxAux -> m BlockchainImporterExtraLookup
-    buildContext utxo = buildBlockchainImporterExtraLookup utxo . one
+    buildEmptyContext :: Utxo -> TxAux -> m ()
+    buildEmptyContext _ _ = pure ()
 
     processTx' ::
            Maybe Timestamp
@@ -80,8 +78,11 @@ eTxNormalize ::
     => m ()
 eTxNormalize = do
     extras <- MM.insertionsMap . view eemLocalTxsExtra <$> withTxpLocalData getTxpExtra
-    txNormalizeAbstract buildBlockchainImporterExtraLookup (normalizeToil' extras)
+    txNormalizeAbstract buildEmptyContext (normalizeToil' extras)
   where
+    buildEmptyContext :: Utxo -> [TxAux] -> m ()
+    buildEmptyContext _ _ = pure ()
+
     normalizeToil' ::
            HashMap TxId TxExtra
         -> BlockVersionData

@@ -21,7 +21,6 @@ import           BlockchainImporterNodeOptions (BlockchainImporterArgs (..),
                                                 getBlockchainImporterNodeOptions)
 import           Pos.Binary ()
 import           Pos.BlockchainImporter.Configuration (withPostGresDB)
-import           Pos.BlockchainImporter.DB (blockchainImporterInitDB)
 import           Pos.BlockchainImporter.ExtraContext (makeExtraCtx)
 import           Pos.BlockchainImporter.Txp (BlockchainImporterExtraModifier,
                                              blockchainImporterTxpGlobalSettings)
@@ -30,6 +29,7 @@ import           Pos.BlockchainImporter.Web (BlockchainImporterProd, blockchainI
 import           Pos.Client.CLI (CommonNodeArgs (..), NodeArgs (..), getNodeParams)
 import qualified Pos.Client.CLI as CLI
 import           Pos.Context (NodeContext (..))
+import           Pos.DB.DB (initNodeDBs)
 import           Pos.Diffusion.Types (Diffusion)
 import           Pos.Launcher (ConfigurationOptions (..), HasConfigurations, NodeParams (..),
                                NodeResources (..), bracketNodeResources, elimRealMode,
@@ -75,7 +75,7 @@ action (BlockchainImporterNodeArgs (cArgs@CommonNodeArgs{..}) BlockchainImporter
                     ]
             bracketNodeResources currentParams sscParams
                 blockchainImporterTxpGlobalSettings
-                blockchainImporterInitDB $ \nr@NodeResources {..} ->
+                initNodeDBs $ \nr@NodeResources {..} ->
                   runBlockchainImporterRealMode nr (runNode nr plugins)
   where
 
