@@ -14,7 +14,7 @@ import           Universum
 import qualified Data.HashMap.Strict as HM
 
 import           Pos.Core (BlockVersionData, EpochIndex, HasConfiguration, Timestamp)
-import           Pos.Core.Txp (TxAux (..), TxId)
+import           Pos.Core.Txp (TxAux (..), TxId, TxUndo)
 import           Pos.Slotting (MonadSlots (getCurrentSlot), getSlotStart)
 import           Pos.StateLock (Priority (..), StateLock, StateLockMetrics, withStateLock)
 import           Pos.Txp.Logic.Local (txNormalizeAbstract, txProcessTransactionAbstract)
@@ -24,10 +24,11 @@ import           Pos.Util.JsonLog.Events (MemPoolModifyReason (..))
 import qualified Pos.Util.Modifier as MM
 import           Pos.Util.Util (HasLens')
 
+import           Pos.BlockchainImporter.Configuration (HasPostGresDB)
 import           Pos.BlockchainImporter.Core (TxExtra (..))
 import           Pos.BlockchainImporter.Txp.Toil (BlockchainImporterExtraModifier, ELocalToilM,
+                                                  eDeletePendingTx, eImportPendingTx,
                                                   eNormalizeToil, eProcessTx, eemLocalTxsExtra)
-
 
 type ETxpLocalWorkMode ctx m =
     ( TxpLocalWorkMode ctx m
@@ -40,6 +41,7 @@ eTxProcessTransaction ::
        , HasLens' ctx (StateLockMetrics MemPoolModifyReason)
        , CanJsonLog m
        , HasConfiguration
+       , HasPostGresDB
        )
     => (TxId, TxAux)
     -> m (Either ToilVerFailure ())
@@ -47,16 +49,21 @@ eTxProcessTransaction itw =
     withStateLock LowPriority ProcessTransaction $ \__tip -> eTxProcessTransactionNoLock itw
 
 eTxProcessTransactionNoLock ::
-       forall ctx m. (ETxpLocalWorkMode ctx m, HasConfiguration)
+       forall ctx m. (ETxpLocalWorkMode ctx m, HasConfiguration, HasPostGresDB)
     => (TxId, TxAux)
     -> m (Either ToilVerFailure ())
-eTxProcessTransactionNoLock itw = getCurrentSlot >>= \case
+eTxProcessTransactionNoLock itw@(_, txAux) = getCurrentSlot >>= \case
     Nothing   -> pure $ Left ToilSlotUnknown
     Just slot -> do
         -- First get the current @SlotId@ so we can calculate the time.
         -- Then get when that @SlotId@ started and use that as a time for @Tx@.
         mTxTimestamp <- getSlotStart slot
-        txProcessTransactionAbstract buildEmptyContext (processTx' mTxTimestamp) itw
+        processRes <- txProcessTransactionAbstract buildEmptyContext (processTx' mTxTimestamp) itw
+        case processRes of
+          Right txUndo -> do
+            eImportPendingTx (taTx txAux) txUndo
+            return $ Right ()
+          Left er -> return $ Left er
   where
     buildEmptyContext :: Utxo -> TxAux -> m ()
     buildEmptyContext _ _ = pure ()
@@ -66,7 +73,7 @@ eTxProcessTransactionNoLock itw = getCurrentSlot >>= \case
         -> BlockVersionData
         -> EpochIndex
         -> (TxId, TxAux)
-        -> ExceptT ToilVerFailure ELocalToilM ()
+        -> ExceptT ToilVerFailure ELocalToilM TxUndo
     processTx' mTxTimestamp bvd epoch tx =
         eProcessTx bvd epoch tx (TxExtra Nothing mTxTimestamp)
 
@@ -74,21 +81,22 @@ eTxProcessTransactionNoLock itw = getCurrentSlot >>= \case
 --   2. Remove invalid transactions from MemPool
 --   3. Set new tip to txp local data
 eTxNormalize ::
-       forall ctx m. (ETxpLocalWorkMode ctx m, HasConfiguration)
+       forall ctx m. (ETxpLocalWorkMode ctx m, HasConfiguration, HasPostGresDB)
     => m ()
 eTxNormalize = do
     extras <- MM.insertionsMap . view eemLocalTxsExtra <$> withTxpLocalData getTxpExtra
-    txNormalizeAbstract buildEmptyContext (normalizeToil' extras)
+    invalidTxs <- txNormalizeAbstract buildEmptyContext (normalizeToil' extras)
+    whenJust invalidTxs eDeletePendingTx
   where
     buildEmptyContext :: Utxo -> [TxAux] -> m ()
     buildEmptyContext _ _ = pure ()
 
-    normalizeToil' ::
+    normalizeToil' :: (MonadIO m, HasPostGresDB) =>
            HashMap TxId TxExtra
         -> BlockVersionData
         -> EpochIndex
         -> HashMap TxId TxAux
-        -> ELocalToilM ()
+        -> ELocalToilM ([TxAux])
     normalizeToil' extras bvd epoch txs =
         let toNormalize = HM.toList $ HM.intersectionWith (,) txs extras
         in eNormalizeToil bvd epoch toNormalize

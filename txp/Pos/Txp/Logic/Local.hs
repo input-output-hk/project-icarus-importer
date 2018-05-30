@@ -71,8 +71,8 @@ txProcessTransactionNoLock ::
        forall ctx m. (TxpLocalWorkMode ctx m, MempoolExt m ~ ())
     => (TxId, TxAux)
     -> m (Either ToilVerFailure ())
-txProcessTransactionNoLock =
-    txProcessTransactionAbstract buildContext processTxHoisted
+txProcessTransactionNoLock itw =
+  void <$> txProcessTransactionAbstract buildContext processTxHoisted itw
   where
     buildContext :: Utxo -> TxAux -> m ()
     buildContext _ _ = pure ()
@@ -90,7 +90,7 @@ txProcessTransactionAbstract ::
     => (Utxo -> TxAux -> m extraEnv)
     -> (BlockVersionData -> EpochIndex -> (TxId, TxAux) -> ExceptT ToilVerFailure (ExtendedLocalToilM extraEnv extraState) a)
     -> (TxId, TxAux)
-    -> m (Either ToilVerFailure ())
+    -> m (Either ToilVerFailure a)
 txProcessTransactionAbstract buildEnv txAction itw@(txId, txAux) = reportTipMismatch $ runExceptT $ do
     -- Note: we need to read tip from the DB and check that it's the
     -- same as the one in mempool. That's because mempool state is
@@ -120,16 +120,20 @@ txProcessTransactionAbstract buildEnv txAction itw@(txId, txAux) = reportTipMism
         tip <- lift $ STM.readTVar (txpTip txpData)
         extra <- lift $ getTxpExtra txpData
         tm <- hoist generalize $ processTransactionPure bvd epoch env tipDB itw (utxoModifier, mp, undo, tip, extra)
-        forM tm $ lift . setTxpLocalData txpData
+        case tm of
+          Left er -> pure $ Left er
+          Right (nUtxoModifier, nmp, nundo, ntip, nextra, actionRes) -> do
+            lift $ setTxpLocalData txpData (nUtxoModifier, nmp, nundo, ntip, nextra)
+            pure $ Right actionRes
     -- We report 'ToilTipsMismatch' as an error, because usually it
     -- should't happen. If it happens, it's better to look at logs.
     case pRes of
         Left er -> do
             logDebug $ sformat ("Transaction processing failed: " %build) txId
             throwError er
-        Right _ ->
-            logDebug
-                (sformat ("Transaction is processed successfully: " %build) txId)
+        Right actionRes -> do
+            logDebug $ sformat ("Transaction is processed successfully: " %build) txId
+            pure actionRes
   where
     processTransactionPure
         :: BlockVersionData
@@ -138,7 +142,7 @@ txProcessTransactionAbstract buildEnv txAction itw@(txId, txAux) = reportTipMism
         -> HeaderHash
         -> (TxId, TxAux)
         -> (UtxoModifier, MemPool, UndoMap, HeaderHash, extraState)
-        -> NamedPureLogger Identity (Either ToilVerFailure (UtxoModifier, MemPool, UndoMap, HeaderHash, extraState))
+        -> NamedPureLogger Identity (Either ToilVerFailure (UtxoModifier, MemPool, UndoMap, HeaderHash, extraState, a))
     processTransactionPure bvd curEpoch env tipDB tx (um, mp, undo, tip, extraState)
         | tipDB /= tip = pure . Left $ ToilTipsMismatch tipDB tip
         | otherwise = do
@@ -153,8 +157,8 @@ txProcessTransactionAbstract buildEnv txAction itw@(txId, txAux) = reportTipMism
                     txAction bvd curEpoch tx
             case res of
                 (Left er, _) -> pure $ Left er
-                (Right _, (LocalToilState {..}, newExtraState)) -> pure $ Right
-                    (_ltsUtxoModifier, _ltsMemPool, _ltsUndos, tip, newExtraState)
+                (Right actionRes, (LocalToilState {..}, newExtraState)) -> pure $ Right
+                    (_ltsUtxoModifier, _ltsMemPool, _ltsUndos, tip, newExtraState, actionRes)
     -- REPORT:ERROR Tips mismatch in txp.
     reportTipMismatch action = do
         res <- action
@@ -169,7 +173,7 @@ txNormalize ::
        forall ctx m. (TxpLocalWorkMode ctx m, MempoolExt m ~ ())
     => m ()
 txNormalize =
-    txNormalizeAbstract buildContext normalizeToilHoisted
+    void $ txNormalizeAbstract buildContext normalizeToilHoisted
   where
     buildContext :: Utxo -> [TxAux] -> m ()
     buildContext _ _ = pure ()
@@ -185,14 +189,15 @@ txNormalize =
 txNormalizeAbstract ::
        (TxpLocalWorkMode ctx m, MempoolExt m ~ extraState, Default extraState)
     => (Utxo -> [TxAux] -> m extraEnv)
-    -> (BlockVersionData -> EpochIndex -> HashMap TxId TxAux -> ExtendedLocalToilM extraEnv extraState ())
-    -> m ()
+    -> (BlockVersionData -> EpochIndex -> HashMap TxId TxAux -> ExtendedLocalToilM extraEnv extraState a)
+    -> m (Maybe a)
 txNormalizeAbstract buildEnv normalizeAction =
     getCurrentSlot >>= \case
         Nothing -> do
             tip <- GS.getTip
             -- Clear and update tip
             withTxpLocalData $ flip setTxpLocalData (mempty, def, mempty, tip, def)
+            pure Nothing
         Just (siEpoch -> epoch) -> do
             globalTip <- GS.getTip
             localTxs <- withTxpLocalData getLocalTxsMap
@@ -206,9 +211,9 @@ txNormalizeAbstract buildEnv normalizeAction =
                         , _ltsUtxoModifier = mempty
                         , _ltsUndos = mempty
                         }
-            (LocalToilState {..}, newExtraState) <-
+            (normResult, (LocalToilState {..}, newExtraState)) <-
                 launchNamedPureLog generalize $
-                execStateT
+                runStateT
                     (runReaderT
                          (normalizeAction bvd epoch localTxs)
                          (utxoToLookup utxo, extraEnv))
@@ -219,6 +224,7 @@ txNormalizeAbstract buildEnv normalizeAction =
                 , _ltsUndos
                 , globalTip
                 , newExtraState)
+            pure $ Just normResult
 
 -- | Get 'TxPayload' from mempool to include into a new block which
 -- will be based on the given tip. In something goes wrong, empty

@@ -30,12 +30,12 @@ blockchainImporterTxpGlobalSettings =
     txpGlobalSettings
     { tgsApplyBlocks = applyBlocksWith applySettings
     , tgsRollbackBlocks = processBlunds rollbackSettings . getNewestFirst
-    , tgsApplyBlockModifier = withPGSTransaction
-    , tgsRollbackBlockModifier = withPGSTransaction
+    , tgsApplyBlockModifier = withPGSTransactionM
+    , tgsRollbackBlockModifier = withPGSTransactionM
     }
 
-withPGSTransaction :: forall m . (MonadUnliftIO m, MonadIO m, HasPostGresDB) => m () -> m ()
-withPGSTransaction m = withRunInIO $ \runInIO -> withPostGreTransaction $ runInIO m
+withPGSTransactionM :: forall m . (MonadUnliftIO m, MonadIO m, HasPostGresDB) => m () -> m ()
+withPGSTransactionM m = withRunInIO $ \runInIO -> withPostGreTransaction $ runInIO m
 
 applySettings ::
        (TxpGlobalApplyMode ctx m, HasConfiguration, HasPostGresDB)

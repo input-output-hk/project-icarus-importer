@@ -32,6 +32,7 @@ import           Pos.WorkMode (RealMode, RealModeContext (..))
 
 import           Pos.BlockchainImporter.BListener (BlockchainImporterBListener,
                                                    runBlockchainImporterBListener)
+import           Pos.BlockchainImporter.Configuration (HasPostGresDB)
 import           Pos.BlockchainImporter.ExtraContext (ExtraContext, ExtraContextT, makeExtraCtx,
                                                       runExtraContextT)
 import           Pos.BlockchainImporter.Txp (BlockchainImporterExtraModifier, eTxNormalize,
@@ -50,12 +51,12 @@ type BlockchainImporterProd = ExtraContextT (BlockchainImporterBListener RealMod
 
 type instance MempoolExt BlockchainImporterProd = BlockchainImporterExtraModifier
 
-instance (HasConfiguration, HasTxpConfiguration, HasCompileInfo) =>
+instance (HasConfiguration, HasTxpConfiguration, HasCompileInfo, HasPostGresDB) =>
          MonadTxpLocal RealModeE where
     txpNormalize = eTxNormalize
     txpProcessTx = eTxProcessTransaction
 
-instance (HasConfiguration, HasTxpConfiguration, HasCompileInfo) =>
+instance (HasConfiguration, HasTxpConfiguration, HasCompileInfo, HasPostGresDB) =>
          MonadTxpLocal BlockchainImporterProd where
     txpNormalize = lift $ lift txpNormalize
     txpProcessTx = lift . lift . txpProcessTx
@@ -72,6 +73,8 @@ type HasBlockchainImporterConfiguration =
     , HasNodeConfiguration
     , HasUpdateConfiguration
     , HasSscConfiguration
+    , HasTxpConfiguration
+    , HasPostGresDB
     , HasCompileInfo
     )
 

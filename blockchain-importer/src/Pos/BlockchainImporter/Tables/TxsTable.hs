@@ -20,6 +20,8 @@ import qualified Database.PostgreSQL.Simple as PGS
 import           Opaleye
 
 import           Pos.BlockchainImporter.Core (TxExtra (..))
+import           Pos.BlockchainImporter.Tables.TxAddrTable (TxAddrRowPGR, TxAddrRowPGW,
+                                                            addressToTxTable)
 import qualified Pos.BlockchainImporter.Tables.TxAddrTable as TAT (insertTxAddresses)
 import           Pos.BlockchainImporter.Tables.Utils
 import           Pos.Core (timestampToUTCTimeL)
@@ -63,11 +65,14 @@ txsTable = Table "txs" (pTxs TxRow  { trHash            = required "hash"
                                     , trTime            = required "time"
                                     })
 
+txAddrTable :: Table TxAddrRowPGW TxAddrRowPGR
+txAddrTable = addressToTxTable "tx_addresses"
+
 -- | Inserts a given Tx into the Tx history tables.
 insertTx :: Tx -> TxExtra -> Word64 -> PGS.Connection -> IO ()
 insertTx tx txExtra blockHeight conn = do
   insertTxToHistory conn tx txExtra blockHeight
-  TAT.insertTxAddresses conn tx txExtra
+  TAT.insertTxAddresses txAddrTable conn tx (teInputOutputs txExtra)
 
 -- | Inserts the basic info of a given Tx into the master Tx history table.
 insertTxToHistory :: PGS.Connection -> Tx -> TxExtra -> Word64 -> IO ()
