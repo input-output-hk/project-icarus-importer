@@ -182,24 +182,25 @@ applyBlocksDbUnsafeDo
     -> Maybe PollModifier
     -> m ()
 applyBlocksDbUnsafeDo scb blunds pModifier = do
-    let blocks = fmap fst blunds
-    -- Note: it's important to do 'slogApplyBlocks' first, because it
-    -- puts blocks in DB.
-    slogBatch <- slogApplyBlocks scb blunds
     TxpGlobalSettings {..} <- view (lensOf @TxpGlobalSettings)
-    usBatch <- SomeBatchOp <$> usApplyBlocks (map toUpdateBlock blocks) pModifier
-    delegateBatch <- SomeBatchOp <$> dlgApplyBlocks (map toDlgBlund blunds)
-    txpBatch <- tgsApplyBlocks $ map toTxpBlund blunds
-    sscBatch <- SomeBatchOp <$>
-        -- TODO: pass not only 'Nothing'
-        sscApplyBlocks (map toSscBlock blocks) Nothing
-    GS.writeBatchGState
-        [ delegateBatch
-        , usBatch
-        , txpBatch
-        , sscBatch
-        , slogBatch
-        ]
+    tgsApplyBlockModifier $ do
+        let blocks = fmap fst blunds
+        -- Note: it's important to do 'slogApplyBlocks' first, because it
+        -- puts blocks in DB.
+        slogBatch <- slogApplyBlocks scb blunds
+        usBatch <- SomeBatchOp <$> usApplyBlocks (map toUpdateBlock blocks) pModifier
+        delegateBatch <- SomeBatchOp <$> dlgApplyBlocks (map toDlgBlund blunds)
+        txpBatch <- tgsApplyBlocks $ map toTxpBlund blunds
+        sscBatch <- SomeBatchOp <$>
+            -- TODO: pass not only 'Nothing'
+            sscApplyBlocks (map toSscBlock blocks) Nothing
+        GS.writeBatchGState
+            [ delegateBatch
+            , usBatch
+            , txpBatch
+            , sscBatch
+            , slogBatch
+            ]
     sanityCheckDB
 
 -- | Rollback sequence of blocks, head-newest order expected with head being
@@ -211,22 +212,23 @@ rollbackBlocksUnsafe
     -> NewestFirst NE Blund
     -> m ()
 rollbackBlocksUnsafe bsc scb toRollback = do
-    slogRoll <- slogRollbackBlocks bsc scb toRollback
-    dlgRoll <- SomeBatchOp <$> dlgRollbackBlocks (map toDlgBlund toRollback)
-    usRoll <- SomeBatchOp <$> usRollbackBlocks
-                  (toRollback & each._2 %~ undoUS
-                              & each._1 %~ toUpdateBlock)
     TxpGlobalSettings {..} <- view (lensOf @TxpGlobalSettings)
-    txRoll <- tgsRollbackBlocks $ map toTxpBlund toRollback
-    sscBatch <- SomeBatchOp <$> sscRollbackBlocks
-        (map (toSscBlock . fst) toRollback)
-    GS.writeBatchGState
-        [ dlgRoll
-        , usRoll
-        , txRoll
-        , sscBatch
-        , slogRoll
-        ]
+    tgsRollbackBlockModifier $ do
+        slogRoll <- slogRollbackBlocks bsc scb toRollback
+        dlgRoll <- SomeBatchOp <$> dlgRollbackBlocks (map toDlgBlund toRollback)
+        usRoll <- SomeBatchOp <$> usRollbackBlocks
+                      (toRollback & each._2 %~ undoUS
+                                  & each._1 %~ toUpdateBlock)
+        txRoll <- tgsRollbackBlocks $ map toTxpBlund toRollback
+        sscBatch <- SomeBatchOp <$> sscRollbackBlocks
+            (map (toSscBlock . fst) toRollback)
+        GS.writeBatchGState
+            [ dlgRoll
+            , usRoll
+            , txRoll
+            , sscBatch
+            , slogRoll
+            ]
     -- After blocks are rolled back it makes sense to recreate the
     -- delegation mempool.
     -- We don't normalize other mempools, because they are normalized

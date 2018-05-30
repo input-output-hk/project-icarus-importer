@@ -30,9 +30,12 @@ data BlockchainImporterNodeArgs = BlockchainImporterNodeArgs
 
 -- | BlockchainImporter specific arguments.
 data BlockchainImporterArgs = BlockchainImporterArgs
-    { webPort        :: !Word16
+    { webPort             :: !Word16
     -- ^ The port for the blockchainImporter backend
-    , postGresConfig :: !PGS.ConnectInfo
+    , postGresConfig      :: !PGS.ConnectInfo
+    -- ^ Configuration of the PostGres DB
+    , storingStartBlockPG :: !Word64
+    -- ^ Starting block number from which data will be stored on the DB
     } deriving Show
 
 -- Parses the postgres configuration, using the defaults from 'PGS.defaultConnectInfo'
@@ -70,6 +73,11 @@ blockchainImporterArgsParser = do
     commonNodeArgs <- CLI.commonNodeArgsParser
     webPort        <- CLI.webPortOption 8200 "Port for web API."
     postGresConfig <- connectInfoParser
+    storingStartBlockPG     <- option auto $
+        long    "postgres-startblock" <>
+        metavar "PS-START-NUM" <>
+        value   0 <>
+        help    "First block whose info will be stored on postgres DB."
     pure $ BlockchainImporterNodeArgs commonNodeArgs BlockchainImporterArgs{..}
 
 -- | The parser for the blockchainImporter.

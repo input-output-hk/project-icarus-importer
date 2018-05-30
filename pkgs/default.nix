@@ -7130,6 +7130,7 @@ inherit (pkgs) mesa;};
            pname = "cardano-sl-blockchain-importer";
            version = "1.1.1";
            src = ./../blockchain-importer;
+           configureFlags = [ "--ghc-option=-Werror" ];
            isLibrary = true;
            isExecutable = true;
            libraryHaskellDepends = [

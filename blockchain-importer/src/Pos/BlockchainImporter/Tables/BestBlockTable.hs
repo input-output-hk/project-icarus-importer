@@ -28,8 +28,10 @@ bestBlockTable :: Table BestBlockRowPGW BestBlockRowPGR
 bestBlockTable = Table "bestblock" (pBestBlock  BestBlockRow
                                                 { bbBlockNum = required "best_block_num" })
 
-updateBestBlock :: PGS.Connection -> Word64 -> IO ()
-updateBestBlock conn newBestBlock = PGS.withTransaction conn $ do
-  n <- runUpdate conn bestBlockTable (const colBlockNum) (const $ pgBool True)
-  when (n == 0) $ void $ runInsertMany conn bestBlockTable [colBlockNum]
+updateBestBlock :: Word64 -> PGS.Connection -> IO ()
+updateBestBlock newBestBlock conn = do
+  n <- runUpdate_ conn $
+                  Update bestBlockTable (const colBlockNum) (const $ pgBool True) rCount
+  when (n == 0) $ void $ runInsert_ conn $
+                                    Insert bestBlockTable [colBlockNum] rCount Nothing
     where colBlockNum = BestBlockRow $ pgInt8 $ fromIntegral newBestBlock
