@@ -211,6 +211,40 @@ executable cardano-blockchain-importer
     ghc-options:       -optl-fuse-ld=gold
     ld-options:        -fuse-ld=gold
 
+executable cardano-importer-swagger
+  hs-source-dirs:      src/documentation
+  main-is:             Main.hs
+  build-depends:       aeson
+                     , base
+                     , bytestring
+                     , cardano-sl-blockchain-importer
+                     , lens
+                     , optparse-applicative
+                     , servant-multipart
+                     , servant-server
+                     , servant-swagger
+                     , swagger2
+                     , universum >= 0.1.11
+  default-language:    Haskell2010
+  ghc-options:         -threaded -rtsopts
+                       -Wall
+                       -fno-warn-orphans
+                       -with-rtsopts=-N
+                       -O2
+
+  default-extensions:   NoImplicitPrelude
+                        BangPatterns
+                        OverloadedStrings
+                        MonadFailDesugaring
+
+  build-tools: cpphs >= 1.19
+  ghc-options: -pgmP cpphs -optP --cpp
+
+  -- linker speed up for linux
+  if os(linux)
+    ghc-options:       -optl-fuse-ld=gold
+    ld-options:        -fuse-ld=gold
+
 executable cardano-blockchain-importer-mock
   hs-source-dirs:      src/mock
   main-is:             Main.hs

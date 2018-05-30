@@ -16,6 +16,7 @@ import           Pos.Slotting (getSlotStart)
 import           Pos.Txp (ProcessBlundsSettings (..), TxpBlund, TxpGlobalApplyMode,
                           TxpGlobalRollbackMode, TxpGlobalSettings (..), applyBlocksWith,
                           blundToAuxNUndo, processBlunds, txpGlobalSettings)
+import           Pos.Txp.Toil
 import           Pos.Util.Chrono (NewestFirst (..))
 
 import           Pos.BlockchainImporter.Configuration (HasPostGresDB, withPostGreTransaction)
@@ -106,7 +107,7 @@ rollbackSingle txpBlund =
       txAuxesAndUndos = blundToAuxNUndo txpBlund
   in eRollbackToil txAuxesAndUndos blockHeight
 
-createEmptyEnv :: Utxo -> [TxAux] -> m ()
+createEmptyEnv :: Applicative m => Utxo -> [TxAux] -> m ()
 createEmptyEnv _ _ = pure ()
 
 emptyExtraOp :: BlockchainImporterExtraModifier -> SomeBatchOp

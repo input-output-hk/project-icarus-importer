@@ -35,7 +35,7 @@ import           Pos.Core.Txp (TxAux)
 -------------------------------------------------------------------------------------
 
 -- | CBOR-encoded signed tx.
-newtype CEncodedSTx = CEncodedSTx BSL.ByteString
+newtype CEncodedSTx = CEncodedSTx BSL.ByteString deriving (Generic)
 
 decodeSTx :: CEncodedSTx -> Either Text TxAux
 decodeSTx (CEncodedSTx encodedSTx) = Bi.decodeFull encodedSTx

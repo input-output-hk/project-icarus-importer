@@ -10,8 +10,8 @@ import           Universum
 import           Control.Lens (makeLenses)
 import           Data.Default (Default, def)
 
-import           Pos.BlockchainImporter.Core (AddrHistory, TxExtra)
-import           Pos.Core (Address, Coin, TxId)
+import           Pos.BlockchainImporter.Core (TxExtra)
+import           Pos.Core (TxId)
 import qualified Pos.Util.Modifier as MM
 
 type TxMapExtra = MM.MapModifier TxId TxExtra
