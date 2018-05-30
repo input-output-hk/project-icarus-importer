@@ -7,40 +7,24 @@
 module Pos.BlockchainImporter.BListener
        ( runBlockchainImporterBListener
        , BlockchainImporterBListener
-       -- * Instances
-       -- ** MonadBListener (BlockchainImporterBListener m)
-       -- * Required for migration
-       , findEpochMaxPages
        ) where
 
-import           Nub (ordNub)
 import           Universum
 
-import           Control.Lens (at, non)
 import           Control.Monad.Trans.Identity (IdentityT (..))
 import           Data.Coerce (coerce)
-import           Data.List ((\\))
-import qualified Data.List.NonEmpty as NE
-import qualified Data.Map as M
 import qualified Ether
 import           System.Wlog (WithLogger)
 import           UnliftIO (MonadUnliftIO)
 
 import           Pos.Block.BListener (MonadBListener (..))
 import           Pos.Block.Types (Blund)
-import           Pos.BlockchainImporter.DB (Epoch, EpochPagedBlocksKey, Page, defaultPageSize,
-                                            findEpochMaxPages, numOfLastTxs)
 import qualified Pos.BlockchainImporter.DB as DB
-import           Pos.Core (HasConfiguration, HeaderHash, LocalSlotIndex (..), SlotId (..),
-                           difficultyL, epochIndexL, getChainDifficulty, headerHash, mainBlockSlot)
-import           Pos.Core.Block (Block, MainBlock, mainBlockTxPayload)
-import           Pos.Core.Txp (Tx, txpTxs)
-import           Pos.Crypto (withHash)
+import           Pos.Core (HasConfiguration)
 import           Pos.DB.BatchOp (SomeBatchOp (..))
 import           Pos.DB.Class (MonadDBRead)
-import           Pos.Txp (topsortTxs)
 import           Pos.Util.AssertMode (inAssertMode)
-import           Pos.Util.Chrono (NE, NewestFirst (..), OldestFirst (..), toNewestFirst)
+import           Pos.Util.Chrono (NE, NewestFirst (..), OldestFirst (..))
 
 
 ----------------------------------------------------------------------------
