@@ -30,6 +30,8 @@ bestBlockTable = Table "bestblock" (pBestBlock  BestBlockRow
 
 updateBestBlock :: Word64 -> PGS.Connection -> IO ()
 updateBestBlock newBestBlock conn = do
-  n <- runUpdate conn bestBlockTable (const colBlockNum) (const $ pgBool True)
-  when (n == 0) $ void $ runInsertMany conn bestBlockTable [colBlockNum]
+  n <- runUpdate_ conn $
+                  Update bestBlockTable (const colBlockNum) (const $ pgBool True) rCount
+  when (n == 0) $ void $ runInsert_ conn $
+                                    Insert bestBlockTable [colBlockNum] rCount Nothing
     where colBlockNum = BestBlockRow $ pgInt8 $ fromIntegral newBestBlock

@@ -71,7 +71,7 @@ insertTx tx txExtra blockHeight conn = do
 
 -- | Inserts the basic info of a given Tx into the master Tx history table.
 insertTxToHistory :: PGS.Connection -> Tx -> TxExtra -> Word64 -> IO ()
-insertTxToHistory conn tx txExtra blockHeight = void $ runUpsertMany conn txsTable [row] "hash"
+insertTxToHistory conn tx txExtra blockHeight = void $ runUpsert_ conn txsTable [row]
   where
     inputs  = toaOut <$> (catMaybes $ NE.toList $ teInputOutputs txExtra)
     outputs = NE.toList $ _txOutputs tx
@@ -88,6 +88,7 @@ insertTxToHistory conn tx txExtra blockHeight = void $ runUpsertMany conn txsTab
 
 -- | Deletes a Tx by Tx hash from the Tx history tables.
 deleteTx :: Tx -> PGS.Connection -> IO ()
-deleteTx tx conn = void $ runDelete conn txsTable $ \row -> trHash row .== txHash
+deleteTx tx conn = void $ runDelete_  conn $
+                                      Delete txsTable (\row -> trHash row .== txHash) rCount
   where
     txHash = pgString $ hashToString (hash tx)

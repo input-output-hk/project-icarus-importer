@@ -1,4 +1,4 @@
-6bf308e0aacf9503156815ddcc72e4fd  ./stack.yaml
+40d8b5df7c19fa352261972a934aa5a1  ./stack.yaml
 b44504abfb22927aec28454d536d1b86  ./lrc/cardano-sl-lrc.cabal
 e42fdec56eb10b920279ead55d979e8b  ./ssc/cardano-sl-ssc.cabal
 a02e776ee46fcf16b0d0646ad6571cc1  ./node-ipc/node-ipc.cabal
@@ -13,7 +13,7 @@ ee0171fe070716447c7fe07c58adcdf2  ./wallet/cardano-sl-wallet.cabal
 c3f770ac5ec41392aa3d50a449c4b41c  ./db/cardano-sl-db.cabal
 34acfa1ba752af3cbe9eaffc85b1f8d0  ./binary/cardano-sl-binary.cabal
 650a2987ed55c24657dec4730a9296e0  ./infra/cardano-sl-infra.cabal
-e180eba8ef95f03ea22215e2d21b6899  ./blockchain-importer/cardano-sl-blockchain-importer.cabal
+4fcacbccf00632b4ddedc1a59fb2ffe9  ./blockchain-importer/cardano-sl-blockchain-importer.cabal
 e9490dda96df878de1487161e6f3506f  ./client/cardano-sl-client.cabal
 012c6bdd8fbfb47bee617be38e9ed026  ./txp/cardano-sl-txp.cabal
 c45cc3b493dea69ebeeeab5f65c3f90f  ./networking/cardano-sl-networking.cabal

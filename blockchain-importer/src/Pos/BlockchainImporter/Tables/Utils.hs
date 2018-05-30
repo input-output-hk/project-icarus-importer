@@ -4,7 +4,7 @@ module Pos.BlockchainImporter.Tables.Utils
   ( hashToString
   , addressToString
   , coinToInt64
-  , runUpsertMany
+  , runUpsert_
   ) where
 
 import           Universum
@@ -28,19 +28,7 @@ addressToString addr = toString $ sformat addressF addr
 coinToInt64 :: Coin -> Int64
 coinToInt64 = fromIntegral . getCoin
 
-{-  Insert rows into a table, only if they are not already present
-
-    FIXME: Due to upsert not being yet implemented by Opaleye [1] this had to
-    be manually implemented, which involved using the deprecated function
-    'arrangeInsertManySql'. Once this feature gets released, the usage of this
-    function will be removed.
-
-    [1] https://github.com/tomjaguarpaw/haskell-opaleye/pull/385#issuecomment-384313025
--}
-runUpsertMany :: PGS.Connection -> O.Table columns columns' -> [columns] -> String -> IO Int64
-runUpsertMany conn table columns keyCol = case nonEmpty columns of
-    Just neColumns -> PGS.execute_ conn . fromString $ strUpsertQuery neColumns
-    Nothing        -> return 0
-  where strInsertQuery col = O.arrangeInsertManySql table col
-        strUpsertQuery col = (strInsertQuery col)  ++ " ON CONFLICT (" ++ keyCol  ++ ") DO NOTHING"
-
+-- Insert rows into a table, only if they are not already present
+runUpsert_ :: PGS.Connection -> O.Table columns columns' -> [columns] -> IO Int64
+runUpsert_ conn table columns = O.runInsert_ conn sqlInsert
+  where sqlInsert = O.Insert table columns O.rCount (Just O.DoNothing)
