@@ -6,7 +6,6 @@ module Pos.BlockchainImporter.Txp.Global
 
 import           Universum
 
-import qualified Data.HashMap.Strict as HM
 import           UnliftIO (MonadUnliftIO, withRunInIO)
 
 import           Pos.Core (ComponentBlock (..), HasConfiguration, HeaderHash, SlotId (..),
@@ -17,14 +16,11 @@ import           Pos.Slotting (getSlotStart)
 import           Pos.Txp (ProcessBlundsSettings (..), TxpBlund, TxpGlobalApplyMode,
                           TxpGlobalRollbackMode, TxpGlobalSettings (..), applyBlocksWith,
                           blundToAuxNUndo, processBlunds, txpGlobalSettings)
+import           Pos.Txp.Toil
 import           Pos.Util.Chrono (NewestFirst (..))
-import qualified Pos.Util.Modifier as MM
 
 import           Pos.BlockchainImporter.Configuration (HasPostGresDB, withPostGreTransaction)
-import qualified Pos.BlockchainImporter.DB as GS
-import           Pos.BlockchainImporter.Txp.Common (buildBlockchainImporterExtraLookup)
-import           Pos.BlockchainImporter.Txp.Toil (BlockchainImporterExtraLookup (..),
-                                                  BlockchainImporterExtraModifier (..),
+import           Pos.BlockchainImporter.Txp.Toil (BlockchainImporterExtraModifier (..),
                                                   EGlobalToilM, eApplyToil, eRollbackToil)
 
 -- | Settings used for global transactions data processing used by blockchainImporter.
@@ -43,23 +39,23 @@ withPGSTransaction m = withRunInIO $ \runInIO -> withPostGreTransaction $ runInI
 
 applySettings ::
        (TxpGlobalApplyMode ctx m, HasConfiguration, HasPostGresDB)
-    => ProcessBlundsSettings BlockchainImporterExtraLookup BlockchainImporterExtraModifier m
+    => ProcessBlundsSettings () BlockchainImporterExtraModifier m
 applySettings =
     ProcessBlundsSettings
         { pbsProcessSingle = applySingle
-        , pbsCreateEnv = buildBlockchainImporterExtraLookup
-        , pbsExtraOperations = extraOps
+        , pbsCreateEnv = createEmptyEnv
+        , pbsExtraOperations = emptyExtraOp
         , pbsIsRollback = False
         }
 
 rollbackSettings ::
        (TxpGlobalRollbackMode m, HasConfiguration, MonadIO m, HasPostGresDB)
-    => ProcessBlundsSettings BlockchainImporterExtraLookup BlockchainImporterExtraModifier m
+    => ProcessBlundsSettings () BlockchainImporterExtraModifier m
 rollbackSettings =
     ProcessBlundsSettings
         { pbsProcessSingle = rollbackSingle
-        , pbsCreateEnv = buildBlockchainImporterExtraLookup
-        , pbsExtraOperations = extraOps
+        , pbsCreateEnv = createEmptyEnv
+        , pbsExtraOperations = emptyExtraOp
         , pbsIsRollback = True
         }
 
@@ -111,15 +107,11 @@ rollbackSingle txpBlund =
       txAuxesAndUndos = blundToAuxNUndo txpBlund
   in eRollbackToil txAuxesAndUndos blockHeight
 
-extraOps :: HasConfiguration => BlockchainImporterExtraModifier -> SomeBatchOp
-extraOps (BlockchainImporterExtraModifier em (HM.toList -> histories) balances utxoNewSum) =
-    SomeBatchOp $
-    map GS.DelTxExtra (MM.deletions em) ++
-    map (uncurry GS.AddTxExtra) (MM.insertions em) ++
-    map (uncurry GS.UpdateAddrHistory) histories ++
-    map (uncurry GS.PutAddrBalance) (MM.insertions balances) ++
-    map GS.DelAddrBalance (MM.deletions balances) ++
-    map GS.PutUtxoSum (maybeToList utxoNewSum)
+createEmptyEnv :: Applicative m => Utxo -> [TxAux] -> m ()
+createEmptyEnv _ _ = pure ()
+
+emptyExtraOp :: BlockchainImporterExtraModifier -> SomeBatchOp
+emptyExtraOp _ = mempty
 
 -- Zip block's TxAuxes and also add block hash
 blundToAuxNUndoWHash :: TxpBlund -> ([(TxAux, TxUndo)], HeaderHash)

@@ -25,9 +25,9 @@ import           Control.Lens (mapped, (?~))
 import           Data.Aeson (encode)
 import qualified Data.ByteString.Lazy.Char8 as BSL8
 import           Data.Fixed (Fixed (..), Micro)
-import           Data.Swagger (Swagger, ToParamSchema (..), ToSchema (..), declareNamedSchema,
-                               defaultSchemaOptions, description, genericDeclareNamedSchema, host,
-                               info, name, title, version)
+import           Data.Swagger (NamedSchema (..), Swagger, ToParamSchema (..), ToSchema (..),
+                               declareNamedSchema, defaultSchemaOptions, description,
+                               genericDeclareNamedSchema, host, info, name, title, version)
 import           Data.Typeable (Typeable, typeRep)
 import           Data.Version (showVersion)
 import           Options.Applicative (execParser, footer, fullDesc, header, help, helper,
@@ -75,6 +75,8 @@ instance HasSwagger api => HasSwagger (MultipartForm a :> api) where
 instance ToParamSchema C.EpochIndex
 instance ToSchema      C.Byte
 instance ToSchema      BlockchainImporterError
+instance ToSchema      C.CEncodedSTx where
+  declareNamedSchema _ = pure $ NamedSchema (Just "EncodedSTx") mempty
 
 deriving instance Generic Micro
 

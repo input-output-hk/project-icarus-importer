@@ -39,8 +39,7 @@ import           Pos.Util.Util (HasLens (..))
 
 import           Pos.BlockchainImporter.ExtraContext (ExtraContext, ExtraContextT,
                                                       HasBlockchainImporterCSLInterface,
-                                                      HasGenesisRedeemAddressInfo, makeExtraCtx,
-                                                      runExtraContextT)
+                                                      makeExtraCtx, runExtraContextT)
 import           Pos.BlockchainImporter.Txp (BlockchainImporterExtraModifier (..))
 
 -- Need Emulation because it has instance Mockable CurrentTime
@@ -71,8 +70,6 @@ type BlockchainImporterMode ctx m =
     , MonadMask m
     -- General utility operations
     , HasBlockchainImporterCSLInterface m
-    -- For mocking external functions
-    , HasGenesisRedeemAddressInfo m
     -- Genesis operations
     , MonadTxpMem (MempoolExt m) ctx m
     -- Txp, could be @TxpLocalWorkMode@
