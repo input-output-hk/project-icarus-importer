@@ -3,13 +3,16 @@
 -- | BlockchainImporter's version of Toil logic.
 
 module Pos.BlockchainImporter.Txp.Toil.Logic
-       ( eApplyToil
-       , eRollbackToil
-       , eNormalizeToil
-       , eProcessTx
-       , eImportPendingTx
-       , eDeletePendingTx
-       ) where
+      ( -- * Block processing
+        eApplyToil
+      , eRollbackToil
+        -- * Tx processing
+      , eNormalizeToil
+      , eProcessTx
+        -- * Pending tx DB processing
+      , eInsertPendingTx
+      , eDeletePendingTxs
+      ) where
 
 import           Universum
 
@@ -63,7 +66,7 @@ eApplyToil mTxTimestamp txun (hh, blockHeight) = do
             newExtra = TxExtra (Just (hh, i)) mTxTimestamp txUndo
 
         liftIO $ maybePostGreStore blockHeight $ TxsT.insertTx tx newExtra blockHeight
-        liftIO $ postGreStore $ PTxsT.deletePendingTx tx
+        eDeletePendingTxs [txAux]
 
 -- | Rollback transactions from one block.
 eRollbackToil ::
@@ -87,7 +90,7 @@ eRollbackToil txun blockHeight = do
         let tx      = taTx txAux
 
         liftIO $ maybePostGreStore blockHeight $ TxsT.deleteTx tx
-        eImportPendingTx tx txUndo
+        eInsertPendingTx tx txUndo
 
 ----------------------------------------------------------------------------
 -- Local
@@ -103,13 +106,6 @@ eProcessTx ::
     -> (TxUndo -> TxExtra)
     -> ExceptT ToilVerFailure ELocalToilM TxUndo
 eProcessTx bvd curEpoch tx _ = mapExceptT extendLocalToilM $ Txp.processTx bvd curEpoch tx
-
-eImportPendingTx ::
-       (MonadIO m, HasPostGresDB)
-    => Tx
-    -> TxUndo
-    -> m ()
-eImportPendingTx tx txUndo = liftIO $ postGreStore $ PTxsT.insertPendingTx tx txUndo
 
 -- | Get rid of invalid transactions.
 -- All valid transactions will be added to mem pool and applied to utxo.
@@ -128,8 +124,17 @@ eNormalizeToil bvd curEpoch txs = catMaybes <$> mapM normalize ordered
       pure $ txAux <$ leftToMaybe res
     repair (i, (txAux, extra)) = ((i, txAux), const extra)
 
-eDeletePendingTx :: (MonadIO m, HasPostGresDB) => [TxAux] -> m ()
-eDeletePendingTx txAuxs = mapM_ (liftIO . postGreStore . PTxsT.deletePendingTx . taTx) txAuxs
+-- | Inserts a pending tx to the Postgres DB
+eInsertPendingTx ::
+       (MonadIO m, HasPostGresDB)
+    => Tx
+    -> TxUndo
+    -> m ()
+eInsertPendingTx tx txUndo = liftIO $ postGreStore $ PTxsT.insertPendingTx tx txUndo
+
+-- | Deletes a pending tx from the Postgres DB
+eDeletePendingTxs :: (MonadIO m, HasPostGresDB) => [TxAux] -> m ()
+eDeletePendingTxs txAuxs = mapM_ (liftIO . postGreStore . PTxsT.deletePendingTx . taTx) txAuxs
 
 ----------------------------------------------------------------------------
 -- Helpers

@@ -120,11 +120,9 @@ txProcessTransactionAbstract buildEnv txAction itw@(txId, txAux) = reportTipMism
         tip <- lift $ STM.readTVar (txpTip txpData)
         extra <- lift $ getTxpExtra txpData
         tm <- hoist generalize $ processTransactionPure bvd epoch env tipDB itw (utxoModifier, mp, undo, tip, extra)
-        case tm of
-          Left er -> pure $ Left er
-          Right (nUtxoModifier, nmp, nundo, ntip, nextra, actionRes) -> do
+        forM tm $ \(nUtxoModifier, nmp, nundo, ntip, nextra, actionRes) -> do
             lift $ setTxpLocalData txpData (nUtxoModifier, nmp, nundo, ntip, nextra)
-            pure $ Right actionRes
+            pure actionRes
     -- We report 'ToilTipsMismatch' as an error, because usually it
     -- should't happen. If it happens, it's better to look at logs.
     case pRes of

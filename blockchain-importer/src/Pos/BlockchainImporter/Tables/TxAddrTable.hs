@@ -7,8 +7,10 @@
 
 module Pos.BlockchainImporter.Tables.TxAddrTable
   (
+    -- * Data types
     TxAddrRowPGW
   , TxAddrRowPGR
+    -- * Table creation
   , addressToTxTable
     -- * Data manipulation
   , insertTxAddresses

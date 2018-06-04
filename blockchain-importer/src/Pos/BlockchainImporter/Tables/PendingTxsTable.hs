@@ -1,4 +1,3 @@
---FIXME: Probably remove duplicated code?
 module Pos.BlockchainImporter.Tables.PendingTxsTable
   ( -- * Data manipulation
     insertPendingTx
@@ -56,11 +55,13 @@ pTxsTable = Table "pending_txs" (pPTxs PTxRow { ptrHash           = required "ha
 ptxAddrTable :: Table TxAddrRowPGW TxAddrRowPGR
 ptxAddrTable = addressToTxTable "ptx_addresses"
 
+-- | Inserts a given pending Tx into the pending tx tables.
 insertPendingTx :: Tx -> TxUndo -> PGS.Connection -> IO ()
 insertPendingTx tx txUndo conn = do
   insertPTxToHistory conn tx txUndo
   TAT.insertTxAddresses ptxAddrTable conn tx txUndo
 
+-- | Inserts the info of a given pending Tx into the master pending Tx table.
 insertPTxToHistory :: PGS.Connection -> Tx -> TxUndo -> IO ()
 insertPTxToHistory conn tx txUndo = do
   insertionTime <- getCurrentTime
@@ -77,10 +78,12 @@ insertPTxToHistory conn tx txUndo = do
                 , ptrCreatedTime   = pgUTCTime currTime
                 }
 
+-- | Deletes a pending Tx by Tx hash from the pending tx tables.
 deletePendingTx :: Tx -> PGS.Connection -> IO ()
 deletePendingTx tx conn = void $ runDelete_   conn $
                                               Delete pTxsTable (\row -> ptrHash row .== txHash) rCount
   where txHash = pgString $ hashToString (hash tx)
 
+-- | Deletes all pending tx from the pending tx tables
 clearPendingTx :: PGS.Connection -> IO ()
 clearPendingTx conn = void $ runDelete_ conn $ Delete pTxsTable (const $ pgBool True) rCount

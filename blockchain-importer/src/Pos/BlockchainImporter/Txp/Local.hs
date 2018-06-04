@@ -27,7 +27,7 @@ import           Pos.Util.Util (HasLens')
 import           Pos.BlockchainImporter.Configuration (HasPostGresDB)
 import           Pos.BlockchainImporter.Core (TxExtra (..))
 import           Pos.BlockchainImporter.Txp.Toil (BlockchainImporterExtraModifier, ELocalToilM,
-                                                  eDeletePendingTx, eImportPendingTx,
+                                                  eDeletePendingTxs, eInsertPendingTx,
                                                   eNormalizeToil, eProcessTx, eemLocalTxsExtra)
 
 type ETxpLocalWorkMode ctx m =
@@ -59,11 +59,7 @@ eTxProcessTransactionNoLock itw@(_, txAux) = getCurrentSlot >>= \case
         -- Then get when that @SlotId@ started and use that as a time for @Tx@.
         mTxTimestamp <- getSlotStart slot
         processRes <- txProcessTransactionAbstract buildEmptyContext (processTx' mTxTimestamp) itw
-        case processRes of
-          Right txUndo -> do
-            eImportPendingTx (taTx txAux) txUndo
-            return $ Right ()
-          Left er -> return $ Left er
+        forM processRes $ eInsertPendingTx (taTx txAux)
   where
     buildEmptyContext :: Utxo -> TxAux -> m ()
     buildEmptyContext _ _ = pure ()
@@ -86,7 +82,7 @@ eTxNormalize ::
 eTxNormalize = do
     extras <- MM.insertionsMap . view eemLocalTxsExtra <$> withTxpLocalData getTxpExtra
     invalidTxs <- txNormalizeAbstract buildEmptyContext (normalizeToil' extras)
-    whenJust invalidTxs eDeletePendingTx
+    whenJust invalidTxs eDeletePendingTxs
   where
     buildEmptyContext :: Utxo -> [TxAux] -> m ()
     buildEmptyContext _ _ = pure ()
