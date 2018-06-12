@@ -20,8 +20,9 @@ import           BlockchainImporterNodeOptions (BlockchainImporterArgs (..),
                                                 BlockchainImporterNodeArgs (..),
                                                 getBlockchainImporterNodeOptions)
 import           Pos.Binary ()
-import           Pos.BlockchainImporter.Configuration (withPostGresDB)
+import           Pos.BlockchainImporter.Configuration (HasPostGresDB, withPostGresDB)
 import           Pos.BlockchainImporter.ExtraContext (makeExtraCtx)
+import           Pos.BlockchainImporter.Tables.PendingTxsTable (clearPendingTx)
 import           Pos.BlockchainImporter.Txp (BlockchainImporterExtraModifier,
                                              blockchainImporterTxpGlobalSettings)
 import           Pos.BlockchainImporter.Web (BlockchainImporterProd, blockchainImporterPlugin,
@@ -73,6 +74,9 @@ action (BlockchainImporterNodeArgs (cArgs@CommonNodeArgs{..}) BlockchainImporter
                     [ blockchainImporterPlugin webPort
                     , updateTriggerWorker
                     ]
+
+            -- Clear postgres mem pool
+            liftIO $ clearPendingTx conn
             bracketNodeResources currentParams sscParams
                 blockchainImporterTxpGlobalSettings
                 initNodeDBs $ \nr@NodeResources {..} ->
@@ -83,7 +87,7 @@ action (BlockchainImporterNodeArgs (cArgs@CommonNodeArgs{..}) BlockchainImporter
     conf = CLI.configurationOptions $ CLI.commonArgs cArgs
 
     runBlockchainImporterRealMode
-        :: (HasConfigurations,HasCompileInfo)
+        :: (HasConfigurations,HasCompileInfo, HasPostGresDB)
         => NodeResources BlockchainImporterExtraModifier
         -> (Diffusion BlockchainImporterProd -> BlockchainImporterProd ())
         -> Production ()

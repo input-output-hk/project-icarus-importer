@@ -20,6 +20,8 @@ import qualified Database.PostgreSQL.Simple as PGS
 import           Opaleye
 
 import           Pos.BlockchainImporter.Core (TxExtra (..))
+import           Pos.BlockchainImporter.Tables.TxAddrTable (TxAddrRowPGR, TxAddrRowPGW,
+                                                            transactionAddrTable)
 import qualified Pos.BlockchainImporter.Tables.TxAddrTable as TAT (insertTxAddresses)
 import           Pos.BlockchainImporter.Tables.Utils
 import           Pos.Core (timestampToUTCTimeL)
@@ -63,15 +65,18 @@ txsTable = Table "txs" (pTxs TxRow  { trHash            = required "hash"
                                     , trTime            = required "time"
                                     })
 
+txAddrTable :: Table TxAddrRowPGW TxAddrRowPGR
+txAddrTable = transactionAddrTable "tx_addresses"
+
 -- | Inserts a given Tx into the Tx history tables.
 insertTx :: Tx -> TxExtra -> Word64 -> PGS.Connection -> IO ()
 insertTx tx txExtra blockHeight conn = do
-  insertTxToHistory conn tx txExtra blockHeight
-  TAT.insertTxAddresses conn tx txExtra
+  insertTxToHistory tx txExtra blockHeight conn
+  TAT.insertTxAddresses txAddrTable tx (teInputOutputs txExtra) conn
 
 -- | Inserts the basic info of a given Tx into the master Tx history table.
-insertTxToHistory :: PGS.Connection -> Tx -> TxExtra -> Word64 -> IO ()
-insertTxToHistory conn tx txExtra blockHeight = void $ runUpsert_ conn txsTable [row]
+insertTxToHistory :: Tx -> TxExtra -> Word64 -> PGS.Connection -> IO ()
+insertTxToHistory tx txExtra blockHeight conn = void $ runUpsert_ conn txsTable [row]
   where
     inputs  = toaOut <$> (catMaybes $ NE.toList $ teInputOutputs txExtra)
     outputs = NE.toList $ _txOutputs tx

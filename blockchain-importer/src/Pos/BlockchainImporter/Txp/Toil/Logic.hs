@@ -3,19 +3,26 @@
 -- | BlockchainImporter's version of Toil logic.
 
 module Pos.BlockchainImporter.Txp.Toil.Logic
-       ( eApplyToil
-       , eRollbackToil
-       , eNormalizeToil
-       , eProcessTx
-       ) where
+      ( -- * Block processing
+        eApplyToil
+      , eRollbackToil
+        -- * Tx processing
+      , eNormalizeToil
+      , eProcessTx
+        -- * Pending tx DB processing
+      , eInsertPendingTx
+      , eDeletePendingTxs
+      ) where
 
 import           Universum
 
 import           Control.Monad.Except (mapExceptT)
 
-import           Pos.BlockchainImporter.Configuration (HasPostGresDB, maybePostGreStore)
+import           Pos.BlockchainImporter.Configuration (HasPostGresDB, maybePostGreStore,
+                                                       postGreStore)
 import           Pos.BlockchainImporter.Core (TxExtra (..))
 import qualified Pos.BlockchainImporter.Tables.BestBlockTable as BBT
+import qualified Pos.BlockchainImporter.Tables.PendingTxsTable as PTxsT
 import qualified Pos.BlockchainImporter.Tables.TxsTable as TxsT
 import qualified Pos.BlockchainImporter.Tables.UtxosTable as UT
 import           Pos.BlockchainImporter.Txp.Toil.Monad (EGlobalToilM, ELocalToilM)
@@ -59,6 +66,7 @@ eApplyToil mTxTimestamp txun (hh, blockHeight) = do
             newExtra = TxExtra (Just (hh, i)) mTxTimestamp txUndo
 
         liftIO $ maybePostGreStore blockHeight $ TxsT.insertTx tx newExtra blockHeight
+        eDeletePendingTxs [txAux]
 
 -- | Rollback transactions from one block.
 eRollbackToil ::
@@ -78,8 +86,11 @@ eRollbackToil txun blockHeight = do
     return toilRollbackUtxo
   where
     extraRollback :: (TxAux, TxUndo) -> m ()
-    extraRollback (txAux, _) = do
-        liftIO $ maybePostGreStore blockHeight $ TxsT.deleteTx $ taTx txAux
+    extraRollback (txAux, txUndo) = do
+        let tx      = taTx txAux
+
+        liftIO $ maybePostGreStore blockHeight $ TxsT.deleteTx tx
+        eInsertPendingTx tx txUndo
 
 ----------------------------------------------------------------------------
 -- Local
@@ -93,24 +104,37 @@ eProcessTx ::
     -> EpochIndex
     -> (TxId, TxAux)
     -> (TxUndo -> TxExtra)
-    -> ExceptT ToilVerFailure ELocalToilM ()
-eProcessTx bvd curEpoch tx _ =
-    void <$> mapExceptT extendLocalToilM $ Txp.processTx bvd curEpoch tx
+    -> ExceptT ToilVerFailure ELocalToilM TxUndo
+eProcessTx bvd curEpoch tx _ = mapExceptT extendLocalToilM $ Txp.processTx bvd curEpoch tx
 
 -- | Get rid of invalid transactions.
 -- All valid transactions will be added to mem pool and applied to utxo.
 eNormalizeToil ::
-       (HasTxpConfiguration, HasConfiguration)
+       (HasTxpConfiguration, HasConfiguration, HasPostGresDB)
     => BlockVersionData
     -> EpochIndex
     -> [(TxId, (TxAux, TxExtra))]
-    -> ELocalToilM ()
-eNormalizeToil bvd curEpoch txs = mapM_ normalize ordered
+    -> ELocalToilM ([TxAux])
+eNormalizeToil bvd curEpoch txs = catMaybes <$> mapM normalize ordered
   where
     ordered = fromMaybe txs $ topsortTxs wHash txs
     wHash (i, (txAux, _)) = WithHash (taTx txAux) i
-    normalize = runExceptT . uncurry (eProcessTx bvd curEpoch) . repair
+    normalize (i, (txAux, extra)) = do
+      res <- runExceptT $ uncurry (eProcessTx bvd curEpoch) $ repair (i, (txAux, extra))
+      pure $ txAux <$ leftToMaybe res
     repair (i, (txAux, extra)) = ((i, txAux), const extra)
+
+-- | Inserts a pending tx to the Postgres DB
+eInsertPendingTx ::
+       (MonadIO m, HasPostGresDB)
+    => Tx
+    -> TxUndo
+    -> m ()
+eInsertPendingTx tx txUndo = liftIO $ postGreStore $ PTxsT.insertPendingTx tx txUndo
+
+-- | Deletes a pending tx from the Postgres DB
+eDeletePendingTxs :: (MonadIO m, HasPostGresDB) => [TxAux] -> m ()
+eDeletePendingTxs txAuxs = mapM_ (liftIO . postGreStore . PTxsT.deletePendingTx . taTx) txAuxs
 
 ----------------------------------------------------------------------------
 -- Helpers
