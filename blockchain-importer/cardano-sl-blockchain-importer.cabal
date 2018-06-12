@@ -19,6 +19,8 @@ library
                         Pos.BlockchainImporter.Core
                         Pos.BlockchainImporter.ExtraContext
 
+                        Pos.BlockchainImporter.Tables.PendingTxsTable
+
                         Pos.BlockchainImporter.Txp
 
                         Pos.BlockchainImporter.Web
@@ -59,6 +61,7 @@ library
                       , conduit
                       , containers
                       , data-default
+                      , either
                       , errors
                       , ether >= 0.5.1
                       , exceptions

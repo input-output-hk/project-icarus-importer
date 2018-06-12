@@ -6,8 +6,14 @@
 {-# LANGUAGE TemplateHaskell       #-}
 
 module Pos.BlockchainImporter.Tables.TxAddrTable
-  ( -- * Data manipulation
-    insertTxAddresses
+  (
+    -- * Data types
+    TxAddrRowPGW
+  , TxAddrRowPGR
+    -- * Table creation
+  , transactionAddrTable
+    -- * Data manipulation
+  , insertTxAddresses
   ) where
 
 import           Universum
@@ -19,10 +25,9 @@ import           Data.Profunctor.Product.TH (makeAdaptorAndInstance)
 import qualified Database.PostgreSQL.Simple as PGS
 import           Opaleye
 
-import           Pos.BlockchainImporter.Core (TxExtra (..))
 import           Pos.BlockchainImporter.Tables.Utils
 import           Pos.Core.Common (Address)
-import           Pos.Core.Txp (Tx (..), TxOut (..), TxOutAux (..))
+import           Pos.Core.Txp (Tx (..), TxOut (..), TxOutAux (..), TxUndo)
 import           Pos.Crypto (hash)
 
 data TxAddrRowPoly a b = TxAddrRow  { taHash    :: a
@@ -34,10 +39,10 @@ type TxAddrRowPGR = TxAddrRowPoly (Column PGText) (Column PGText)
 
 $(makeAdaptorAndInstance "pTxAddr" ''TxAddrRowPoly)
 
-txAddressesTable :: Table TxAddrRowPGW TxAddrRowPGR
-txAddressesTable = Table "tx_addresses" (pTxAddr TxAddrRow  { taHash    = required "tx_hash"
-                                                            , taAddress = required "address"
-                                                            })
+transactionAddrTable :: String -> Table TxAddrRowPGW TxAddrRowPGR
+transactionAddrTable name = Table name (pTxAddr TxAddrRow { taHash    = required "tx_hash"
+                                                      , taAddress = required "address"
+                                                      })
 
 -- | Creates a row for the Tx addresses from a given Tx input/output.
 makeRowPGW :: String -> Address -> TxAddrRowPGW
@@ -48,11 +53,11 @@ makeRowPGW txHash txAddr = TxAddrRow {..}
     address   = addressToString $ txAddr
 
 -- | Inserts the senders and receivers of a given Tx into the Tx addresses table.
-insertTxAddresses :: PGS.Connection -> Tx -> TxExtra -> IO ()
-insertTxAddresses conn tx txExtra = void $ runUpsert_ conn txAddressesTable rows
+insertTxAddresses :: Table TxAddrRowPGW TxAddrRowPGR -> Tx -> TxUndo -> PGS.Connection -> IO ()
+insertTxAddresses txAddrTable tx txUndo conn = void $ runUpsert_ conn txAddrTable rows
   where
     txHash    = hashToString (hash tx)
-    senders   = txOutAddress . toaOut <$> (catMaybes $ NE.toList $ teInputOutputs txExtra)
+    senders   = txOutAddress . toaOut <$> (catMaybes $ NE.toList $ txUndo)
     receivers = txOutAddress <$> (NE.toList $ _txOutputs tx)
     rows      = makeRows $ L.nub $ senders ++ receivers
     makeRows  = map (makeRowPGW txHash)
