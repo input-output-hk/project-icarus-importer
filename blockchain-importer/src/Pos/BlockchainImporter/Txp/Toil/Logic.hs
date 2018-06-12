@@ -130,7 +130,7 @@ eInsertPendingTx ::
     => Tx
     -> TxUndo
     -> m ()
-eInsertPendingTx tx txUndo = liftIO $ postGreStore $ PTxsT.insertPendingTx tx txUndo
+eInsertPendingTx tx txUndo = liftIO $ postGreStore $ PTxsT.insertPTx tx txUndo
 
 -- | Deletes a pending tx from the Postgres DB
 eDeletePendingTxs :: (MonadIO m, HasPostGresDB) => [TxAux] -> m ()

@@ -1,6 +1,6 @@
 module Pos.BlockchainImporter.Tables.PendingTxsTable
   ( -- * Data manipulation
-    insertPendingTx
+    insertPTx
   , deletePendingTx
   , clearPendingTx
   ) where
@@ -14,7 +14,7 @@ import qualified Database.PostgreSQL.Simple as PGS
 import           Opaleye
 
 import           Pos.BlockchainImporter.Tables.TxAddrTable (TxAddrRowPGR, TxAddrRowPGW,
-                                                            addressToTxTable)
+                                                            transactionAddrTable)
 import qualified Pos.BlockchainImporter.Tables.TxAddrTable as TAT (insertTxAddresses)
 import           Pos.BlockchainImporter.Tables.Utils
 import           Pos.Core.Txp (Tx (..), TxOut (..), TxOutAux (..), TxUndo)
@@ -53,17 +53,17 @@ pTxsTable = Table "pending_txs" (pPTxs PTxRow { ptrHash           = required "ha
                                               })
 
 ptxAddrTable :: Table TxAddrRowPGW TxAddrRowPGR
-ptxAddrTable = addressToTxTable "ptx_addresses"
+ptxAddrTable = transactionAddrTable "ptx_addresses"
 
 -- | Inserts a given pending Tx into the pending tx tables.
-insertPendingTx :: Tx -> TxUndo -> PGS.Connection -> IO ()
-insertPendingTx tx txUndo conn = do
-  insertPTxToHistory conn tx txUndo
-  TAT.insertTxAddresses ptxAddrTable conn tx txUndo
+insertPTx :: Tx -> TxUndo -> PGS.Connection -> IO ()
+insertPTx tx txUndo conn = do
+  insertPTxToHistory tx txUndo conn
+  TAT.insertTxAddresses ptxAddrTable tx txUndo conn
 
 -- | Inserts the info of a given pending Tx into the master pending Tx table.
-insertPTxToHistory :: PGS.Connection -> Tx -> TxUndo -> IO ()
-insertPTxToHistory conn tx txUndo = do
+insertPTxToHistory :: Tx -> TxUndo -> PGS.Connection -> IO ()
+insertPTxToHistory tx txUndo conn = do
   insertionTime <- getCurrentTime
   void $ runUpsert_ conn pTxsTable [rowFromTime insertionTime]
     where
