@@ -1,0 +1,144 @@
+{-# LANGUAGE ConstraintKinds     #-}
+{-# LANGUAGE GADTs               #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TupleSections       #-}
+{-# LANGUAGE TypeOperators       #-}
+
+-- API server logic
+
+module Pos.PostgresConsistency.Web.Server
+       ( blockchainImporterServeImpl
+       , blockchainImporterApp
+       , blockchainImporterHandlers
+
+       -- pure functions
+       , getBlockDifficulty
+
+       -- api functions
+       , getBlocksTotal
+       ) where
+
+import           Universum
+
+import           Control.Error.Util (exceptT, hoistEither)
+import           Data.Time.Units (Second)
+import           Formatting (build, sformat, (%))
+import           Mockable (Concurrently, Delay, Mockable, concurrently, delay)
+import           Network.Wai (Application)
+import           Network.Wai.Middleware.RequestLogger (logStdoutDev)
+
+import           Servant.Generic (AsServerT, toServant)
+import           Servant.Server (Server, ServerT, serve)
+
+import           Pos.Crypto (hash)
+
+import           Pos.Diffusion.Types (Diffusion (..))
+
+import           Pos.Core (difficultyL, getChainDifficulty)
+import           Pos.Core.Block (Block)
+import           Pos.Core.Txp (taTx)
+import           Pos.Txp (MonadTxpLocal, txpProcessTx, verifyTx)
+import           Pos.Txp.DB.Utxo (getTxOut)
+import           Pos.Web (serveImpl)
+
+import           Pos.PostgresConsistency.Aeson.ClientTypes ()
+import           Pos.PostgresConsistency.BlockchainImporterMode (BlockchainImporterMode)
+import           Pos.PostgresConsistency.ExtraContext (HasBlockchainImporterCSLInterface (..))
+import           Pos.PostgresConsistency.Web.Api (BlockchainImporterApi,
+                                                  BlockchainImporterApiRecord (..),
+                                                  blockchainImporterApi)
+import           Pos.PostgresConsistency.Web.ClientTypes (CEncodedSTx (..), decodeSTx)
+import           Pos.PostgresConsistency.Web.Error (BlockchainImporterError (..))
+
+
+
+----------------------------------------------------------------
+-- Top level functionality
+----------------------------------------------------------------
+
+blockchainImporterServeImpl
+    :: BlockchainImporterMode ctx m
+    => m Application
+    -> Word16
+    -> m ()
+blockchainImporterServeImpl app port = serveImpl loggingApp "*" port Nothing Nothing Nothing
+  where
+    loggingApp = logStdoutDev <$> app
+
+blockchainImporterApp :: BlockchainImporterMode ctx m => m (Server BlockchainImporterApi) -> m Application
+blockchainImporterApp serv = serve blockchainImporterApi <$> serv
+
+----------------------------------------------------------------
+-- Handlers
+----------------------------------------------------------------
+
+blockchainImporterHandlers
+    :: forall ctx m. (BlockchainImporterMode ctx m, MonadTxpLocal m)
+    => Diffusion m -> ServerT BlockchainImporterApi m
+blockchainImporterHandlers _diffusion =
+    toServant (BlockchainImporterApiRecord
+        { _blockCount         = getBlocksTotal
+        , _sendSignedTx       = sendSignedTx(_diffusion)
+        }
+        :: BlockchainImporterApiRecord (AsServerT m))
+
+----------------------------------------------------------------
+-- API Functions
+----------------------------------------------------------------
+
+-- | Get the total number of blocks/slots currently available.
+-- Total number of main blocks   = difficulty of the topmost (tip) header.
+-- Total number of anchor blocks = current epoch + 1
+getBlocksTotal
+    :: BlockchainImporterMode ctx m
+    => m Integer
+getBlocksTotal = do
+    -- Get the tip block.
+    tipBlock <- getTipBlockCSLI
+    pure $ getBlockDifficulty tipBlock
+
+
+sendSignedTx
+     :: (BlockchainImporterMode ctx m, MonadTxpLocal m)
+     => Diffusion m
+     -> CEncodedSTx
+     -> m ()
+sendSignedTx Diffusion{..} encodedSTx =
+  exceptT' (hoistEither $ decodeSTx encodedSTx) (const $ throwM eInvalidEnc) $ \txAux -> do
+    let txHash = hash $ taTx txAux
+    -- FIXME: We are using only the confirmed UTxO, we should also take into account the pending txs
+    exceptT' (verifyTx getTxOut False txAux) (throwM . eInvalidTx txHash) $ \_ -> do
+      txProcessRes <- txpProcessTx (txHash, txAux)
+      whenLeft txProcessRes $ throwM . eProcessErr txHash
+      -- This is done for two reasons:
+      -- 1. In order not to overflow relay.
+      -- 2. To let other things (e. g. block processing) happen if
+      -- `newPayment`s are done continuously.
+      wasAccepted <- notFasterThan (6 :: Second) $ sendTx txAux
+      void $ unless wasAccepted $ (throwM $ eNotAccepted txHash)
+        where eInvalidEnc = Internal "Tx not broadcasted: invalid encoded tx"
+              eInvalidTx txHash reason = Internal $
+                  sformat ("Tx not broadcasted "%build%": "%build) txHash reason
+              eProcessErr txHash err = Internal $
+                  sformat ("Tx not broadcasted "%build%": error during process "%build) txHash err
+              eNotAccepted txHash = Internal $
+                  sformat  ("Tx broadcasted "%build%", not accepted by any peer") txHash
+              exceptT' e f g = exceptT f g e
+
+
+--------------------------------------------------------------------------------
+-- Helpers
+--------------------------------------------------------------------------------
+
+-- | A pure function that return the number of blocks.
+getBlockDifficulty :: Block -> Integer
+getBlockDifficulty tipBlock = fromIntegral $ getChainDifficulty $ tipBlock ^. difficultyL
+
+
+----------------------------------------------------------------------------
+-- Utilities
+----------------------------------------------------------------------------
+
+notFasterThan ::
+       (Mockable Concurrently m, Mockable Delay m) => Second -> m a -> m a
+notFasterThan time action = fst <$> concurrently action (delay time)
