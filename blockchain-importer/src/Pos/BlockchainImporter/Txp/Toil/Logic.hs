@@ -19,7 +19,7 @@ import           Universum
 import           Control.Monad.Except (mapExceptT)
 
 import           Pos.BlockchainImporter.Configuration (HasPostGresDB, maybePostGreStore,
-                                                       postGreStore)
+                                                       postGreOperate)
 import           Pos.BlockchainImporter.Core (TxExtra (..))
 import qualified Pos.BlockchainImporter.Tables.BestBlockTable as BBT
 import qualified Pos.BlockchainImporter.Tables.PendingTxsTable as PTxsT
@@ -130,11 +130,11 @@ eInsertPendingTx ::
     => Tx
     -> TxUndo
     -> m ()
-eInsertPendingTx tx txUndo = liftIO $ postGreStore $ PTxsT.insertPendingTx tx txUndo
+eInsertPendingTx tx txUndo = liftIO $ postGreOperate $ PTxsT.insertPendingTx tx txUndo
 
 -- | Deletes a pending tx from the Postgres DB
 eDeletePendingTxs :: (MonadIO m, HasPostGresDB) => [TxAux] -> m ()
-eDeletePendingTxs txAuxs = mapM_ (liftIO . postGreStore . PTxsT.deletePendingTx . taTx) txAuxs
+eDeletePendingTxs txAuxs = mapM_ (liftIO . postGreOperate . PTxsT.deletePendingTx . taTx) txAuxs
 
 ----------------------------------------------------------------------------
 -- Helpers

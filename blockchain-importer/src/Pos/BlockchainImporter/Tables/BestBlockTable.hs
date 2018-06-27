@@ -8,13 +8,16 @@
 module Pos.BlockchainImporter.Tables.BestBlockTable
   ( -- * Data manipulation
     updateBestBlock
+  , getBestBlock
   ) where
 
 import           Universum
 
+import qualified Control.Arrow as A
 import           Data.Profunctor.Product.TH (makeAdaptorAndInstance)
 import qualified Database.PostgreSQL.Simple as PGS
 import           Opaleye
+import           Opaleye.RunSelect
 
 data BestBlockRowPoly a = BestBlockRow  { bbBlockNum :: a
                                         } deriving (Show)
@@ -35,3 +38,13 @@ updateBestBlock newBestBlock conn = do
   when (n == 0) $ void $ runInsert_ conn $
                                     Insert bestBlockTable [colBlockNum] rCount Nothing
     where colBlockNum = BestBlockRow $ pgInt8 $ fromIntegral newBestBlock
+
+getBestBlock :: PGS.Connection -> IO Int64
+getBestBlock conn = do
+  bestBlockMatched <- runSelect conn bestBlockQuery
+  case bestBlockMatched of
+    [ bestBlockNum ] -> pure $ bestBlockNum
+    _                -> pure 0
+  where bestBlockQuery = proc () -> do
+          BestBlockRow bestBlockNum <- (selectTable bestBlockTable) -< ()
+          A.returnA -< bestBlockNum

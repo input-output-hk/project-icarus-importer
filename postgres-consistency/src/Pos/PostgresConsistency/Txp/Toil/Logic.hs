@@ -22,7 +22,7 @@ import           Pos.Core (BlockVersionData, EpochIndex, HasConfiguration, Heade
 import           Pos.Core.Txp (Tx (..), TxAux (..), TxId, TxIn (..), TxOutAux (..), TxUndo)
 import           Pos.Crypto (WithHash (..), hash)
 import           Pos.PostgresConsistency.Configuration (HasPostGresDB, maybePostGreStore,
-                                                        postGreStore)
+                                                        postGreOperate)
 import           Pos.PostgresConsistency.Core (TxExtra (..))
 import qualified Pos.PostgresConsistency.Tables.BestBlockTable as BBT
 import qualified Pos.PostgresConsistency.Tables.PendingTxsTable as PTxsT
@@ -130,11 +130,11 @@ eInsertPendingTx ::
     => Tx
     -> TxUndo
     -> m ()
-eInsertPendingTx tx txUndo = liftIO $ postGreStore $ PTxsT.insertPendingTx tx txUndo
+eInsertPendingTx tx txUndo = liftIO $ postGreOperate $ PTxsT.insertPendingTx tx txUndo
 
 -- | Deletes a pending tx from the Postgres DB
 eDeletePendingTxs :: (MonadIO m, HasPostGresDB) => [TxAux] -> m ()
-eDeletePendingTxs txAuxs = mapM_ (liftIO . postGreStore . PTxsT.deletePendingTx . taTx) txAuxs
+eDeletePendingTxs txAuxs = mapM_ (liftIO . postGreOperate . PTxsT.deletePendingTx . taTx) txAuxs
 
 ----------------------------------------------------------------------------
 -- Helpers

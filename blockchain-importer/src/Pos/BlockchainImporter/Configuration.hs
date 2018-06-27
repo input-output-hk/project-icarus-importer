@@ -7,7 +7,7 @@ module Pos.BlockchainImporter.Configuration
        , withPostGresDB
        , withPostGreTransaction
        , maybePostGreStore
-       , postGreStore
+       , postGreOperate
        ) where
 
 import           Universum
@@ -31,11 +31,11 @@ withPostGreTransaction = PGS.withTransaction (pgConnection given)
 
 maybePostGreStore :: HasPostGresDB => Word64 -> (PGS.Connection -> IO ()) -> IO ()
 maybePostGreStore currBN storeFn
-  | currBN >= (pgStartBlock given)  = postGreStore storeFn
+  | currBN >= (pgStartBlock given)  = postGreOperate storeFn
   | otherwise                       = pure ()
 
-postGreStore :: HasPostGresDB => (PGS.Connection -> IO ()) -> IO ()
-postGreStore storeFn = storeFn $ pgConnection given
+postGreOperate :: HasPostGresDB => (PGS.Connection -> IO a) -> IO a
+postGreOperate storeFn = storeFn $ pgConnection given
 
 withPostGresDB :: PGS.Connection -> Word64 -> (HasPostGresDB => r) -> r
 withPostGresDB conn startBlock = give $ PostGresDBConfiguration conn startBlock

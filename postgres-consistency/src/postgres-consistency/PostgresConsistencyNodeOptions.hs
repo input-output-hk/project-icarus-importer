@@ -4,38 +4,47 @@
 
 -- | Command line options of blockchainImporter node.
 
-module BlockchainImporterNodeOptions
-       ( BlockchainImporterNodeArgs (..)
-       , BlockchainImporterArgs (..)
-       , getBlockchainImporterNodeOptions
+module PostgresConsistencyNodeOptions
+       ( PostgresConsistencyNodeArgs (..)
+       , PostgresConsistencyArgs (..)
+       , PostgresChecks (..)
+       , getPostgresConsistencyNodeOptions
        ) where
 
 import           Universum
 
 import           Data.Version (showVersion)
 import qualified Database.PostgreSQL.Simple as PGS
-import           Options.Applicative (Parser, auto, execParser, footerDoc, fullDesc, header, help,
-                                      helper, info, infoOption, long, metavar, option, progDesc,
-                                      showDefault, strOption, value)
+import           Options.Applicative (Parser, auto, command, execParser, footerDoc, fullDesc,
+                                      header, help, helper, info, infoOption, long, metavar, option,
+                                      progDesc, showDefault, strOption, subparser, value)
 
 import           Paths_cardano_sl_postgres_consistency (version)
 import           Pos.Client.CLI (CommonNodeArgs (..))
 import qualified Pos.Client.CLI as CLI
 
 
-data BlockchainImporterNodeArgs = BlockchainImporterNodeArgs
-    { enaCommonNodeArgs         :: !CommonNodeArgs
-    , enaBlockchainImporterArgs :: !BlockchainImporterArgs
+data PostgresConsistencyNodeArgs = PostgresConsistencyNodeArgs
+    { enaCommonNodeArgs          :: !CommonNodeArgs
+    , enaPostgresConsistencyArgs :: !PostgresConsistencyArgs
     } deriving Show
 
+data PostgresChecks = ExternalConsistency FilePath
+                    | InternalConsistency
+                    | ExternalTxRangeConsistency String
+                    | GetTipHash
+                    deriving Show
+
 -- | PostgresConsistency specific arguments.
-data BlockchainImporterArgs = BlockchainImporterArgs
+data PostgresConsistencyArgs = PostgresConsistencyArgs
     { webPort             :: !Word16
     -- ^ The port for the blockchainImporter backend
     , postGresConfig      :: !PGS.ConnectInfo
     -- ^ Configuration of the PostGres DB
     , storingStartBlockPG :: !Word64
     -- ^ Starting block number from which data will be stored on the DB
+    , checksToDo          :: !PostgresChecks
+    -- ^ File with blk hashes to check for consistency
     } deriving Show
 
 -- Parses the postgres configuration, using the defaults from 'PGS.defaultConnectInfo'
@@ -68,21 +77,54 @@ connectInfoParser = do
   pure PGS.ConnectInfo{..}
 
 -- | Ther parser for the blockchainImporter arguments.
-blockchainImporterArgsParser :: Parser BlockchainImporterNodeArgs
+blockchainImporterArgsParser :: Parser PostgresConsistencyNodeArgs
 blockchainImporterArgsParser = do
     commonNodeArgs <- CLI.commonNodeArgsParser
     webPort        <- CLI.webPortOption 8200 "Port for web API."
     postGresConfig <- connectInfoParser
     storingStartBlockPG     <- option auto $
         long    "postgres-startblock" <>
-        metavar "PS-START-NUM" <>
+        metavar "PG-START-NUM" <>
         value   0 <>
         help    "First block whose info will be stored on postgres DB."
-    pure $ BlockchainImporterNodeArgs commonNodeArgs BlockchainImporterArgs{..}
+    checksToDo <- postgresCheckParser
+    pure $ PostgresConsistencyNodeArgs commonNodeArgs PostgresConsistencyArgs{..}
+
+postgresCheckParser :: Parser PostgresChecks
+postgresCheckParser = do
+  let enableExternalCheck = command "ext-const"
+                              (info externalCheckParser
+                              (progDesc "Check external consistency with up-to-date node db"))
+      enableInternalCheck = command "int-const"
+                              (info (pure InternalConsistency)
+                              (progDesc "Check internal consistency with importer db"))
+      enableExternalTxRangeCheck = command "ext-range-const"
+                                    (info externalRangeTxCheckParser
+                                    (progDesc "Check tx range consistency with up-to-date node db"))
+      enableGetTipHash = command "get-tip-hash"
+                          (info (pure GetTipHash)
+                          (progDesc "Print block tip hash"))
+  subparser (enableExternalCheck
+          <> enableInternalCheck
+          <> enableExternalTxRangeCheck
+          <> enableGetTipHash)
+  where externalCheckParser = do
+          blksToCheck <- strOption $
+            long    "blocks-file" <>
+            metavar "CONSISTENCY-BLK-HASHES-FILE" <>
+            help    "File with block hashes to check for consistency."
+          pure $ ExternalConsistency blksToCheck
+        externalRangeTxCheckParser = do
+          tipHash <- strOption $
+            long    "tip-hash" <>
+            metavar "TIP-HASH" <>
+            help    "Hash of the tip block."
+          pure $ ExternalTxRangeConsistency tipHash
+
 
 -- | The parser for the blockchainImporter.
-getBlockchainImporterNodeOptions :: IO BlockchainImporterNodeArgs
-getBlockchainImporterNodeOptions = execParser programInfo
+getPostgresConsistencyNodeOptions :: IO PostgresConsistencyNodeArgs
+getPostgresConsistencyNodeOptions = execParser programInfo
   where
     programInfo = info (helper <*> versionOption <*> blockchainImporterArgsParser) $
         fullDesc <> progDesc "Cardano SL main server node w/ blockchainImporter."

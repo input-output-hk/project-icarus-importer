@@ -1,0 +1,54 @@
+-- TO DELETE
+
+{-
+-- FIXME: Delete, just for checking everything works
+testConsistencyChecking :: ConsistencyCheckerEnv m => m Bool
+testConsistencyChecking = do
+  logInfo "Checking consistency..."
+
+  -- Test
+  logInfo "Testing getting block by hash (local)"
+  txs <- getKVTxsByBlkHash blkHashWithTxs
+  case txs of
+    Just ts -> logInfo $ show $ length ts
+    Nothing -> logInfo "Block not found"
+
+  -- Test
+  logInfo "Testing getting utxos (local)"
+  utxo <- getAllPotentiallyHugeUtxo
+  logInfo $ show $ length $ toList $ utxo
+
+  -- Test
+  logInfo "Testing getting utxos (postgres)"
+  utxoPGS <- liftIO $ postGreOperate $ getUtxos
+  logInfo $ show $ length $ toList $ utxoPGS
+
+  logInfo "Testing getting tx (postgres)"
+  txPGS <- liftIO $ postGreOperate $ getTxByHash txHashExample
+  case txPGS of
+    Just (txHashPGS, _, _, _, _) -> logInfo $ toText txHashPGS
+    Nothing                      -> logInfo "Tx not found"
+
+  pure True
+
+
+testBlkHashes = [ "2f66e73cc75d862275dceb22f3c64badf3e698832f1a01ddfb124e403501f8c6",
+                  "849f20b5821edce112746d62191da09c4502c59b1309dc6775e39a14c8737f0b",
+                  "2af4a3ea2cd4cbb81541ed34efa0adb44777bb0c7cccb7709f32f4dd6b5d97a2",
+                  "7a85cdfceeaf22431ab5f4b41a106d36e69395626de0cbf8f60488c371a27702",
+                  "cc0a4d80b0c406b975708baa61b66d9eaf0bb0442ea225a6f65757d7cdfbe5a5",
+                  "dfbd84286b11fa01128775692f98a356c4dff97d519955d661f8ae1c06193204",
+                  "05dd27d2007a9cdf53434410d36124a92741500d9f38c9eb5b76d6cc501b1adb",
+                  "3d0966b5f1c635b2f99e4cbedc69d11036c85ff24257e042bd4159eb1a945311",
+                  "83e000f3bdb771528055d442813c1ef987defb7319af7dcefab38827e54b581b",
+                  "42ed22bed54f5770047e1b4c8995261fc1986fbddf428aa7678eca2c94cde1ae" ]
+
+
+-- Utils (Move to a separate file?)
+
+txHashExample :: TxId
+txHashExample = fromRight (error "Block not known") $ decodeHash $ "b0cb59e9fb2fd8748aa712e6a1242814cb00c7cec864fd326767e9f9c9db5dec"
+
+blkHashWithTxs :: HeaderHash
+blkHashWithTxs = fromRight (error "Block not known") $ decodeHash $ "a7cd3b4c6368ffa53f06b6f0b2f9e5b45bcb1c09cd887f2400a5ac16d450b976"
+-}

@@ -7,14 +7,18 @@
 
 module Pos.BlockchainImporter.Tables.UtxosTable
   ( applyModifierToUtxos
+  , getUtxos
+  , UtxoRow
   ) where
 
 import           Universum
 
+import qualified Control.Arrow as A
 import           Data.Maybe (catMaybes)
 import           Data.Profunctor.Product.TH (makeAdaptorAndInstance)
 import qualified Database.PostgreSQL.Simple as PGS
 import           Opaleye
+import           Opaleye.RunSelect
 
 import           Pos.BlockchainImporter.Tables.Utils
 import           Pos.Core.Txp (TxIn (..), TxOut (..), TxOutAux (..))
@@ -30,6 +34,8 @@ data UtxoRowPoly a b c d e = UtxoRow  { urUtxoId   :: a
 
 type UtxoRowPGW = UtxoRowPoly (Column PGText) (Column PGText) (Column PGInt4) (Column PGText) (Column PGInt8)
 type UtxoRowPGR = UtxoRowPoly (Column PGText) (Column PGText) (Column PGInt4) (Column PGText) (Column PGInt8)
+
+type UtxoRow = (Text, Int, Text, Int64) --FIXME?
 
 $(makeAdaptorAndInstance "pUtxos" ''UtxoRowPoly)
 
@@ -64,3 +70,9 @@ applyModifierToUtxos modifier conn = do
   void $ runUpsert_ conn utxosTable toInsert
   void $ runDelete_ conn $
                     Delete utxosTable (\(UtxoRow sId _ _ _ _) -> in_ toDelete sId) rCount
+
+getUtxos :: PGS.Connection -> IO [UtxoRow]
+getUtxos conn = runSelect conn utxosQuery
+  where utxosQuery = proc () -> do
+          UtxoRow _ inHash inIndex outReceiver outAmount <- (selectTable utxosTable) -< ()
+          A.returnA -< (inHash, inIndex, outReceiver, outAmount)
