@@ -1,41 +1,39 @@
--- | Functions operating on UTXO.
+-- | Functions operating on UTXO (in 'UtxoM' monad).
 
 module Pos.Txp.Toil.Utxo.Functions
        ( VTxContext (..)
+       , VerifyTxUtxoRes (..)
        , verifyTxUtxo
+       , verifyTxUtxoFromLookup
        , applyTxToUtxo
        , rollbackTxUtxo
        ) where
 
 import           Universum
 
-import           Control.Lens              (_Left)
-import           Control.Monad.Error.Class (MonadError (..))
-import qualified Data.List.NonEmpty        as NE
-import           Formatting                (int, sformat, (%))
-import           Serokell.Util             (VerificationRes, allDistinct, enumerate,
-                                            formatFirstError, verResToMonadError,
-                                            verifyGeneric)
+import           Control.Lens (_Left)
+import           Control.Monad.Except (throwError)
+import qualified Data.List.NonEmpty as NE
+import           Formatting (int, sformat, (%))
+import           Serokell.Util (allDistinct, enumerate)
 
-import           Pos.Binary.Txp.Core       ()
-import           Pos.Core                  (AddrType (..), Address (..), addressF,
-                                            integerToCoin, isRedeemAddress,
-                                            isUnknownAddressType, sumCoins,
-                                            HasConfiguration)
-import           Pos.Core.Address          (checkPubKeyAddress, checkRedeemAddress,
-                                            checkScriptAddress)
-import           Pos.Crypto                (SignTag (SignRedeemTx, SignTx), WithHash (..),
-                                            checkSig, hash, redeemCheckSig)
-import           Pos.Data.Attributes       (Attributes (attrRemain), areAttributesKnown)
-import           Pos.Script                (Script (..), isKnownScriptVersion,
-                                            txScriptCheck)
-import           Pos.Txp.Core              (Tx (..), TxAttributes, TxAux (..), TxIn (..),
-                                            TxInWitness (..), TxOut (..), TxOutAux (..),
-                                            TxSigData (..), TxUndo, TxWitness,
-                                            isTxInUnknown)
-import           Pos.Txp.Toil.Class        (MonadUtxo (..), MonadUtxoRead (..))
-import           Pos.Txp.Toil.Failure      (ToilVerFailure (..), WitnessVerFailure (..))
-import           Pos.Txp.Toil.Types        (TxFee (..))
+import           Pos.Binary.Core ()
+import           Pos.Core (AddrType (..), Address (..), integerToCoin, isRedeemAddress,
+                           isUnknownAddressType, sumCoins)
+import           Pos.Core.Common (checkPubKeyAddress, checkRedeemAddress, checkScriptAddress)
+import           Pos.Core.Txp (Tx (..), TxAttributes, TxAux (..), TxIn (..), TxInWitness (..),
+                               TxOut (..), TxOutAux (..), TxSigData (..), TxUndo, TxWitness,
+                               isTxInUnknown)
+import           Pos.Crypto (SignTag (SignRedeemTx, SignTx), WithHash (..), checkSig, hash,
+                             redeemCheckSig)
+import           Pos.Crypto.Configuration (HasProtocolMagic, protocolMagic)
+import           Pos.Data.Attributes (Attributes (attrRemain), areAttributesKnown)
+import           Pos.Script (Script (..), isKnownScriptVersion, txScriptCheck)
+import           Pos.Txp.Toil.Failure (ToilVerFailure (..), TxOutVerFailure (..),
+                                       WitnessVerFailure (..))
+import           Pos.Txp.Toil.Monad (UtxoM, utxoDel, utxoGet, utxoPut)
+import           Pos.Txp.Toil.Types (TxFee (..))
+import           Pos.Util (liftEither)
 
 ----------------------------------------------------------------------------
 -- Verification
@@ -52,9 +50,18 @@ data VTxContext = VTxContext
       vtcVerifyAllIsKnown :: !Bool
 --    , vtcSlotId   :: !SlotId         -- ^ Slot id of block transaction is checked in
 --    , vtcLeaderId :: !StakeholderId  -- ^ Leader id of block transaction is checked in
+    }
+
+-- | Result of successful 'Tx' verification based on Utxo.
+data VerifyTxUtxoRes = VerifyTxUtxoRes
+    { vturUndo :: !TxUndo
+    -- ^ 'TxUndo' for the verified transaction.
+    , vturFee  :: !(Maybe TxFee)
+    -- ^ Fee of the verified transaction. Can be 'Nothing' if there
+    -- are inputs of unknown types.
     } deriving (Show)
 
--- | CHECK: Verify Tx correctness using 'MonadUtxoRead'.
+-- | CHECK: Verify Tx correctness using 'UtxoLookup'.
 -- Specifically there are the following checks:
 --
 -- * every input is a known unspent output;
@@ -71,14 +78,30 @@ data VTxContext = VTxContext
 -- blocks when we're creating a block (because transactions for
 -- inclusion into blocks are verified with 'vtcVerifyAllIsKnown'
 -- set to 'True', so unknown script versions are rejected).
---
--- Returned fee can be 'Nothing' if there are inputs of unknown types.
 verifyTxUtxo
-    :: (MonadUtxoRead m, MonadError ToilVerFailure m)
+    :: ( HasProtocolMagic )
     => VTxContext
     -> TxAux
-    -> m (TxUndo, Maybe TxFee)
-verifyTxUtxo ctx@VTxContext {..} ta@(TxAux UnsafeTx {..} witnesses) = do
+    -> ExceptT ToilVerFailure UtxoM VerifyTxUtxoRes
+verifyTxUtxo = genericVerifyTxUtxo resolveInput
+
+-- Verifies that a tx is valid, by resolving inputs through a utxo lookup function
+verifyTxUtxoFromLookup
+    :: ( HasProtocolMagic, Monad m )
+    => (TxIn -> m (Maybe TxOutAux))
+    -> VTxContext
+    -> TxAux
+    -> ExceptT ToilVerFailure m VerifyTxUtxoRes
+verifyTxUtxoFromLookup uxtoLookup = genericVerifyTxUtxo $ resolveInputFromLookup uxtoLookup
+
+-- Given a resolve input function, verifies that a tx is valid
+genericVerifyTxUtxo
+    :: ( HasProtocolMagic, Monad m )
+    => (TxIn -> ExceptT ToilVerFailure m (TxIn, TxOutAux))
+    -> VTxContext
+    -> TxAux
+    -> ExceptT ToilVerFailure m VerifyTxUtxoRes
+genericVerifyTxUtxo resolveInputFn ctx@VTxContext {..} ta@(TxAux UnsafeTx {..} witnesses) = do
     let unknownTxInMB = find (isTxInUnknown . snd) $ zip [0..] (toList _txInputs)
     case (vtcVerifyAllIsKnown, unknownTxInMB) of
         (True, Just (inpId, txIn)) -> throwError $
@@ -86,34 +109,53 @@ verifyTxUtxo ctx@VTxContext {..} ta@(TxAux UnsafeTx {..} witnesses) = do
         (False, Just _) -> do
             -- Case when at least one input isn't known
             minimalReasonableChecks
-            resolvedInputs <- mapM (fmap rightToMaybe . runExceptT . resolveInput) _txInputs
-            pure (map (fmap snd) resolvedInputs, Nothing)
+            resolvedInputs :: NonEmpty (Maybe (TxIn, TxOutAux)) <-
+                mapM
+                    (lift . fmap rightToMaybe . runExceptT . resolveInputFn)
+                    _txInputs
+            pure VerifyTxUtxoRes
+                 { vturUndo = map (fmap snd) resolvedInputs
+                 , vturFee = Nothing
+                 }
         _               -> do
             -- Case when all inputs are known
             minimalReasonableChecks
-            resolvedInputs <- mapM resolveInput _txInputs
-            txFee <- verifySums resolvedInputs _txOutputs
-            verifyInputs ctx resolvedInputs ta
-            when vtcVerifyAllIsKnown $ verifyAttributesAreKnown _txAttributes
-            pure (map (Just . snd) resolvedInputs, Just txFee)
+            resolvedInputs <- mapM resolveInputFn _txInputs
+            liftEither $ do
+                txFee <- verifySums resolvedInputs _txOutputs
+                verifyKnownInputs ctx resolvedInputs ta
+                when vtcVerifyAllIsKnown $ verifyAttributesAreKnown _txAttributes
+                pure VerifyTxUtxoRes
+                    { vturUndo = map (Just . snd) resolvedInputs
+                    , vturFee = Just txFee
+                    }
   where
-    minimalReasonableChecks = do
+    minimalReasonableChecks :: Monad m => ExceptT ToilVerFailure m ()
+    minimalReasonableChecks = liftEither $ do
         verifyConsistency _txInputs witnesses
-        verResToMonadError (ToilInvalidOutputs . formatFirstError) $
-            verifyOutputs ctx ta
+        verifyOutputs ctx ta
 
-resolveInput
-    :: (MonadUtxoRead m, MonadError ToilVerFailure m)
-    => TxIn -> m (TxIn, TxOutAux)
-resolveInput txIn = (txIn, ) <$> (note (ToilNotUnspent txIn) =<< utxoGet txIn)
+resolveInput :: TxIn -> ExceptT ToilVerFailure UtxoM (TxIn, TxOutAux)
+resolveInput txIn =
+    (txIn, ) <$> (note (ToilNotUnspent txIn) =<< lift (utxoGet txIn))
 
-verifySums
-    :: MonadError ToilVerFailure m
-    => NonEmpty (TxIn, TxOutAux) -> NonEmpty TxOut -> m TxFee
+-- Resolve input from utxo lookup function
+resolveInputFromLookup
+    :: Monad m
+    => (TxIn -> m (Maybe TxOutAux))
+    -> TxIn
+    -> ExceptT ToilVerFailure m (TxIn, TxOutAux)
+resolveInputFromLookup utxoLookup txIn =
+    (txIn, ) <$> (note (ToilNotUnspent txIn) =<< lift (utxoLookup txIn))
+
+verifySums ::
+       NonEmpty (TxIn, TxOutAux)
+    -> NonEmpty TxOut
+    -> Either ToilVerFailure TxFee
 verifySums resolvedInputs outputs =
   case mTxFee of
       Nothing -> throwError $
-          ToilOutGTIn {tInputSum = inpSum, tOutputSum = outSum}
+          ToilOutGreaterThanIn inpSum outSum
       Just txFee ->
           return txFee
   where
@@ -125,7 +167,7 @@ verifySums resolvedInputs outputs =
     outSum = sumCoins $ map txOutValue outputs
     inpSum = sumCoins $ map (txOutValue . toaOut . snd) resolvedInputs
 
-verifyConsistency :: MonadError ToilVerFailure m => NonEmpty TxIn -> TxWitness -> m ()
+verifyConsistency :: NonEmpty TxIn -> TxWitness -> Either ToilVerFailure ()
 verifyConsistency inputs witnesses
     | length inputs == length witnesses = pass
     | otherwise = throwError $ ToilInconsistentTxAux errMsg
@@ -133,36 +175,28 @@ verifyConsistency inputs witnesses
     errFmt = ("length of inputs != length of witnesses "%"("%int%" != "%int%")")
     errMsg = sformat errFmt (length inputs) (length witnesses)
 
-verifyOutputs :: VTxContext -> TxAux -> VerificationRes
+verifyOutputs :: VTxContext -> TxAux -> Either ToilVerFailure ()
 verifyOutputs VTxContext {..} (TxAux UnsafeTx {..} _) =
-    verifyGeneric $
-    concatMap verifyOutput (enumerate $ toList _txOutputs)
+    mapM_ verifyOutput . enumerate $ toList _txOutputs
   where
-    verifyOutput :: (Int, TxOut) -> [(Bool, Text)]
-    verifyOutput (i, (TxOut {txOutAddress = addr@Address {..}, ..})) =
-        [ ( not vtcVerifyAllIsKnown || areAttributesKnown addrAttributes
-          , sformat
-                ("output #"%int%" with address "%addressF%
-                 " has unknown attributes")
-                i addr
-          )
-        , ( not $ vtcVerifyAllIsKnown && isUnknownAddressType addr
-          , sformat ("output #"%int%" sends money to an address with unknown "
-                    %"type ("%addressF%"), this is prohibited") i addr
-          )
-        , ( not (isRedeemAddress addr)
-          , sformat ("output #"%int%" sends money to a redeem address ("
-                    %addressF%"), this is prohibited") i addr
-          )
-        ]
+    verifyOutput :: (Word32, TxOut) -> Either ToilVerFailure ()
+    verifyOutput (i, (TxOut {txOutAddress = addr@Address {..}, ..})) = do
+        when (vtcVerifyAllIsKnown && not (areAttributesKnown addrAttributes)) $
+            throwError $ ToilInvalidOutput i (TxOutUnknownAttributes addr)
+        when (vtcVerifyAllIsKnown && isUnknownAddressType addr) $
+            throwError $ ToilInvalidOutput i (TxOutUnknownAddressType addr)
+        when (isRedeemAddress addr) $
+            throwError $ ToilInvalidOutput i (TxOutRedeemAddressProhibited addr)
 
-verifyInputs ::
-       (HasConfiguration, MonadError ToilVerFailure m)
+-- Verify inputs of a transaction after they have been resolved
+-- (implies that they are known).
+verifyKnownInputs ::
+       (HasProtocolMagic)
     => VTxContext
     -> NonEmpty (TxIn, TxOutAux)
     -> TxAux
-    -> m ()
-verifyInputs VTxContext {..} resolvedInputs TxAux {..} = do
+    -> Either ToilVerFailure ()
+verifyKnownInputs VTxContext {..} resolvedInputs TxAux {..} = do
     unless allInputsDifferent $ throwError ToilRepeatedInput
     mapM_ (uncurry3 checkInput) $
         zip3 [0 ..] (toList resolvedInputs) (toList witnesses)
@@ -176,16 +210,14 @@ verifyInputs VTxContext {..} resolvedInputs TxAux {..} = do
     allInputsDifferent = allDistinct (toList (map fst resolvedInputs))
 
     checkInput
-        :: (HasConfiguration, MonadError ToilVerFailure m)
+        :: (HasProtocolMagic)
         => Word32           -- ^ Input index
         -> (TxIn, TxOutAux) -- ^ Input and corresponding output data
         -> TxInWitness
-        -> m ()
+        -> Either ToilVerFailure ()
     checkInput i (txIn, toa@(TxOutAux txOut@TxOut{..})) witness = do
         unless (checkSpendingData txOutAddress witness) $
             throwError $ ToilWitnessDoesntMatch i txIn txOut witness
-        when (isTxInUnknown txIn && vtcVerifyAllIsKnown) $ throwError $
-            ToilUnknownInput i txIn
         whenLeft (checkWitness toa witness) $ \err ->
             throwError $ ToilInvalidWitness i witness err
 
@@ -198,13 +230,13 @@ verifyInputs VTxContext {..} resolvedInputs TxAux {..} = do
             _                 -> False
 
     -- the first argument here includes local context, can be used for scripts
-    checkWitness :: HasConfiguration => TxOutAux -> TxInWitness -> Either WitnessVerFailure ()
+    checkWitness :: HasProtocolMagic => TxOutAux -> TxInWitness -> Either WitnessVerFailure ()
     checkWitness _txOutAux witness = case witness of
         PkWitness{..} ->
-            unless (checkSig SignTx twKey txSigData twSig) $
+            unless (checkSig protocolMagic SignTx twKey txSigData twSig) $
                 throwError WitnessWrongSignature
         RedeemWitness{..} ->
-            unless (redeemCheckSig SignRedeemTx twRedeemKey txSigData twRedeemSig) $
+            unless (redeemCheckSig protocolMagic SignRedeemTx twRedeemKey txSigData twRedeemSig) $
                 throwError WitnessWrongSignature
         ScriptWitness{..} -> do
             let valVer = scrVersion twValidator
@@ -220,27 +252,24 @@ verifyInputs VTxContext {..} resolvedInputs TxAux {..} = do
                 throwError $ WitnessUnknownType t
 
 verifyAttributesAreKnown
-    :: (MonadError ToilVerFailure m)
-    => TxAttributes -> m ()
+    :: TxAttributes -> Either ToilVerFailure ()
 verifyAttributesAreKnown attrs =
     unless (areAttributesKnown attrs) $
     throwError $ ToilUnknownAttributes (attrRemain attrs)
 
 -- | Remove unspent outputs used in given transaction, add new unspent
 -- outputs.
-applyTxToUtxo :: MonadUtxo m => WithHash Tx -> m ()
+applyTxToUtxo :: WithHash Tx -> UtxoM ()
 applyTxToUtxo (WithHash UnsafeTx {..} txid) = do
     mapM_ utxoDel $ filter (not . isTxInUnknown) (toList _txInputs)
     mapM_ applyOutput . zip [0 ..] . toList . map TxOutAux $ _txOutputs
   where
-    applyOutput (idx, toa) = utxoPut (TxInUtxo  txid idx) toa
+    applyOutput (idx, toa) = utxoPut (TxInUtxo txid idx) toa
 
 -- | Rollback application of given transaction to Utxo using Undo
 -- data.  This function assumes that transaction has been really
 -- applied and doesn't check anything.
-rollbackTxUtxo
-    :: (MonadUtxo m)
-    => (TxAux, TxUndo) -> m ()
+rollbackTxUtxo :: (TxAux, TxUndo) -> UtxoM ()
 rollbackTxUtxo (txAux, undo) = do
     let tx@UnsafeTx {..} = taTx txAux
     let txid = hash tx

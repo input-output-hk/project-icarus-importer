@@ -19,15 +19,13 @@ module Pos.Slotting.MemState
 
 import           Universum
 
-import           Control.Monad.STM  (retry)
+import           Control.Monad.STM (retry)
 
-import           Pos.Core.Types     (EpochIndex, Timestamp)
-import           Pos.Slotting.Types (EpochSlottingData, SlottingData,
-                                     getAllEpochIndices,
+import           Pos.Core.Slotting (EpochIndex, Timestamp)
+import           Pos.Slotting.Types (EpochSlottingData, SlottingData, getAllEpochIndices,
                                      getCurrentEpochIndex, getCurrentEpochSlottingData,
                                      getNextEpochIndex, getNextEpochSlottingData,
-                                     insertEpochSlottingDataUnsafe,
-                                     lookupEpochSlottingData)
+                                     insertEpochSlottingDataUnsafe, lookupEpochSlottingData)
 
 ----------------------------------------------------------------------------
 -- Context
@@ -56,7 +54,7 @@ type MonadSlotsData ctx m =
     )
 
 -- TODO(ks): We might need a functions similar to `withSlottingDataAtomM` that
--- executes an STM action (function) and return the result in @IO@ monad.
+-- executes an STM action (function) and returns the result in @IO@ monad.
 -- We might need that once we have some more complicated functions that require
 -- @SlottingVar@ as a concurrency primitive.
 
@@ -139,4 +137,3 @@ waitCurrentEpochEqualsM target = do
         currentEpoch <- getCurrentEpochIndex <$> readTVar var
         --  Wait until current epoch is >= target.
         when (currentEpoch < target) retry
-

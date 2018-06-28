@@ -114,8 +114,9 @@ translation =
         , blPrevBlock: "Previous slot"
         , blNextBlock: "Next slot"
         , blRoot: "Merkle root"
-        , blEpochSlotNotFound: "Epoch / slot do not exist."
+        , blEpochSlotNotFound: "An error occurred, epoch / slot cannot be found."
         , blSlotNotFound: "Slot does not exist."
+        , blSlotEmpty: "Empty slot"
         }
     , genesisBlock:
         { gblNotFound: "Genesis block not found."
@@ -145,7 +146,6 @@ translation =
         , fooCardanoFoundationYoutube: "Cardano Foundation YouTube"
         , fooCardanoFoundationTwitter: "Cardano Foundation Twitter"
         , fooCardanoHub: "Cardano Hub"
-        , fooCardanoLaunch: "Cardano Launch"
         , fooCardanoChat: "Cardano Chat"
         , fooCardanoForum: "Cardano Forum"
         , fooCardanoReddit: "Cardano Reddit"

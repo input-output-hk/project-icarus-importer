@@ -11,9 +11,11 @@ module Pos.Slotting.Util
        , getNextEpochSlotDuration
        , slotFromTimestamp
 
-         -- * Worker which ticks when slot starts
+         -- * Worker which ticks when slot starts and its parameters
+       , OnNewSlotParams (..)
+       , defaultOnNewSlotParams
+       , ActionTerminationPolicy (..)
        , onNewSlot
-       , onNewSlotImpl
 
          -- * Worker which logs beginning of new slot
        , logNewSlotWorker
@@ -24,31 +26,30 @@ module Pos.Slotting.Util
 
 import           Universum
 
-import           Data.Time.Units        (Millisecond)
-import           Formatting             (int, sformat, shown, (%))
-import           Mockable               (Delay, Fork, Mockable, delay, fork)
-import           Serokell.Util          (sec)
-import           System.Wlog            (WithLogger, logDebug, logInfo, logNotice,
-                                         modifyLoggerName)
+import           Data.Time.Units (Millisecond)
+import           Formatting (int, sformat, shown, stext, (%))
+import           Mockable (Async, Delay, Mockable, delay, timeout)
+import           Serokell.Util (sec)
+import           System.Wlog (WithLogger, logDebug, logInfo, logNotice, logWarning,
+                              modifyLoggerName)
 
-import           Pos.Core               (FlatSlotId, HasConfiguration, LocalSlotIndex,
-                                         SlotId (..), Timestamp (..), flattenSlotId,
-                                         slotIdF)
-import           Pos.Recovery.Info      (MonadRecoveryInfo (recoveryInProgress))
-import           Pos.Reporting.Methods  (MonadReporting, reportOrLogE)
-import           Pos.Shutdown           (HasShutdownContext, runIfNotShutdown)
-import           Pos.Slotting.Class     (MonadSlots (..))
-import           Pos.Slotting.Error     (SlottingError (..))
+import           Pos.Core (FlatSlotId, LocalSlotIndex, SlotId (..), HasProtocolConstants,
+                           Timestamp (..), flattenSlotId, slotIdF)
+import           Pos.Recovery.Info (MonadRecoveryInfo, recoveryInProgress)
+import           Pos.Reporting.Methods (MonadReporting, reportOrLogE)
+import           Pos.Shutdown (HasShutdownContext)
+import           Pos.Slotting.Class (MonadSlots (..))
+import           Pos.Slotting.Error (SlottingError (..))
 import           Pos.Slotting.Impl.Util (slotFromTimestamp)
-import           Pos.Slotting.MemState  (MonadSlotsData, getCurrentNextEpochSlottingDataM,
-                                         getEpochSlottingDataM, getSystemStartM)
-import           Pos.Slotting.Types     (EpochSlottingData (..), SlottingData,
-                                         computeSlotStart, lookupEpochSlottingData)
-import           Pos.Util.Util          (maybeThrow)
+import           Pos.Slotting.MemState (MonadSlotsData, getCurrentNextEpochSlottingDataM,
+                                        getEpochSlottingDataM, getSystemStartM)
+import           Pos.Slotting.Types (EpochSlottingData (..), SlottingData, computeSlotStart,
+                                     lookupEpochSlottingData)
+import           Pos.Util.Util (maybeThrow)
 
 
 -- | Get flat id of current slot based on MonadSlots.
-getCurrentSlotFlat :: (MonadSlots ctx m, HasConfiguration) => m (Maybe FlatSlotId)
+getCurrentSlotFlat :: (MonadSlots ctx m, HasProtocolConstants) => m (Maybe FlatSlotId)
 getCurrentSlotFlat = fmap flattenSlotId <$> getCurrentSlot
 
 -- | Get timestamp when given slot starts.
@@ -96,42 +97,84 @@ getNextEpochSlotDuration =
     esdSlotDuration . snd <$> getCurrentNextEpochSlottingDataM
 
 -- | Type constraint for `onNewSlot*` workers
-type OnNewSlot ctx m =
+type MonadOnNewSlot ctx m =
     ( MonadIO m
     , MonadReader ctx m
     , MonadSlots ctx m
     , MonadMask m
     , WithLogger m
-    , Mockable Fork m
+    , Mockable Async m
     , Mockable Delay m
     , MonadReporting ctx m
     , HasShutdownContext ctx
     , MonadRecoveryInfo m
-    , HasConfiguration
     )
+
+-- | Parameters for `onNewSlot`.
+data OnNewSlotParams = OnNewSlotParams
+    { onspStartImmediately  :: !Bool
+    -- ^ Whether first action should be executed ASAP (i. e. basically
+    -- when the program starts), or only when new slot starts.
+    --
+    -- For example, if the program is started in the middle of a slot
+    -- and this parameter in 'False', we will wait for half of slot
+    -- and only then will do something.
+    , onspTerminationPolicy :: !ActionTerminationPolicy
+    -- ^ What should be done if given action doesn't finish before new
+    -- slot starts. See the description of 'ActionTerminationPolicy'.
+    }
+
+-- | Default parameters which were used by almost all code before this
+-- data type was introduced.
+defaultOnNewSlotParams :: OnNewSlotParams
+defaultOnNewSlotParams =
+    OnNewSlotParams
+    { onspStartImmediately = True
+    , onspTerminationPolicy = NoTerminationPolicy
+    }
+
+-- | This policy specifies what should be done if the action passed to
+-- `onNewSlot` doesn't finish when current slot finishes.
+--
+-- We don't want to run given action more than once in parallel for
+-- variety of reasons:
+-- 1. If action hangs for some reason, there can be infinitely growing pool
+-- of hanging actions with probably bad consequences (e. g. leaking memory).
+-- 2. Thread management will be quite complicated if we want to fork
+-- threads inside `onNewSlot`.
+-- 3. If more than one action is launched, they may use same resources
+-- concurrently, so the code must account for it.
+data ActionTerminationPolicy
+    = NoTerminationPolicy
+    -- ^ Even if action keeps running after current slot finishes,
+    -- we'll just wait and start action again only after the previous
+    -- one finishes.
+    | NewSlotTerminationPolicy !Text
+    -- ^ If new slot starts, running action will be cancelled. Name of
+    -- the action should be passed for logging.
 
 -- | Run given action as soon as new slot starts, passing SlotId to
 -- it.  This function uses Mockable and assumes consistency between
 -- MonadSlots and Mockable implementations.
 onNewSlot
-    :: OnNewSlot ctx m
-    => Bool -> (SlotId -> m ()) -> m ()
+    :: (MonadOnNewSlot ctx m, HasProtocolConstants)
+    => OnNewSlotParams -> (SlotId -> m ()) -> m ()
 onNewSlot = onNewSlotImpl False
 
 onNewSlotWithLogging
-    :: OnNewSlot ctx m
-    => Bool -> (SlotId -> m ()) -> m ()
+    :: (MonadOnNewSlot ctx m, HasProtocolConstants)
+    => OnNewSlotParams -> (SlotId -> m ()) -> m ()
 onNewSlotWithLogging = onNewSlotImpl True
 
 -- TODO [CSL-198]: think about exceptions more carefully.
 onNewSlotImpl
-    :: forall ctx m. OnNewSlot ctx m
-    => Bool -> Bool -> (SlotId -> m ()) -> m ()
-onNewSlotImpl withLogging startImmediately action =
+    :: forall ctx m. (MonadOnNewSlot ctx m, HasProtocolConstants)
+    => Bool -> OnNewSlotParams -> (SlotId -> m ()) -> m ()
+onNewSlotImpl withLogging params action =
     impl `catch` workerHandler
   where
-    impl = onNewSlotDo withLogging Nothing startImmediately actionWithCatch
-    -- [CSL-1578] TODO: consider removing it.
+    impl = onNewSlotDo withLogging Nothing params actionWithCatch
+    -- [CSL-198] TODO: consider removing it.
     actionWithCatch s = action s `catch` actionHandler
     actionHandler :: SomeException -> m ()
     -- REPORT:ERROR 'reportOrLogE' in exception passed to 'onNewSlotImpl'.
@@ -141,27 +184,34 @@ onNewSlotImpl withLogging startImmediately action =
         -- REPORT:ERROR 'reportOrLogE' in 'onNewSlotImpl'
         reportOrLogE "Error occurred in 'onNewSlot' worker itself: " e
         delay =<< getNextEpochSlotDuration
-        onNewSlotImpl withLogging startImmediately action
+        onNewSlotImpl withLogging params action
 
 onNewSlotDo
-    :: OnNewSlot ctx m
-    => Bool -> Maybe SlotId -> Bool -> (SlotId -> m ()) -> m ()
-onNewSlotDo withLogging expectedSlotId startImmediately action = runIfNotShutdown $ do
+    :: (MonadOnNewSlot ctx m, HasProtocolConstants)
+    => Bool -> Maybe SlotId -> OnNewSlotParams -> (SlotId -> m ()) -> m ()
+onNewSlotDo withLogging expectedSlotId onsp action = do
     curSlot <- waitUntilExpectedSlot
 
-    -- Fork is necessary because action can take more time than duration of slot.
-    when startImmediately $ void $ fork $ action curSlot
+    let nextSlot = succ curSlot
+    Timestamp curTime <- currentTimeSlotting
+    Timestamp nextSlotStart <- getSlotStartEmpatically nextSlot
+    let timeToWait = nextSlotStart - curTime
 
-    -- check for shutdown flag again to not wait a whole slot
-    runIfNotShutdown $ do
-        let nextSlot = succ curSlot
-        Timestamp curTime <- currentTimeSlotting
-        Timestamp nextSlotStart <- getSlotStartEmpatically nextSlot
-        let timeToWait = nextSlotStart - curTime
-        when (timeToWait > 0) $ do
-            when withLogging $ logTTW timeToWait
-            delay timeToWait
-        onNewSlotDo withLogging (Just nextSlot) True action
+    let applyTimeout a = case onspTerminationPolicy onsp of
+          NoTerminationPolicy -> a
+          NewSlotTerminationPolicy name ->
+              whenNothingM_ (timeout timeToWait a) $
+                  logWarning $ sformat
+                  ("Action "%stext%
+                   " hasn't finished before new slot started") name
+
+    when (onspStartImmediately onsp) $ applyTimeout $ action curSlot
+
+    when (timeToWait > 0) $ do
+        when withLogging $ logTTW timeToWait
+        delay timeToWait
+    let newParams = onsp { onspStartImmediately = True }
+    onNewSlotDo withLogging (Just nextSlot) newParams action
   where
     waitUntilExpectedSlot = do
         -- onNewSlotWorker doesn't make sense in recovery phase. Most
@@ -183,9 +233,9 @@ onNewSlotDo withLogging expectedSlotId startImmediately action = runIfNotShutdow
     logTTW timeToWait = modifyLoggerName (<> "slotting") $ logDebug $
                  sformat ("Waiting for "%shown%" before new slot") timeToWait
 
-logNewSlotWorker :: OnNewSlot ctx m => m ()
+logNewSlotWorker :: (MonadOnNewSlot ctx m, HasProtocolConstants) => m ()
 logNewSlotWorker =
-    onNewSlotWithLogging True $ \slotId -> do
+    onNewSlotWithLogging defaultOnNewSlotParams $ \slotId -> do
         modifyLoggerName (<> "slotting") $
             logNotice $ sformat ("New slot has just started: " %slotIdF) slotId
 

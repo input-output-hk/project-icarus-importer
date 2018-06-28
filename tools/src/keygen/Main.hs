@@ -4,41 +4,33 @@ module Main
 
 import           Universum
 
-import           Control.Lens           ((?~))
-import           Crypto.Random          (MonadRandom)
+import           Crypto.Random (MonadRandom)
 import           Data.ByteString.Base58 (bitcoinAlphabet, encodeBase58)
-import qualified Data.List              as L
-import qualified Data.Text              as T
-import           Formatting             (build, sformat, stext, (%))
-import           System.Directory       (createDirectoryIfMissing)
-import           System.FilePath        ((</>))
-import           System.FilePath.Glob   (glob)
-import           System.Wlog            (Severity (Debug), WithLogger, consoleOutB,
-                                         lcTermSeverity, logInfo, setupLogging,
-                                         usingLoggerName)
-import qualified Text.JSON.Canonical    as CanonicalJSON
+import qualified Data.List as L
+import qualified Data.Text as T
+import           Formatting (build, sformat, stext, string, (%))
+import           System.Directory (createDirectoryIfMissing)
+import           System.FilePath ((</>))
+import           System.FilePath.Glob (glob)
+import           System.Wlog (WithLogger, debugPlus, logInfo, productionB, setupLogging,
+                              termSeveritiesOutB, usingLoggerName)
+import qualified Text.JSON.Canonical as CanonicalJSON
 
-import           Pos.Binary             (asBinary, serialize')
-import           Pos.Core               (CoreConfiguration (..),
-                                         GenesisConfiguration (..),
-                                         GenesisInitializer (..), addressHash, ccGenesis,
-                                         coreConfiguration, generateFakeAvvm,
-                                         generateSecrets, generatedSecrets, gsInitializer,
-                                         mkVssCertificate, vcSigningKey, vssMaxTTL)
-import           Pos.Crypto             (EncryptedSecretKey (..), SecretKey (..),
-                                         VssKeyPair, hashHexF, noPassEncrypt,
-                                         redeemPkB64F, toPublic, toVssPublicKey)
-import           Pos.Launcher           (HasConfigurations, withConfigurations)
-import           Pos.Util.UserSecret    (readUserSecret, takeUserSecret, usKeys,
-                                         usPrimKey, usVss, usWalletSet,
-                                         writeUserSecretRelease)
-import           Pos.Wallet.Web.Secret  (wusRootKey)
+import           Pos.Binary (asBinary, serialize')
+import qualified Pos.Client.CLI as CLI
+import           Pos.Core (CoreConfiguration (..), GenesisConfiguration (..), RichSecrets (..),
+                           addressHash, ccGenesis, coreConfiguration, generateFakeAvvm,
+                           generateRichSecrets, mkVssCertificate, vcSigningKey, vssMaxTTL,
+                           protocolMagic)
+import           Pos.Crypto (EncryptedSecretKey (..), SecretKey (..), VssKeyPair, fullPublicKeyF,
+                             hashHexF, noPassEncrypt, redeemPkB64F, toPublic, toVssPublicKey)
+import           Pos.Launcher (HasConfigurations, withConfigurations)
+import           Pos.Util.UserSecret (readUserSecret, takeUserSecret, usKeys, usPrimKey, usVss,
+                                      usWallet, writeUserSecretRelease, wusRootKey)
 
-import           Dump                   (dumpFakeAvvmSeed, dumpGeneratedGenesisData,
-                                         dumpKeyfile)
-import           KeygenOptions          (DumpAvvmSeedsOptions (..), GenKeysOptions (..),
-                                         KeygenCommand (..), KeygenOptions (..),
-                                         getKeygenOptions)
+import           Dump (dumpFakeAvvmSeed, dumpGeneratedGenesisData, dumpRichSecrets)
+import           KeygenOptions (DumpAvvmSeedsOptions (..), GenKeysOptions (..), KeygenCommand (..),
+                                KeygenOptions (..), getKeygenOptions)
 
 ----------------------------------------------------------------------------
 -- Helpers
@@ -60,19 +52,27 @@ rearrange msk = mapM_ rearrangeKeyfile =<< liftIO (glob msk)
 
 genPrimaryKey :: (HasConfigurations, MonadIO m, MonadThrow m, WithLogger m, MonadRandom m) => FilePath -> m ()
 genPrimaryKey path = do
-    sk <- liftIO $ generateSecrets Nothing
-    void $ dumpKeyfile True path sk
-    logInfo $ "Successfully generated primary key " <> (toText path)
+    rs <- liftIO generateRichSecrets
+    dumpRichSecrets path rs
+    let pk = toPublic (rsPrimaryKey rs)
+    logInfo $
+        sformat
+            ("Successfully generated primary key and dumped to "%string%
+             ", stakeholder id: "%hashHexF%
+             ", PK (base64): "%fullPublicKeyF)
+            path
+            (addressHash pk)
+            pk
 
 readKey :: (MonadIO m, MonadThrow m, WithLogger m) => FilePath -> m ()
 readKey path = do
     us <- readUserSecret path
-    logInfo $ maybe "No Pimary key"
+    logInfo $ maybe "No Primary key"
                     (("Primary: " <>) . showKeyWithAddressHash) $
                     view usPrimKey us
     logInfo $ maybe "No wallet set"
                     (("Wallet set: " <>) . showKeyWithAddressHash . decryptESK . view wusRootKey) $
-                    view usWalletSet us
+                    view usWallet us
     logInfo $ "Keys: " <> (T.concat $ L.intersperse "\n" $
                            map (showKeyWithAddressHash . decryptESK) $
                            view usKeys us)
@@ -122,13 +122,9 @@ generateKeysByGenesis GenKeysOptions{..} = do
     case ccGenesis coreConfiguration of
         GCSrc {} ->
             error $ "Launched source file conf"
-        GCSpec spec -> case gsInitializer spec of
-            MainnetInitializer{}   -> error "Can't generate keys for MainnetInitializer"
-            TestnetInitializer{..} -> do
-                dumpGeneratedGenesisData (gkoOutDir, gkoKeyPattern)
-                                         tiTestBalance
-                                         (fromMaybe (error "No secrets for genesis") generatedSecrets)
-                logInfo (toText gkoOutDir <> " generated successfully")
+        GCSpec {} -> do
+            dumpGeneratedGenesisData (gkoOutDir, gkoKeyPattern)
+            logInfo (toText gkoOutDir <> " generated successfully")
 
 genVssCert
     :: (HasConfigurations, WithLogger m, MonadIO m)
@@ -138,6 +134,7 @@ genVssCert path = do
     let primKey = fromMaybe (error "No primary key") (us ^. usPrimKey)
         vssKey  = fromMaybe (error "No VSS key") (us ^. usVss)
     let cert = mkVssCertificate
+                 protocolMagic
                  primKey
                  (asBinary (toVssPublicKey vssKey))
                  (vssMaxTTL - 1)
@@ -155,8 +152,8 @@ genVssCert path = do
 main :: IO ()
 main = do
     KeygenOptions{..} <- getKeygenOptions
-    setupLogging $ consoleOutB & lcTermSeverity ?~ Debug
-    usingLoggerName "keygen" $ withConfigurations koConfigurationOptions $ do
+    setupLogging Nothing $ productionB <> termSeveritiesOutB debugPlus
+    usingLoggerName "keygen" $ withConfigurations koConfigurationOptions $ \_ -> do
         logInfo "Processing command"
         case koCommand of
             RearrangeMask msk       -> rearrange msk
@@ -165,3 +162,5 @@ main = do
             ReadKey path            -> readKey path
             DumpAvvmSeeds opts      -> dumpAvvmSeeds opts
             GenerateKeysBySpec gkbg -> generateKeysByGenesis gkbg
+            DumpGenesisData dgdPath dgdCanonical
+                                    -> CLI.dumpGenesisData dgdCanonical dgdPath

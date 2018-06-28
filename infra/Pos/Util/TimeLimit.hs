@@ -1,32 +1,29 @@
 {-# LANGUAGE RankNTypes #-}
 
 module Pos.Util.TimeLimit
-       ( execWithTimeLimit
-
-       -- * TimeWarp helpers
-       , CanLogInParallel
+       (
+         -- * Log warning when action takes too much time
+         CanLogInParallel
        , WaitingDelta (..)
        , logWarningLongAction
        , logWarningWaitOnce
        , logWarningWaitLinear
        , logWarningSWaitLinear
        , logWarningWaitInf
-       , runWithRandomIntervals'
-       , waitRandomInterval'
+
+         -- * Random invervals
        , runWithRandomIntervals
-       , runWithRandomIntervalsNow
-       , waitRandomInterval
        ) where
 
-import           Universum         hiding (bracket, finally)
+import           Universum
 
-import           Data.Time.Units   (Microsecond, Second, convertUnit)
-import           Formatting        (sformat, shown, stext, (%))
-import           Mockable          (Async, Delay, Mockable, delay, race, withAsync)
-import           System.Wlog       (WithLogger, logWarning)
+import           Data.Time.Units (Microsecond, Second, convertUnit)
+import           Formatting (sformat, shown, stext, (%))
+import           Mockable (Async, Delay, Mockable, delay, withAsyncWithUnmask)
+import           System.Wlog (WithLogger, logWarning)
 
 import           Pos.Crypto.Random (randomNumber)
-import           Pos.Util.LogSafe  (logWarningS)
+import           Pos.Util.LogSafe (logWarningS)
 
 -- | Data type to represent waiting strategy for printing warnings
 -- if action take too much time.
@@ -40,7 +37,7 @@ data WaitingDelta
 
 -- | Constraint for something that can be logged in parallel with other action.
 type CanLogInParallel m =
-    (Mockable Delay m, Mockable Async m, WithLogger m, MonadIO m)
+    (Mockable Delay m, Mockable Async m, MonadMask m, WithLogger m, MonadIO m)
 
 
 -- | Run action and print warning if it takes more time than expected.
@@ -60,7 +57,10 @@ logWarningLongAction secure delta actionTag action =
     -- 'withAsync' is assumed to take care of this, and indeed it does for
     -- 'Production's implementation, which uses the definition from the async
     -- package: 'uninterruptibleCancel' is used to kill the thread.
-    withAsync (waitAndWarn delta) (const action)
+    --
+    -- thinking even more about it, unmasking auxilary thread is crucial if
+    -- this function is going to be called under 'mask'.
+    withAsyncWithUnmask (\unmask -> unmask $ waitAndWarn delta) (const action)
   where
     logFunc :: Text -> m ()
     logFunc = bool logWarning logWarningS secure
@@ -103,17 +103,7 @@ logWarningSWaitLinear = logWarningLongAction True . WaitLinear
 logWarningWaitInf :: CanLogInParallel m => Second -> Text -> m a -> m a
 logWarningWaitInf = logWarningLongAction False . (`WaitGeometric` 1.3) . convertUnit
 
-execWithTimeLimit
-    :: ( Mockable Async m
-       , Mockable Delay m
-       )
-    => Microsecond -> m a -> m (Maybe a)
-execWithTimeLimit timeout action = do
-    res <- race (delay timeout) action
-    return $ case res of
-        Left () -> Nothing
-        Right a -> Just a
-
+-- TODO remove MonadIO in preference to some `Mockable Random`
 -- | Wait random number of 'Microsecond'`s between min and max.
 waitRandomInterval
     :: (MonadIO m, Mockable Delay m)
@@ -126,38 +116,9 @@ waitRandomInterval minT maxT = do
 
 -- | Wait random interval and then perform given action.
 runWithRandomIntervals
-    :: (MonadIO m, WithLogger m, Mockable Delay m)
+    :: (MonadIO m, Mockable Delay m)
     => Microsecond -> Microsecond -> m () -> m ()
 runWithRandomIntervals minT maxT action = do
   waitRandomInterval minT maxT
   action
   runWithRandomIntervals minT maxT action
-
--- | Like `runWithRandomIntervals`, but performs action immidiatelly
--- at first time.
-runWithRandomIntervalsNow
-    :: (MonadIO m, WithLogger m, Mockable Delay m)
-    => Microsecond -> Microsecond -> m () -> m ()
-runWithRandomIntervalsNow minT maxT action = do
-  action
-  runWithRandomIntervals minT maxT action
-
--- TODO remove MonadIO in preference to some `Mockable Random`
--- | Wait random number of 'Microsecond'`s between min and max.
-waitRandomInterval'
-    :: (MonadIO m, Mockable Delay m)
-    => Microsecond -> Microsecond -> m ()
-waitRandomInterval' minT maxT = do
-    interval <-
-        (+ minT) . fromIntegral <$>
-        liftIO (randomNumber $ fromIntegral $ maxT - minT)
-    delay interval
-
--- | Wait random interval and then perform given action.
-runWithRandomIntervals'
-    :: (MonadIO m, Mockable Delay m)
-    => Microsecond -> Microsecond -> m () -> m ()
-runWithRandomIntervals' minT maxT action = do
-  waitRandomInterval' minT maxT
-  action
-  runWithRandomIntervals' minT maxT action

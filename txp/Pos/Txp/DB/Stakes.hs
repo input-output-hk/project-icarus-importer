@@ -22,30 +22,27 @@ module Pos.Txp.DB.Stakes
 
 import           Universum
 
-import           Control.Lens                 (at)
+import           Control.Lens (at)
 import           Control.Monad.Trans.Resource (ResourceT)
-import           Data.Conduit                 (Source, mapOutput, runConduitRes, (.|))
-import qualified Data.Conduit.List            as CL
-import qualified Data.HashMap.Strict          as HM
+import           Data.Conduit (ConduitT, mapOutput, runConduitRes, (.|))
+import qualified Data.Conduit.List as CL
+import qualified Data.HashMap.Strict as HM
 import qualified Data.Text.Buildable
-import qualified Database.RocksDB             as Rocks
-import           Formatting                   (bprint, sformat, (%))
-import           Serokell.Util                (Color (Red), colorize)
-import           System.Wlog                  (WithLogger, logError)
+import qualified Database.RocksDB as Rocks
+import           Formatting (bprint, sformat, (%))
+import           Serokell.Util (Color (Red), colorize)
+import           System.Wlog (WithLogger, logError)
+import           UnliftIO (MonadUnliftIO)
 
-import           Pos.Core                     (Coin, GenesisWStakeholders, StakeholderId,
-                                               StakesMap, coinF, mkCoin, sumCoins,
-                                               unsafeAddCoin, unsafeIntegerToCoin,
-                                               HasConfiguration)
-import           Pos.Crypto                   (shortHashF)
-import           Pos.DB                       (DBError (..), DBTag (GStateDB), IterType,
-                                               MonadDB, MonadDBRead, RocksBatchOp (..),
-                                               dbIterSource, dbSerializeValue)
-import           Pos.DB.GState.Common         (gsPutBi)
-import           Pos.DB.GState.Stakes         (StakeIter, ftsStakeKey, ftsSumKey,
-                                               getRealTotalStake)
-import           Pos.Txp.Toil.Types           (GenesisUtxo (..))
-import           Pos.Txp.Toil.Utxo            (utxoToStakes)
+import           Pos.Core (Coin, StakeholderId, StakesMap, coinF, mkCoin, HasGenesisData,
+                           sumCoins, unsafeAddCoin, unsafeIntegerToCoin, HasCoreConfiguration)
+import           Pos.Crypto (shortHashF)
+import           Pos.DB (DBError (..), DBTag (GStateDB), IterType, MonadDB, MonadDBRead,
+                         RocksBatchOp (..), dbIterSource, dbSerializeValue)
+import           Pos.DB.GState.Common (gsPutBi)
+import           Pos.DB.GState.Stakes (StakeIter, ftsStakeKey, ftsSumKey, getRealTotalStake)
+import           Pos.Txp.Toil.Types (GenesisUtxo (..))
+import           Pos.Txp.Toil.Utxo (utxoToStakes)
 
 ----------------------------------------------------------------------------
 -- Operations
@@ -61,7 +58,7 @@ instance Buildable StakesOp where
     build (PutFtsStake ad c) =
         bprint ("PutFtsStake ("%shortHashF%", "%coinF%")") ad c
 
-instance HasConfiguration => RocksBatchOp StakesOp where
+instance HasCoreConfiguration => RocksBatchOp StakesOp where
     toBatchOp (PutTotalStake c)  = [Rocks.Put ftsSumKey (dbSerializeValue c)]
     toBatchOp (PutFtsStake ad c) =
         if c == mkCoin 0 then [Rocks.Del (ftsStakeKey ad)]
@@ -71,16 +68,16 @@ instance HasConfiguration => RocksBatchOp StakesOp where
 -- Initialization
 ----------------------------------------------------------------------------
 
-initGStateStakes
-    :: forall m.
-       MonadDB m
-    => GenesisUtxo -> GenesisWStakeholders -> m ()
-initGStateStakes (GenesisUtxo genesisUtxo) gws = do
+initGStateStakes ::
+       forall m. (MonadDB m, HasGenesisData)
+    => GenesisUtxo
+    -> m ()
+initGStateStakes (GenesisUtxo genesisUtxo) = do
     putFtsStakes
     putGenesisTotalStake
   where
     putTotalFtsStake = gsPutBi ftsSumKey
-    genesisStakes = utxoToStakes gws genesisUtxo
+    genesisStakes = utxoToStakes genesisUtxo
     totalCoins = sumCoins genesisStakes
     -- Will 'error' if the result doesn't fit into 'Coin' (which should never
     -- happen)
@@ -94,12 +91,13 @@ initGStateStakes (GenesisUtxo genesisUtxo) gws = do
 -- | Run iterator over stakes.
 stakeSource ::
        forall m. (MonadDBRead m)
-    => Source (ResourceT m) (IterType StakeIter)
+    => ConduitT () (IterType StakeIter) (ResourceT m) ()
 stakeSource = dbIterSource GStateDB (Proxy @StakeIter)
 
 -- | Get stakes of all stakeholders. Use with care – the resulting map
 -- can be very big.
-getAllPotentiallyHugeStakesMap :: MonadDBRead m => m StakesMap
+getAllPotentiallyHugeStakesMap ::
+       (MonadDBRead m, MonadUnliftIO m) => m StakesMap
 getAllPotentiallyHugeStakesMap =
     runConduitRes $
     stakeSource .|
@@ -110,7 +108,7 @@ getAllPotentiallyHugeStakesMap =
 ----------------------------------------------------------------------------
 
 sanityCheckStakes
-    :: (MonadDBRead m, WithLogger m)
+    :: (MonadDBRead m, MonadUnliftIO m, WithLogger m)
     => m ()
 sanityCheckStakes = do
     calculatedTotalStake <- runConduitRes $

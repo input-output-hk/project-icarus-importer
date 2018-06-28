@@ -10,16 +10,19 @@
 module Pos.Util.LogSafe
        ( -- * Logging functions
          SelectiveLogWrapped(..)
+       , logMessageS
        , logDebugS
        , logInfoS
        , logNoticeS
        , logWarningS
        , logErrorS
+       , logMessageUnsafeP
        , logDebugUnsafeP
        , logInfoUnsafeP
        , logNoticeUnsafeP
        , logWarningUnsafeP
        , logErrorUnsafeP
+       , logMessageSP
        , logDebugSP
        , logInfoSP
        , logNoticeSP
@@ -28,45 +31,54 @@ module Pos.Util.LogSafe
 
          -- * Secure 'Buildable's
        , SecureLog (..)
+       , LogSecurityLevel
+       , secure
+       , unsecure
 
          -- ** Secure formatters
        , secureF
+       , secureMaybeF
        , plainOrSecureF
        , secretOnlyF
-       , secretOnlyF2
-
+       , secureListF
        , buildSafe
+       , buildSafeMaybe
+       , buildSafeList
 
          -- ** Secure log utils
        , BuildableSafe
+       , BuildableSafeGen (..)
        , SecuredText
        , buildUnsecure
        , getSecuredText
+       , deriveSafeBuildable
        ) where
 
 import           Universum
 
-import           Control.Monad.Trans    (MonadTrans)
-import           Data.List              (isSuffixOf)
-import           Data.Reflection        (Reifies (..), reify)
+import           Control.Monad.Trans (MonadTrans)
+import           Data.List (isSuffixOf)
+import           Data.Reflection (Reifies (..), reify)
 import qualified Data.Text.Buildable
 import           Data.Text.Lazy.Builder (Builder)
-import           Formatting             (bprint, build, fconst, mapf, (%))
-import           Formatting.Internal    (Format (..))
-import           System.Wlog            (CanLog (..), HasLoggerName (..), Severity (..),
-                                         loggerName)
-import           System.Wlog.Handler    (LogHandlerTag (HandlerFilelike))
-import           System.Wlog.Logger     (logMCond)
+import           Formatting (bprint, build, fconst, later, mapf, (%))
+import           Formatting.Internal (Format (..))
+import qualified Language.Haskell.TH as TH
+import           Serokell.Util (listJson)
+import           System.Wlog (CanLog (..), HasLoggerName (..), Severity (..), logMCond)
+import           System.Wlog.LogHandler (LogHandlerTag (HandlerFilelike))
 
-import           Pos.Core.Types         (Coin)
-import           Pos.Crypto             (PassPhrase)
+import           Pos.Binary.Core ()
+import           Pos.Core (Timestamp, TxId)
+import           Pos.Core.Common (Address, Coin)
+import           Pos.Crypto (PassPhrase)
 
 
 ----------------------------------------------------------------------------
 -- Logging
 ----------------------------------------------------------------------------
 
--- | Modifies logging so that it writes only to files specified by @ s @ type.
+-- | Modifies logging so that it writes only to files specified by @s@ type.
 newtype SelectiveLogWrapped s m a = SelectiveLogWrapped
     { getSecureLogWrapped :: m a
     } deriving (Functor, Applicative, Monad, MonadIO)
@@ -87,11 +99,11 @@ selectSecretLogs = not . selectPublicLogs
 
 instance (MonadIO m, Reifies s SelectionMode) =>
          CanLog (SelectiveLogWrapped s m) where
-    dispatchMessage (loggerName -> name) severity msg =
+    dispatchMessage name severity msg =
         liftIO $ logMCond name severity msg (reflect (Proxy @s))
 
 instance (HasLoggerName m) => HasLoggerName (SelectiveLogWrapped s m) where
-    getLoggerName = SelectiveLogWrapped getLoggerName
+    askLoggerName = SelectiveLogWrapped askLoggerName
     modifyLoggerName foo (SelectiveLogWrapped m) =
         SelectiveLogWrapped (modifyLoggerName foo m)
 
@@ -118,7 +130,7 @@ logMessageS
 logMessageS severity t =
     reify selectSecretLogs $ \s ->
     execSecureLogWrapped s $ do
-        name <- getLoggerName
+        name <- askLoggerName
         dispatchMessage name severity t
 
 ----------------------------------------------------------------------------
@@ -161,6 +173,12 @@ data LogSecurityLevel
     | PublicLogLevel
     deriving (Eq)
 
+secure :: LogSecurityLevel
+secure = PublicLogLevel
+
+unsecure :: LogSecurityLevel
+unsecure = SecretLogLevel
+
 buildUnsecure :: Buildable a => SecureLog a -> Builder
 buildUnsecure (SecureLog a) = bprint build a
 
@@ -169,6 +187,11 @@ type BuildableSafe a = (Buildable a, Buildable (SecureLog a))
 -- | Modifies single-parameter formatter to make it use public logging.
 secureF :: Format r (SecureLog a -> r) -> Format r (a -> r)
 secureF = mapf SecureLog
+
+-- | Secure Maybe using default value, use this to avoid leaking about whether
+-- a value is present or not.
+secureMaybeF :: Buildable a => a -> Format r (SecureLog a -> r) -> Format r (Maybe a -> r)
+secureMaybeF def = mapf (SecureLog . fromMaybe def)
 
 -- | Takes one of given items (usually formatters, nonsecure goes first),
 -- depending on security level.
@@ -179,15 +202,68 @@ plainOrSecureF PublicLogLevel _ fmt = fmt
 buildSafe :: BuildableSafe a => LogSecurityLevel -> Format r (a -> r)
 buildSafe sl = plainOrSecureF sl build (secureF build)
 
+buildSafeMaybe :: BuildableSafe a => a -> LogSecurityLevel -> Format r (Maybe a -> r)
+buildSafeMaybe def sl = plainOrSecureF sl build (secureMaybeF def build)
+
+buildSafeList :: BuildableSafe a => LogSecurityLevel -> Format r ([a] -> r)
+buildSafeList sl = secureListF sl (secureF build)
+
 -- | Negates single-parameter formatter for public logs.
 secretOnlyF :: LogSecurityLevel -> Format r (a -> r) -> Format r (a -> r)
-secretOnlyF sl fmt = plainOrSecureF sl fmt (fconst "")
+secretOnlyF sl fmt = plainOrSecureF sl fmt (fconst "?")
 
--- | Negates 2-parameters formatter for public logs.
-secretOnlyF2
-    :: LogSecurityLevel -> Format r (a -> b -> r) -> Format r (a -> b -> r)
-secretOnlyF2 sl fmt = plainOrSecureF sl fmt (fconst ""%fconst "")
+-- | For public logs hides list content, showing only its size.
+-- For secret logs uses provided formatter for list.
+secureListF
+    :: NontrivialContainer l
+    => LogSecurityLevel -> Format r (l -> r) -> Format r (l -> r)
+secureListF sl fmt = plainOrSecureF sl fmt lengthFmt
+  where
+    lengthFmt = later $ \l ->
+        if null l
+        then "[]"
+        else bprint ("[... ("%build%" item(s))]") $ length l
 
+{-
+This is helper in generating @instance Buildable a@ and
+@instance Buildable (SecureLog a)@ in a single shot.
+
+Sometimes those instances are very similar, and we want to provide
+both at once with help of formatter combinators (see functions above).
+In such case, define this instance and then use 'deriveSafeBuildable' to
+produce the two desired @Buildable@ instances.
+
+You are not supposed to specify this typeclass in constraints, for that
+purpose use 'BuildableSafe'.
+
+Example of usage:
+
+@
+data Password = Password [Char]
+
+instance BuildableSafeGen Password where
+    buildSafeGen sl (Password chars) = bprint (secureListF sl string) chars
+    -- "sl" stands for "security level"
+@
+-}
+class BuildableSafeGen a where
+    buildSafeGen :: LogSecurityLevel -> a -> Builder
+
+-- | Builds up @instance Buildable a@ and @instance Buildable (SecureLog a)@
+-- assuming provided @instance BuildableSafeGen a@.
+-- Suitable for simple types.
+--
+-- Example: @deriveSafeBuildable ''Nyan@
+deriveSafeBuildable :: TH.Name -> TH.Q [TH.Dec]
+deriveSafeBuildable typeName =
+    let typeQ = TH.conT typeName
+    in [d|
+       instance Buildable $typeQ where
+           build = buildSafeGen unsecure
+
+       instance Buildable (SecureLog $typeQ) where
+           build = buildSafeGen secure . getSecureLog
+       |]
 
 -- | Same as 'logMesssage', put to public logs only (these logs don't go
 -- to terminal). Use it along with 'logMessageS' when want to specify
@@ -200,7 +276,7 @@ logMessageUnsafeP
 logMessageUnsafeP severity t =
     reify selectPublicLogs $ \s ->
     execSecureLogWrapped s $ do
-        name <- getLoggerName
+        name <- askLoggerName
         dispatchMessage name severity t
 
 -- | Shortcut for 'logMessageUnsafeP' to use according severity.
@@ -237,6 +313,14 @@ logNoticeSP  = logMessageSP Notice
 logWarningSP = logMessageSP Warning
 logErrorSP   = logMessageSP Error
 
+instance Buildable [Address] where
+    build = bprint listJson
+
+instance BuildableSafe a => Buildable (SecureLog [a]) where
+    build = bprint (buildSafeList secure) . getSecureLog
+
+instance Buildable (SecureLog Text) where
+    build _ = "<hidden>"
 
 instance Buildable (SecureLog PassPhrase) where
     build _ = "<passphrase>"
@@ -244,3 +328,15 @@ instance Buildable (SecureLog PassPhrase) where
 -- maybe I'm wrong here, but currently masking it important for wallet servant logs
 instance Buildable (SecureLog Coin) where
     build _ = "? coin(s)"
+
+instance Buildable (SecureLog Address) where
+    build _ = "<address>"
+
+instance Buildable (SecureLog Word32) where
+    build _ = "<bytes>"
+
+instance Buildable (SecureLog TxId) where
+    build _ = "<txid>"
+
+instance Buildable (SecureLog Timestamp) where
+    build _ = "<timestamp>"

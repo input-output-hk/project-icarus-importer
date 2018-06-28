@@ -10,34 +10,30 @@ module Pos.Update.Poll.Logic.Normalize
 
 import           Universum
 
-import           Control.Lens                (at, non)
-import qualified Data.HashMap.Strict         as HM
-import qualified Data.HashSet                as HS
-import           Formatting                  (build, sformat, (%))
-import           System.Wlog                 (logWarning)
+import           Control.Lens (at, non)
+import qualified Data.HashMap.Strict as HM
+import qualified Data.HashSet as HS
+import           Formatting (build, sformat, (%))
+import           System.Wlog (logWarning)
 
-import           Pos.Core                    (Coin, EpochIndex, HasConfiguration,
-                                              SlotId (siEpoch), addressHash,
-                                              applyCoinPortionUp, mkCoin, unsafeAddCoin)
-import           Pos.Crypto                  (PublicKey, hash)
-import           Pos.Update.Core             (LocalVotes, UpId, UpdateProposal,
-                                              UpdateProposals, UpdateVote (..),
-                                              bvdUpdateProposalThd)
-import           Pos.Update.Poll.Class       (MonadPoll (..), MonadPollRead (..))
-import           Pos.Update.Poll.Failure     (PollVerFailure (..))
-import           Pos.Update.Poll.Logic.Apply (verifyAndApplyProposal,
-                                              verifyAndApplyVoteDo)
-import           Pos.Update.Poll.Types       (DecidedProposalState (..),
-                                              ProposalState (..),
-                                              UndecidedProposalState (..))
-import           Pos.Util.Util               (getKeys, sortWithMDesc)
+import           Pos.Core (Coin, EpochIndex, SlotId (siEpoch), addressHash,
+                           applyCoinPortionUp, mkCoin, unsafeAddCoin)
+import           Pos.Core.Update (UpId, UpdateProposal, UpdateProposals, UpdateVote (..),
+                                  bvdUpdateProposalThd)
+import           Pos.Crypto (PublicKey, hash)
+import           Pos.Update.Poll.Class (MonadPoll (..), MonadPollRead (..))
+import           Pos.Update.Poll.Failure (PollVerFailure (..))
+import           Pos.Update.Poll.Logic.Apply (verifyAndApplyProposal, verifyAndApplyVoteDo)
+import           Pos.Update.Poll.Types (DecidedProposalState (..), LocalVotes, ProposalState (..),
+                                        UndecidedProposalState (..))
+import           Pos.Util.Util (getKeys, sortWithMDesc)
 
 -- | Normalize given proposals and votes with respect to current Poll
 -- state, i. e. apply all valid data and discard invalid data.  This
 -- function doesn't consider threshold which determines whether a
 -- proposal can be put into a block.
 normalizePoll
-    :: (MonadPoll m, HasConfiguration)
+    :: (MonadPoll m)
     => SlotId
     -> UpdateProposals
     -> LocalVotes
@@ -50,7 +46,7 @@ normalizePoll slot proposals votes =
 -- proposals and votes. It applies the most valuable data and discards
 -- everything else.
 refreshPoll
-    :: (MonadPoll m, HasConfiguration)
+    :: (MonadPoll m)
     => SlotId
     -> UpdateProposals
     -> LocalVotes
@@ -84,25 +80,26 @@ refreshPoll slot proposals votes = do
         case votes ^. at (hash up) of
             Nothing         -> pure (mkCoin 0)
             Just votesForUP -> foldM step (mkCoin 0) (toList votesForUP)
-    step accum uv@UpdateVote {..}
-        | not uvDecision = pure accum
-        | otherwise = unsafeAddCoin accum <$> evaluateVoteStake uv
+    step accum vote
+        | not (uvDecision vote) = pure accum
+        | otherwise = unsafeAddCoin accum <$> evaluateVoteStake vote
     propToVotes up =
         let id = hash up
         in (id, ) <$> votes ^. at id
-    evaluateVoteStake UpdateVote {..} =
+    evaluateVoteStake vote =
         fromMaybe (mkCoin 0) <$>
-        getRichmanStake (siEpoch slot) (addressHash uvKey)
+        getRichmanStake (siEpoch slot) (addressHash (uvKey vote))
     groupVotes :: [UpdateVote] -> [(UpId, HashMap PublicKey UpdateVote)]
     groupVotes = HM.toList . foldl' groupVotesStep mempty
     groupVotesStep :: LocalVotes -> UpdateVote -> LocalVotes
-    groupVotesStep curVotes uv@UpdateVote {..} =
-        curVotes & at uvProposalId . non mempty . at uvKey .~ Just uv
+    groupVotesStep curVotes vote =
+        curVotes & at (uvProposalId vote) . non mempty . at (uvKey vote)
+                     .~ Just vote
 
 -- Apply proposals which can be applied and put them in result.
 -- Disregard other proposals.
 normalizeProposals
-    :: (MonadPoll m, HasConfiguration)
+    :: (MonadPoll m)
     => SlotId -> [UpdateProposal] -> m UpdateProposals
 normalizeProposals slotId (toList -> proposals) =
     HM.fromList . map ((\x->(hash x, x)) . fst) . catRights proposals <$>
@@ -114,7 +111,7 @@ normalizeProposals slotId (toList -> proposals) =
 -- Apply votes which can be applied and put them in result.
 -- Disregard other votes.
 normalizeVotes
-    :: forall m . (MonadPoll m, HasConfiguration)
+    :: forall m . (MonadPoll m)
     => [(UpId, HashMap PublicKey UpdateVote)] -> m LocalVotes
 normalizeVotes votesGroups =
     HM.fromList . catMaybes <$> mapM verifyNApplyVotesGroup votesGroups

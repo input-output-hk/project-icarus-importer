@@ -4,13 +4,13 @@ module Statistics.Report
 
 import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as M
-import qualified Data.Set        as S
-import qualified Data.Text       as T
-import           System.IO       (hPutStrLn)
+import qualified Data.Set as S
+import qualified Data.Text as T
+import           System.IO (hPutStrLn)
 
-import Statistics.Block (TxFate (..))
-import Types
-import Universum
+import           Statistics.Block (TxFate (..))
+import           Types
+import           Universum
 
 reportTxFate :: FilePath -> Map TxHash TxFate -> IO ([TxHash], [TxHash], [TxHash])
 reportTxFate f m = withFile f WriteMode $ \h -> do
@@ -23,7 +23,7 @@ reportTxFate f m = withFile f WriteMode $ \h -> do
         lost  = M.size m'''
         chains = fst <$> M.toList m''
         forks  = fst <$> M.toList m'
-        losts  = fst <$> M.toList m''
+        losts  = fst <$> M.toList m'''
     hPutStrLn h $ "total transactions: " ++ show total
     hPutStrLn h $ "in blockchain: " ++ show chain
     hPutStrLn h $ "in fork: " ++ show fork
@@ -52,4 +52,4 @@ isLost _         = False
 
 isChain :: TxFate -> Bool
 isChain (InBlockChain{}) = True
-isChain _                    = False
+isChain _                = False

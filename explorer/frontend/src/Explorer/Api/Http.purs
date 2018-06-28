@@ -19,8 +19,8 @@ import Global (encodeURIComponent)
 import Network.HTTP.Affjax (AJAX, AffjaxRequest, affjax, defaultRequest)
 import Network.HTTP.Affjax.Request (class Requestable)
 import Network.HTTP.StatusCode (StatusCode(..))
-import Pos.Core.Lenses.Types (_EpochIndex, _UnsafeLocalSlotIndex, getEpochIndex, getSlotIndex)
-import Pos.Core.Types (EpochIndex(..), LocalSlotIndex)
+import Pos.Core.Slotting.Lenses.Types (_EpochIndex, _UnsafeLocalSlotIndex, getEpochIndex, getSlotIndex)
+import Pos.Core.Slotting.Types (EpochIndex(..), LocalSlotIndex)
 import Pos.Explorer.Web.ClientTypes (CAddress(..), CAddressSummary, CAddressesFilter(..), CBlockSummary, CGenesisSummary, CHash(..), CTxId, CTxSummary)
 import Pos.Explorer.Web.Lenses.ClientTypes (_CHash, _CTxId)
 
@@ -63,7 +63,11 @@ fetchBlockSummary :: forall eff. CHash -> Aff (ajax::AJAX | eff) CBlockSummary
 fetchBlockSummary (CHash hash) = get $ "blocks/summary/" <> hash
 
 fetchBlockTxs :: forall eff. CHash -> Aff (ajax::AJAX | eff) CTxBriefs
-fetchBlockTxs (CHash hash) = get $ "blocks/txs/" <> hash
+fetchBlockTxs (CHash hash) =
+    get $ "blocks/txs/"
+              <> hash
+              <> "?limit=5000"
+              -- ^ hardcoded limit as discussed in `CSL-2047`
 
 -- txs
 fetchLatestTxs :: forall eff. Aff (ajax::AJAX | eff) CTxEntries

@@ -13,12 +13,12 @@ module Pos.DB.BatchOp
 import           Universum
 
 import qualified Data.Text.Buildable
-import qualified Database.RocksDB    as Rocks
-import           Formatting          (bprint)
-import           Serokell.Util.Text  (listJson)
+import qualified Database.RocksDB as Rocks
+import           Formatting (bprint)
+import           Serokell.Util.Text (listJson)
 
-import           Pos.DB.Class        (DBTag, MonadDB (dbWriteBatch))
-import           Pos.DB.Rocks.Types  (DB (..))
+import           Pos.DB.Class (DBTag, MonadDB (dbWriteBatch))
+import           Pos.DB.Rocks.Types (DB (..))
 
 class RocksBatchOp a where
     toBatchOp :: a -> [Rocks.BatchOp]
@@ -38,9 +38,12 @@ data SomeBatchOp =
     forall a. RocksBatchOp a =>
               SomeBatchOp a
 
+instance Semigroup SomeBatchOp where
+    a <> b = SomeBatchOp [a, b]
+
 instance Monoid SomeBatchOp where
     mempty = SomeBatchOp ([]::[EmptyBatchOp])
-    mappend a b = SomeBatchOp [a, b]
+    mappend = (<>)
 
 instance RocksBatchOp SomeBatchOp where
     toBatchOp (SomeBatchOp a) = toBatchOp a
@@ -49,9 +52,12 @@ data SomePrettyBatchOp =
     forall a. (RocksBatchOp a, Buildable a) =>
               SomePrettyBatchOp a
 
+instance Semigroup SomePrettyBatchOp where
+    a <> b = SomePrettyBatchOp [a, b]
+
 instance Monoid SomePrettyBatchOp where
     mempty = SomePrettyBatchOp ([]::[SomePrettyBatchOp])
-    mappend a b = SomePrettyBatchOp [a, b]
+    mappend = (<>)
 
 instance RocksBatchOp SomePrettyBatchOp where
     toBatchOp (SomePrettyBatchOp a) = toBatchOp a

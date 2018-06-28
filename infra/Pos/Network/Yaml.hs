@@ -2,42 +2,45 @@
 
 {-# LANGUAGE RankNTypes #-}
 
-module Pos.Network.Yaml (
-    Topology(..)
-  , AllStaticallyKnownPeers(..)
-  , DnsDomains(..)
-  , KademliaParams(..)
-  , KademliaId(..)
-  , KademliaAddress(..)
-  , NodeRegion(..)
-  , NodeRoutes(..)
-  , NodeMetadata(..)
-  , RunKademlia
-  , Valency
-  , Fallbacks
+module Pos.Network.Yaml
+       (
+         Topology(..)
+       , AllStaticallyKnownPeers(..)
+       , DnsDomains(..)
+       , KademliaParams(..)
+       , KademliaId(..)
+       , KademliaAddress(..)
+       , NodeRegion(..)
+       , NodeRoutes(..)
+       , NodeMetadata(..)
+       , RunKademlia
+       , Valency
+       , Fallbacks
 
-  , StaticPolicies(..)
-  , StaticEnqueuePolicy -- opaque
-  , StaticDequeuePolicy -- opaque
-  , StaticFailurePolicy -- opaque
-  , fromStaticPolicies
-  ) where
+       , StaticPolicies(..)
+       , StaticEnqueuePolicy -- opaque
+       , StaticDequeuePolicy -- opaque
+       , StaticFailurePolicy -- opaque
+       , fromStaticPolicies
+       ) where
 
-import           Data.Aeson                            (FromJSON (..), ToJSON (..), (.!=),
-                                                        (.:), (.:?), (.=))
-import qualified Data.Aeson                            as A
-import qualified Data.Aeson.Types                      as A
-import qualified Data.ByteString.Char8                 as BS.C8
-import qualified Data.HashMap.Lazy                     as HM
-import           Data.IP                               (IP)
-import qualified Data.Map.Strict                       as M
-import qualified Network.Broadcast.OutboundQueue       as OQ
-import           Network.Broadcast.OutboundQueue.Types
-import qualified Network.DNS                           as DNS
-import           Pos.Network.Types                     (Fallbacks, NodeName (..), Valency)
+
 import           Universum
 
-import           Pos.Network.DnsDomains                (DnsDomains (..), NodeAddr (..))
+import           Data.Aeson (FromJSON (..), ToJSON (..), (.!=), (.:), (.:?), (.=))
+import qualified Data.Aeson as A
+import qualified Data.Aeson.Types as A
+import qualified Data.ByteString.Char8 as BS.C8
+import qualified Data.HashMap.Lazy as HM
+import           Data.IP (IP)
+import qualified Data.Map.Strict as M
+import qualified Network.Broadcast.OutboundQueue as OQ
+import           Network.Broadcast.OutboundQueue.Types
+import qualified Network.DNS as DNS
+
+import           Pos.Network.Types (Fallbacks, NodeName (..), Valency)
+import           Pos.Network.DnsDomains (DnsDomains (..), NodeAddr (..))
+import           Pos.Util.Util (toAesonError, aesonError)
 
 -- | Description of the network topology in a Yaml file
 --
@@ -69,10 +72,9 @@ data Topology =
   deriving (Show)
 
 -- | All statically known peers in the newtork
-data AllStaticallyKnownPeers = AllStaticallyKnownPeers {
-    allStaticallyKnownPeers :: !(Map NodeName NodeMetadata)
-  }
-  deriving (Show)
+newtype AllStaticallyKnownPeers = AllStaticallyKnownPeers
+    { allStaticallyKnownPeers :: Map NodeName NodeMetadata
+    } deriving (Show)
 
 newtype NodeRegion = NodeRegion Text
     deriving (Show, Ord, Eq, IsString)
@@ -169,8 +171,7 @@ instance ToJSON KademliaId where
 data KademliaAddress = KademliaAddress
     { kaHost :: !String
     , kaPort :: !Word16
-    }
-    deriving (Show)
+    } deriving (Show)
 
 instance FromJSON KademliaAddress where
     parseJSON = A.withObject "KademliaAddress " $ \obj ->
@@ -182,46 +183,46 @@ instance ToJSON KademliaAddress where
         , "port" .= kaPort
         ]
 
-{-------------------------------------------------------------------------------
-  FromJSON instances
--------------------------------------------------------------------------------}
+----------------------------------------------------------------------------
+-- FromJSON instances
+----------------------------------------------------------------------------
 
 instance FromJSON NodeRegion where
-  parseJSON = fmap NodeRegion . parseJSON
+    parseJSON = fmap NodeRegion . parseJSON
 
 instance FromJSON NodeName where
-  parseJSON = fmap NodeName . parseJSON
+    parseJSON = fmap NodeName . parseJSON
 
 instance FromJSON NodeRoutes where
-  parseJSON = fmap NodeRoutes . parseJSON
+    parseJSON = fmap NodeRoutes . parseJSON
 
 instance FromJSON NodeType where
-  parseJSON = A.withText "NodeType" $ \typ -> do
-      case toString typ of
-        "core"     -> return NodeCore
-        "edge"     -> return NodeEdge
-        "relay"    -> return NodeRelay
-        _otherwise -> fail $ "Invalid NodeType " ++ show typ
+    parseJSON = A.withText "NodeType" $ \typ -> do
+        toAesonError $ case toString typ of
+          "core"     -> Right NodeCore
+          "edge"     -> Right NodeEdge
+          "relay"    -> Right NodeRelay
+          _otherwise -> Left $ "Invalid NodeType " <> show typ
 
 instance FromJSON OQ.Precedence where
-  parseJSON = A.withText "Precedence" $ \typ -> do
-      case toString typ of
-        "lowest"   -> return OQ.PLowest
-        "low"      -> return OQ.PLow
-        "medium"   -> return OQ.PMedium
-        "high"     -> return OQ.PHigh
-        "highest"  -> return OQ.PHighest
-        _otherwise -> fail $ "Invalid Precedence" ++ show typ
+    parseJSON = A.withText "Precedence" $ \typ -> do
+        toAesonError $ case toString typ of
+          "lowest"   -> Right OQ.PLowest
+          "low"      -> Right OQ.PLow
+          "medium"   -> Right OQ.PMedium
+          "high"     -> Right OQ.PHigh
+          "highest"  -> Right OQ.PHighest
+          _otherwise -> Left $ "Invalid Precedence" <> show typ
 
 instance FromJSON (DnsDomains DNS.Domain) where
-  parseJSON = fmap DnsDomains . parseJSON
+    parseJSON = fmap DnsDomains . parseJSON
 
 instance FromJSON (NodeAddr DNS.Domain) where
-  parseJSON = A.withObject "NodeAddr" $ extractNodeAddr aux
-    where
-      aux :: Maybe DNS.Domain -> A.Parser DNS.Domain
-      aux Nothing    = fail "Missing domain name or address"
-      aux (Just dom) = return dom
+    parseJSON = A.withObject "NodeAddr" $ extractNodeAddr (toAesonError . aux)
+      where
+        aux :: Maybe DNS.Domain -> Either Text DNS.Domain
+        aux Nothing    = Left "Missing domain name or address"
+        aux (Just dom) = Right dom
 
 -- Useful when we have a 'NodeAddr' as part of a larger object
 extractNodeAddr :: forall a. (Maybe DNS.Domain -> A.Parser a)
@@ -234,17 +235,17 @@ extractNodeAddr mkA obj = do
     case (mAddr, mHost) of
       (Just ipAddr, Nothing) -> do
           -- Make sure `addr` is a proper IP address
-          case readMaybe ipAddr of
-              Nothing   -> fail "The value specified in 'addr' is not a valid IP address."
-              Just addr -> return $ NodeAddrExact addr mPort
+          toAesonError $ case readMaybe ipAddr of
+              Nothing   -> Left "The value specified in 'addr' is not a valid IP address."
+              Just addr -> Right $ NodeAddrExact addr mPort
       (Nothing,  _)        -> do
           -- Make sure 'host' is not a valid IP address (which is disallowed)
           case mHost of
               Nothing  -> mkNodeAddrDNS mHost mPort -- User didn't specify a 'host', proceed normally.
               Just mbH -> case readMaybe @IP mbH of
                   Nothing -> mkNodeAddrDNS mHost mPort -- mHost is not an IP, allow it.
-                  Just _  -> fail "The value specified in 'host' is not a valid hostname, but an IP."
-      (Just _, Just _)    -> fail "Cannot use both 'addr' and 'host'"
+                  Just _  -> aesonError "The value specified in 'host' is not a valid hostname, but an IP."
+      (Just _, Just _)    -> aesonError "Cannot use both 'addr' and 'host'"
   where
     aux :: String -> DNS.Domain
     aux = BS.C8.pack
@@ -255,66 +256,66 @@ extractNodeAddr mkA obj = do
           return $ NodeAddrDNS a mPort
 
 instance FromJSON NodeMetadata where
-  parseJSON = A.withObject "NodeMetadata" $ \obj -> do
-      nmType       <- obj .: "type"
-      nmRegion     <- obj .: "region"
-      nmRoutes     <- obj .:? "static-routes"     .!= NodeRoutes []
-      nmSubscribe  <- obj .:? "dynamic-subscribe" .!= DnsDomains []
-      nmValency    <- obj .:? "valency"   .!= 1
-      nmFallbacks  <- obj .:? "fallbacks" .!= 1
-      nmAddress    <- extractNodeAddr return obj
-      nmKademlia   <- obj .:? "kademlia" .!= defaultRunKademlia nmType
-      nmPublicDNS  <- obj .:? "public"   .!= defaultInPublicDNS nmType
-      nmMaxSubscrs <- maybeBucketSize <$> obj .:? "maxSubscrs"
-      case (nmRoutes, nmSubscribe) of
-        (NodeRoutes [], DnsDomains []) ->
-          fail "One of 'static-routes' or 'dynamic-subscribe' must be given"
-        (NodeRoutes (_:_), DnsDomains (_:_)) ->
-          fail "Only one of 'static-routes' or 'dynamic-subscribe' may be given"
-        _ -> return ()
-      return NodeMetadata{..}
-   where
-     defaultRunKademlia :: NodeType -> RunKademlia
-     defaultRunKademlia NodeCore  = False
-     defaultRunKademlia NodeRelay = True
-     defaultRunKademlia NodeEdge  = False
+    parseJSON = A.withObject "NodeMetadata" $ \obj -> do
+        nmType       <- obj .: "type"
+        nmRegion     <- obj .: "region"
+        nmRoutes     <- obj .:? "static-routes"     .!= NodeRoutes []
+        nmSubscribe  <- obj .:? "dynamic-subscribe" .!= DnsDomains []
+        nmValency    <- obj .:? "valency"   .!= 1
+        nmFallbacks  <- obj .:? "fallbacks" .!= 1
+        nmAddress    <- extractNodeAddr return obj
+        nmKademlia   <- obj .:? "kademlia" .!= defaultRunKademlia nmType
+        nmPublicDNS  <- obj .:? "public"   .!= defaultInPublicDNS nmType
+        nmMaxSubscrs <- maybeBucketSize <$> obj .:? "maxSubscrs"
+        case (nmRoutes, nmSubscribe) of
+            (NodeRoutes [], DnsDomains []) ->
+              aesonError "One of 'static-routes' or 'dynamic-subscribe' must be given"
+            (NodeRoutes (_:_), DnsDomains (_:_)) ->
+              aesonError "Only one of 'static-routes' or 'dynamic-subscribe' may be given"
+            _ -> return ()
+        return NodeMetadata{..}
+     where
+       defaultRunKademlia :: NodeType -> RunKademlia
+       defaultRunKademlia NodeCore  = False
+       defaultRunKademlia NodeRelay = True
+       defaultRunKademlia NodeEdge  = False
 
-     defaultInPublicDNS :: NodeType -> InPublicDNS
-     defaultInPublicDNS NodeCore  = False
-     defaultInPublicDNS NodeRelay = True
-     defaultInPublicDNS NodeEdge  = False
+       defaultInPublicDNS :: NodeType -> InPublicDNS
+       defaultInPublicDNS NodeCore  = False
+       defaultInPublicDNS NodeRelay = True
+       defaultInPublicDNS NodeEdge  = False
 
 instance FromJSON AllStaticallyKnownPeers where
-  parseJSON = A.withObject "AllStaticallyKnownPeers" $ \obj ->
-      AllStaticallyKnownPeers . M.fromList <$> mapM aux (HM.toList obj)
-    where
-      aux :: (Text, A.Value) -> A.Parser (NodeName, NodeMetadata)
-      aux (name, val) = (NodeName name, ) <$> parseJSON val
+    parseJSON = A.withObject "AllStaticallyKnownPeers" $ \obj ->
+        AllStaticallyKnownPeers . M.fromList <$> mapM aux (HM.toList obj)
+      where
+        aux :: (Text, A.Value) -> A.Parser (NodeName, NodeMetadata)
+        aux (name, val) = (NodeName name, ) <$> parseJSON val
 
 instance FromJSON Topology where
-  parseJSON = A.withObject "Topology" $ \obj -> do
-      mNodes  <- obj .:? "nodes"
-      mWallet <- obj .:? "wallet"
-      mP2p    <- obj .:? "p2p"
-      case (mNodes, mWallet, mP2p) of
-        (Just nodes, Nothing, Nothing) ->
-            TopologyStatic <$> parseJSON nodes
-        (Nothing, Just wallet, Nothing) -> flip (A.withObject "wallet") wallet $ \walletObj -> do
-            topologyDnsDomains <- walletObj .:  "relays"
-            topologyValency    <- walletObj .:? "valency"   .!= 1
-            topologyFallbacks  <- walletObj .:? "fallbacks" .!= 1
-            return TopologyBehindNAT{..}
-        (Nothing, Nothing, Just p2p) -> flip (A.withObject "P2P") p2p $ \p2pObj -> do
-            variantTxt         <- p2pObj .: "variant"
-            topologyValency    <- p2pObj .:? "valency"   .!= 3
-            topologyFallbacks  <- p2pObj .:? "fallbacks" .!= 1
-            topologyMaxSubscrs <- maybeBucketSize <$> p2pObj .:? "maxSubscrs"
-            flip (A.withText "P2P variant") variantTxt $ \txt -> case txt of
-              "traditional" -> return TopologyTraditional{..}
-              "normal"      -> return TopologyP2P{..}
-              _             -> fail "P2P variant: expected 'traditional' or 'normal'"
-        _ ->
-          fail "Topology: expected exactly one of 'nodes', 'relays', or 'p2p'"
+    parseJSON = A.withObject "Topology" $ \obj -> do
+        mNodes  <- obj .:? "nodes"
+        mWallet <- obj .:? "wallet"
+        mP2p    <- obj .:? "p2p"
+        case (mNodes, mWallet, mP2p) of
+          (Just nodes, Nothing, Nothing) ->
+              TopologyStatic <$> parseJSON nodes
+          (Nothing, Just wallet, Nothing) -> flip (A.withObject "wallet") wallet $ \walletObj -> do
+              topologyDnsDomains <- walletObj .:  "relays"
+              topologyValency    <- walletObj .:? "valency"   .!= 1
+              topologyFallbacks  <- walletObj .:? "fallbacks" .!= 1
+              return TopologyBehindNAT{..}
+          (Nothing, Nothing, Just p2p) -> flip (A.withObject "P2P") p2p $ \p2pObj -> do
+              variantTxt         <- p2pObj .: "variant"
+              topologyValency    <- p2pObj .:? "valency"   .!= 3
+              topologyFallbacks  <- p2pObj .:? "fallbacks" .!= 1
+              topologyMaxSubscrs <- maybeBucketSize <$> p2pObj .:? "maxSubscrs"
+              flip (A.withText "P2P variant") variantTxt $ toAesonError . \case
+                  "traditional" -> Right TopologyTraditional{..}
+                  "normal"      -> Right TopologyP2P{..}
+                  _             -> Left "P2P variant: expected 'traditional' or 'normal'"
+          _ ->
+            aesonError "Topology: expected exactly one of 'nodes', 'wallet', 'relays', or 'p2p'"
 
 maybeBucketSize :: Maybe Int -> OQ.MaxBucketSize
 maybeBucketSize Nothing  = OQ.BucketSizeUnlimited
@@ -325,24 +326,24 @@ maybeBucketSize (Just n) = OQ.BucketSizeMax n
 -------------------------------------------------------------------------------}
 
 -- | Policies described by a JSON/YAML.
-data StaticPolicies = StaticPolicies {
-      staticEnqueuePolicy :: StaticEnqueuePolicy
+data StaticPolicies = StaticPolicies
+    { staticEnqueuePolicy :: StaticEnqueuePolicy
     , staticDequeuePolicy :: StaticDequeuePolicy
     , staticFailurePolicy :: StaticFailurePolicy
     }
 
 -- | An enqueue policy which can be described by JSON/YAML.
-newtype StaticEnqueuePolicy = StaticEnqueuePolicy {
-      getStaticEnqueuePolicy :: forall nid . MsgType nid -> [OQ.Enqueue]
+newtype StaticEnqueuePolicy = StaticEnqueuePolicy
+    { getStaticEnqueuePolicy :: forall nid. MsgType nid -> [OQ.Enqueue]
     }
 
 -- | A dequeue policy which can be described by JSON/YAML.
-newtype StaticDequeuePolicy = StaticDequeuePolicy {
-      getStaticDequeuePolicy :: NodeType -> OQ.Dequeue
+newtype StaticDequeuePolicy = StaticDequeuePolicy
+    { getStaticDequeuePolicy :: NodeType -> OQ.Dequeue
     }
 
-newtype StaticFailurePolicy = StaticFailurePolicy {
-      getStaticFailurePolicy :: forall nid. NodeType -> MsgType nid -> OQ.ReconsiderAfter
+newtype StaticFailurePolicy = StaticFailurePolicy
+    { getStaticFailurePolicy :: forall nid. NodeType -> MsgType nid -> OQ.ReconsiderAfter
     }
 
 fromStaticPolicies :: StaticPolicies
@@ -350,8 +351,8 @@ fromStaticPolicies :: StaticPolicies
                       , OQ.DequeuePolicy
                       , OQ.FailurePolicy nid
                       )
-fromStaticPolicies StaticPolicies{..} = (
-      fromStaticEnqueuePolicy staticEnqueuePolicy
+fromStaticPolicies StaticPolicies {..} =
+    ( fromStaticEnqueuePolicy staticEnqueuePolicy
     , fromStaticDequeuePolicy staticDequeuePolicy
     , fromStaticFailurePolicy staticFailurePolicy
     )
@@ -369,17 +370,17 @@ fromStaticFailurePolicy p nodeType = const . getStaticFailurePolicy p nodeType
   Common patterns in the .yaml file
 -------------------------------------------------------------------------------}
 
-data SendOrForward t = SendOrForward {
-      send    :: !t
+data SendOrForward t = SendOrForward
+    { send    :: !t
     , forward :: !t
     }
 
-newtype ByMsgType t = ByMsgType {
-      byMsgType :: forall nid. MsgType nid -> t
+newtype ByMsgType t = ByMsgType
+    { byMsgType :: forall nid. MsgType nid -> t
     }
 
-newtype ByNodeType t = ByNodeType {
-      byNodeType :: NodeType -> t
+newtype ByNodeType t = ByNodeType
+    { byNodeType :: NodeType -> t
     }
 
 instance FromJSON t => FromJSON (SendOrForward t) where
@@ -395,7 +396,7 @@ instance FromJSON t => FromJSON (ByMsgType t) where
         requestBlocks       <- obj .: "requestBlocks"
         transaction         <- obj .: "transaction"
         mpc                 <- obj .: "mpc"
-        return $ ByMsgType $ \msg -> case msg of
+        return $ ByMsgType $ \case
             MsgAnnounceBlockHeader _                 -> announceBlockHeader
             MsgRequestBlockHeaders _                 -> requestBlockHeaders
             MsgRequestBlocks       _                 -> requestBlocks
@@ -409,14 +410,14 @@ instance FromJSON t => FromJSON (ByNodeType t) where
         core  <- obj .: "core"
         relay <- obj .: "relay"
         edge  <- obj .: "edge"
-        return $ ByNodeType $ \nodeType -> case nodeType of
+        return $ ByNodeType $ \case
             NodeCore  -> core
             NodeRelay -> relay
             NodeEdge  -> edge
 
-{-------------------------------------------------------------------------------
-  FromJSON instances
--------------------------------------------------------------------------------}
+----------------------------------------------------------------------------
+-- FromJSON instances
+----------------------------------------------------------------------------
 
 instance FromJSON StaticPolicies where
     parseJSON = A.withObject "StaticPolicies" $ \obj -> do
@@ -443,9 +444,9 @@ instance FromJSON StaticFailurePolicy where
         aux :: ByNodeType (ByMsgType OQ.ReconsiderAfter) -> StaticFailurePolicy
         aux f = StaticFailurePolicy (byMsgType . byNodeType f)
 
-{-------------------------------------------------------------------------------
-  Orphans
--------------------------------------------------------------------------------}
+----------------------------------------------------------------------------
+-- Orphans
+----------------------------------------------------------------------------
 
 instance FromJSON OQ.Enqueue where
     parseJSON = A.withObject "Enqueue" $ \obj -> do
@@ -454,7 +455,7 @@ instance FromJSON OQ.Enqueue where
         case (mAll, mOne) of
             (Just all_, Nothing) -> parseEnqueueAll all_
             (Nothing, Just one_) -> parseEnqueueOne one_
-            _ -> fail "Enqueue: expected 'one' or 'all', and not both."
+            _                    -> aesonError "Enqueue: expected 'one' or 'all', and not both."
       where
         parseEnqueueAll :: A.Object -> A.Parser OQ.Enqueue
         parseEnqueueAll obj = do

@@ -1,5 +1,5 @@
 name:                cardano-sl-lrc
-version:             1.0.3
+version:             1.1.1
 synopsis:            Cardano SL - Leaders and Richmen computation
 description:         Cardano SL - Leaders and Richmen computation
 license:             MIT
@@ -9,9 +9,11 @@ maintainer:          hi@serokell.io
 copyright:           2016 IOHK
 category:            Currency
 build-type:          Simple
+extra-source-files:  README.md
 cabal-version:       >=1.10
 
 library
+  hs-source-dirs:      src
   exposed-modules:     Pos.Arbitrary.Lrc
 
                        Pos.Lrc.Fts
@@ -19,31 +21,35 @@ library
                        Pos.Lrc.Error
                        Pos.Lrc.Core
                        Pos.Lrc.Consumer
-                       Pos.Lrc.Class
+                       Pos.Lrc.RichmenComponent
                        Pos.Lrc.Context
                        Pos.Lrc.Mode
 
                        Pos.Lrc.DB.Common
                        Pos.Lrc.DB.Issuers
-                       Pos.Lrc.DB.Seed
                        Pos.Lrc.DB.RichmenBase
+                       Pos.Lrc.DB.Seed
 
-  build-depends:       base
+  build-depends:       QuickCheck
+                     , base
                      , bytestring
+                     , cardano-sl-binary
                      , cardano-sl-core
+                     , cardano-sl-crypto
                      , cardano-sl-db
+                     , cardano-sl-networking
+                     , cardano-sl-util
                      , conduit
                      , ether
                      , formatting
                      , generic-arbitrary
                      , lens
                      , log-warper
-                     , node-sketch
                      , reflection
-                     , rocksdb-haskell
+                     , rocksdb-haskell-ng
                      , text-format
-                     , QuickCheck
                      , universum
+                     , unliftio
                      , unordered-containers
 
   default-extensions:  DeriveDataTypeable
@@ -68,6 +74,7 @@ library
                        BangPatterns
                        TemplateHaskell
                        ScopedTypeVariables
+                       MonadFailDesugaring
 
   default-language:    Haskell2010
 
@@ -77,3 +84,25 @@ library
 
   build-tools: cpphs >= 1.19
   ghc-options: -pgmP cpphs -optP --cpp
+
+test-suite test
+  type:                exitcode-stdio-1.0
+  hs-source-dirs:      test
+  main-is:             Test.hs
+  other-modules:       Test.Pos.Lrc.FtsSpec
+  build-depends:       base
+                     , cardano-sl-core
+                     , cardano-sl-crypto
+                     , cardano-sl-lrc
+                     , cardano-sl-util-test
+                     , containers
+                     , hspec
+                     , QuickCheck
+                     , universum
+  default-language:    Haskell2010
+  default-extensions:  BangPatterns
+                       FlexibleContexts
+                       NoImplicitPrelude
+                       OverloadedStrings
+                       UndecidableInstances
+                       ViewPatterns

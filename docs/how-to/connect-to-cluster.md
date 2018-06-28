@@ -10,3 +10,4 @@
 3. A runtime state folder will be automatically created relative to your current
    working directory, but you can override it using `$ export CARDANO_STATE_DIR=~/wallet-state`
 4. Run the script: `$ ./connect-to-mainnet`
+   Or run `./connect-explorer-to-mainnet` if you might want to connect anything listed in 4.

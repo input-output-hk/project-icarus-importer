@@ -1,5 +1,5 @@
 name:                cardano-sl-update
-version:             1.0.3
+version:             1.1.1
 synopsis:            Cardano SL - update
 description:         Cardano SL - update
 license:             MIT
@@ -9,41 +9,48 @@ maintainer:          hi@serokell.io
 copyright:           2016 IOHK
 category:            Currency
 build-type:          Simple
+extra-source-files:  README.md
 cabal-version:       >=1.10
 
 library
   exposed-modules:
+                       Pos.Update
+
                        -- Arbitrary
                        Pos.Arbitrary.Update
-
+                       -- Binary
+                       Pos.Binary.Update
+                       Pos.Binary.Update.Relay
+                       Pos.Binary.Update.Poll
+                       -- Aeson
                        Pos.Aeson.Update
 
-                       -- Core
-                       Pos.Update.Core
-                       Pos.Update.Core.BlockVersion
-                       Pos.Update.Core.Types
+                       Pos.Update.BlockVersion
 
-                       Pos.Update.Mode
-                       Pos.Update.DB
+                       -- Misc
                        Pos.Update.Configuration
                        Pos.Update.Constants
-                       Pos.Update.RichmenComponent
+                       Pos.Update.DB
+                       Pos.Update.DB.Misc
+                       Pos.Update.Download
                        Pos.Update.Lrc
-
-                       Pos.Binary.Update
+                       Pos.Update.Mode
 
                        -- Logic
                        Pos.Update.Logic
                        Pos.Update.Logic.Global
                        Pos.Update.Logic.Local
 
+                       Pos.Update.Network
+                       Pos.Update.Network.Listeners
+
                        -- Poll
                        Pos.Update.Poll
                        Pos.Update.Poll.Class
-                       Pos.Update.Poll.Types
                        Pos.Update.Poll.Modifier
                        Pos.Update.Poll.PollState
                        Pos.Update.Poll.Trans
+                       Pos.Update.Poll.Types
                        Pos.Update.Poll.RollTrans
                        Pos.Update.Poll.Failure
                        Pos.Update.Poll.Pure
@@ -66,48 +73,60 @@ library
                        Pos.Update.Context
                        Pos.Update.Params
 
+                       -- Worker
+                       Pos.Update.Worker
+
   other-modules:
                        Pos.Arbitrary.Update.Core
                        Pos.Arbitrary.Update.MemState
                        Pos.Arbitrary.Update.Network
                        Pos.Arbitrary.Update.Poll
 
-  build-depends:       QuickCheck
+  build-depends:       Cabal
+                     , QuickCheck
                      , aeson
                      , base
-                     , binary
+                     , bytestring
+                     , cardano-sl-binary
                      , cardano-sl-core
+                     , cardano-sl-crypto
+                     , cardano-sl-crypto-test
                      , cardano-sl-db
                      , cardano-sl-infra
                      , cardano-sl-lrc
-                     , concurrent-extra
-                     , containers
+                     , cardano-sl-networking
+                     , cardano-sl-util
+                     , cardano-sl-util-test
                      , conduit
+                     , containers
                      , data-default
+                     , directory
                      , ether >= 0.5
                      , exceptions
                      , formatting
                      , generic-arbitrary
                      , hashable
+                     , http-client
+                     , http-client-tls
+                     , http-conduit
                      , lens
                      , log-warper
+                     , memory
                      , mtl
-                     , node-sketch
-                     , parsec
                      , reflection
                      , resourcet
-                     , rocksdb-haskell >= 1.0.0
-                     , safecopy
+                     , rocksdb-haskell-ng
+                     , safe-exceptions
                      , serokell-util
                      , stm
                      , tagged
                      , template-haskell
                      , text
                      , text-format
-                     , th-lift-instances
                      , time-units
                      , transformers
                      , universum
+                     , unliftio
                      , unordered-containers
 
   default-language:    Haskell2010
@@ -134,6 +153,7 @@ library
                        BangPatterns
                        TemplateHaskell
                        ScopedTypeVariables
+                       MonadFailDesugaring
 
   ghc-options:         -Wall
                        -fno-warn-orphans

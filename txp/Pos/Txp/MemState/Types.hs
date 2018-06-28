@@ -1,21 +1,14 @@
-{-# LANGUAGE TemplateHaskell #-}
-
 -- | Type stored in the Txp holder.
 
 module Pos.Txp.MemState.Types
        ( GenericTxpLocalData (..)
        , TxpLocalData
-       , TransactionProvenance (..)
-       , MemPoolModifyReason (..)
        ) where
 
 import           Universum
 
-import           Data.Aeson.TH                    (defaultOptions, deriveJSON)
-
-import           Pos.Communication.Types.Protocol (PeerId)
-import           Pos.Core.Types                   (HeaderHash)
-import           Pos.Txp.Toil.Types               (MemPool, UndoMap, UtxoModifier)
+import           Pos.Core.Common (HeaderHash)
+import           Pos.Txp.Toil.Types (MemPool, UndoMap, UtxoModifier)
 
 -- | LocalData of transactions processing.
 -- There are two invariants which must hold for local data
@@ -25,8 +18,7 @@ import           Pos.Txp.Toil.Types               (MemPool, UndoMap, UtxoModifie
 -- (let's call it 'utxo1') will be such that all transactions from
 -- 'memPool' are valid with respect to it.
 -- 2. If one applies all transactions from 'memPool' to 'utxo1',
--- resulting Utxo will be equivalent to 'um' with respect to
--- MonadUtxo.
+-- resulting 'UtxoModifier' will be equivalent to 'um'.
 
 -- | Memory state of Txp. Generic version.
 data GenericTxpLocalData extra = TxpLocalData
@@ -39,27 +31,3 @@ data GenericTxpLocalData extra = TxpLocalData
 
 -- | Memory state of Txp. This version is used by actual Txp implementation.
 type TxpLocalData = GenericTxpLocalData ()
-
--- TODO COMMENT
-data TransactionProvenance
-    = FromPeer PeerId
-    | History
-    deriving (Show)
-
-$(deriveJSON defaultOptions ''TransactionProvenance)
-
--- | Enumeration of all reasons for modifying the mempool.
-data MemPoolModifyReason =
-      -- | Apply a block created by someone else.
-      ApplyBlock
-      -- | Apply a block created by us.
-    | CreateBlock
-      -- | Include a transaction. It came from this peer.
-    | ProcessTransaction TransactionProvenance
-      -- TODO COMMENT
-    | Custom Text
-      -- TODO COMMENT
-    | Unknown
-    deriving Show
-
-$(deriveJSON defaultOptions ''MemPoolModifyReason)

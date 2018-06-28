@@ -14,7 +14,7 @@ module Pos.Update.Poll.Logic.Base
        , canBeAdoptedBV
        , canBeProposedBV
        , canCreateBlockBV
-       , isConfirmedBV
+       , isCompetingBV
        , confirmBlockVersion
        , updateSlottingData
        , verifyNextBVMod
@@ -29,41 +29,33 @@ module Pos.Update.Poll.Logic.Base
 
 import           Universum
 
-import           Control.Lens            (at)
-import           Control.Monad.Except    (MonadError (throwError))
-import qualified Data.HashMap.Strict     as HM
-import qualified Data.Set                as S
-import           Data.Tagged             (Tagged, untag)
-import           Data.Time.Units         (convertUnit)
-import           Formatting              (build, int, sformat, (%))
-import           System.Wlog             (WithLogger, logDebug, logNotice)
+import           Control.Lens (at)
+import           Control.Monad.Except (MonadError (throwError))
+import qualified Data.HashMap.Strict as HM
+import qualified Data.Set as S
+import           Data.Tagged (Tagged, untag)
+import           Data.Time.Units (convertUnit)
+import           Formatting (build, int, sformat, (%))
+import           System.Wlog (WithLogger, logDebug, logNotice)
 
-import           Pos.Binary.Update       ()
-import           Pos.Core                (BlockVersion (..), Coin, EpochIndex,
-                                          HasConfiguration, HeaderHash, IsMainHeader (..),
-                                          SlotId, SoftforkRule (..), TimeDiff (..),
-                                          addressHash, applyCoinPortionUp,
-                                          coinPortionDenominator, coinToInteger,
-                                          difficultyL, epochSlots, getCoinPortion,
-                                          headerHashG, isBootstrapEra, mkCoinPortion,
-                                          sumCoins, unsafeAddCoin, unsafeIntegerToCoin,
-                                          unsafeSubCoin)
-import           Pos.Crypto              (PublicKey, hash, shortHashF)
-import           Pos.Slotting            (EpochSlottingData (..), SlottingData,
-                                          addEpochSlottingData, getCurrentEpochIndex,
-                                          getNextEpochSlottingData)
-import           Pos.Update.Core         (BlockVersionData (..),
-                                          BlockVersionModifier (..), UpId,
-                                          UpdateProposal (..), UpdateVote (..),
-                                          combineVotes, isPositiveVote, newVoteState)
-import           Pos.Update.Poll.Class   (MonadPoll (..), MonadPollRead (..))
+import           Pos.Binary.Update ()
+import           Pos.Core (BlockVersion (..), Coin, EpochIndex, HeaderHash, HasProtocolConstants,
+                           IsMainHeader (..), SlotId, SoftforkRule (..), TimeDiff (..), addressHash,
+                           applyCoinPortionUp, coinPortionDenominator, coinToInteger, difficultyL,
+                           epochSlots, getCoinPortion, headerHashG, isBootstrapEra, CoinPortion (..),
+                           sumCoins, unsafeAddCoin, unsafeIntegerToCoin, unsafeSubCoin)
+import           Pos.Core.Update (BlockVersionData (..), BlockVersionModifier (..), UpId,
+                                  UpdateProposal (..), UpdateVote (..))
+import           Pos.Crypto (PublicKey, hash, shortHashF)
+import           Pos.Slotting.Types (EpochSlottingData (..), SlottingData, addEpochSlottingData,
+                                     getCurrentEpochIndex, getNextEpochSlottingData)
+import           Pos.Update.Poll.Class (MonadPoll (..), MonadPollRead (..))
 import           Pos.Update.Poll.Failure (PollVerFailure (..))
-import           Pos.Update.Poll.Types   (BlockVersionState (..),
-                                          ConfirmedProposalState (..),
-                                          DecidedProposalState (..), DpsExtra (..),
-                                          ProposalState (..), UndecidedProposalState (..),
-                                          UpsExtra (..), bvsIsConfirmed, cpsBlockVersion)
-import           Pos.Util.Util           (leftToPanic)
+import           Pos.Update.Poll.Types (BlockVersionState (..), ConfirmedProposalState (..),
+                                        DecidedProposalState (..), DpsExtra (..),
+                                        ProposalState (..), UndecidedProposalState (..),
+                                        UpsExtra (..), bvsIsConfirmed, combineVotes,
+                                        cpsBlockVersion, isPositiveVote, newVoteState)
 
 
 
@@ -71,16 +63,16 @@ import           Pos.Util.Util           (leftToPanic)
 -- BlockVersion-related simple functions/operations
 ----------------------------------------------------------------------------
 
--- | Check whether BlockVersion is confirmed.
-isConfirmedBV :: MonadPollRead m => BlockVersion -> m Bool
-isConfirmedBV = fmap (maybe False bvsIsConfirmed) . getBVState
+-- | Check whether BlockVersion is competing.
+isCompetingBV :: MonadPollRead m => BlockVersion -> m Bool
+isCompetingBV = fmap (maybe False bvsIsConfirmed) . getBVState
 
 -- | Mark given 'BlockVersion' as confirmed if it is known. This
 -- function also takes epoch when proposal was confirmed.
 confirmBlockVersion :: MonadPoll m => EpochIndex -> BlockVersion -> m ()
 confirmBlockVersion confirmedEpoch bv =
     getBVState bv >>= \case
-        Nothing -> pass
+        Nothing  -> pass
         Just bvs -> putBVState bv bvs {bvsConfirmedEpoch = Just confirmedEpoch}
 
 -- | Check whether block with given 'BlockVersion' can be created
@@ -88,17 +80,12 @@ confirmBlockVersion confirmedEpoch bv =
 --
 -- Specifically, one of the following conditions must be true.
 -- • Given block version is equal to last adopted block version.
--- • '(major, minor)' of given block version is greater than
--- '(major, minor)' of adopted block version and this block version
--- is confirmed.
-canCreateBlockBV :: MonadPollRead m => BlockVersion -> m Bool
-canCreateBlockBV bv = do
-    lastAdopted <- getAdoptedBV
-    isConfirmed <- isConfirmedBV bv
-    let toMajMin BlockVersion {..} = (bvMajor, bvMinor)
-    return
-        (bv == lastAdopted ||
-         (toMajMin bv > toMajMin lastAdopted && isConfirmed))
+-- • Given block version is competing
+canCreateBlockBV :: MonadPollRead m => BlockVersion -> BlockVersion -> m Bool
+canCreateBlockBV lastAdopted bv = do
+    isCompeting <- isCompetingBV bv
+    pure (bv == lastAdopted || isCompeting)
+
 
 -- | Check whether given 'BlockVersion' can be proposed according to
 -- current Poll.
@@ -118,7 +105,7 @@ canCreateBlockBV bv = do
 -- last adopted version, then alternative version must be equal to
 -- alternative version of last adopted version.
 -- 2. Otherwise '(Major, Minor)' of given version is lexicographically greater
--- than or equal to '(Major, Minor)' of last adopted version and in this case
+-- than '(Major, Minor)' of last adopted version and in this case
 -- other proposed block versions with same '(Major, Minor)' are considered
 -- (let's call this set 'X').
 -- If 'X' is empty, given alternative version must be 0.
@@ -207,7 +194,7 @@ adoptBlockVersion winningBlk bv = do
 -- @SlottingData@ from the update. We can recieve updated epoch @SlottingData@
 -- and from it, changed epoch/slot times, which is important to keep track of.
 updateSlottingData
-    :: (HasConfiguration, MonadError PollVerFailure m, MonadPoll m)
+    :: (HasProtocolConstants, MonadError PollVerFailure m, MonadPoll m)
     => EpochIndex
     -> m ()
 updateSlottingData epochIndex = do
@@ -334,15 +321,14 @@ calcSoftforkThreshold SoftforkRule {..} totalStake (untag -> curEpoch) (untag ->
         -- long as 2 'coinPortionDenominator's fit into 'Word64'
         -- (which is true).
         --
-        -- ↓Here↓ 'mkCoinPortion' is safe because:
+        -- ↓Here↓ 'CoinPortion' is safe because:
         -- • 'minued - subtrahend' can't underflow because it's ensured by
         --   the guard;
         -- • the value can't be negative, because the type is unsigned;
         -- • the value can't be greater than max possible one, because
         --   minuend represents a valid coin portion.
         | minuend > subtrahend + getCoinPortion srMinThd =
-            leftToPanic @Text "calcSoftforkThreshold " $
-            mkCoinPortion (minuend - subtrahend)
+            CoinPortion (minuend - subtrahend)
         | otherwise = srMinThd
 
 ----------------------------------------------------------------------------
@@ -380,7 +366,7 @@ isDecided (TotalPositive totalPositive) (TotalNegative totalNegative) (TotalSum 
 -- | Apply vote to UndecidedProposalState, thus modifing mutable data,
 -- i. e. votes and stakes.
 voteToUProposalState
-    :: (HasConfiguration, MonadError PollVerFailure m, WithLogger m)
+    :: (MonadError PollVerFailure m, WithLogger m)
     => PublicKey
     -> Coin
     -> Bool
@@ -456,7 +442,7 @@ putNewProposal slotOrHeader totalStake votesAndStakes up = insertActiveProposal 
     blkHeaderHash = either (const Nothing) (Just . view headerHashG) slotOrHeader
     votes = HM.fromList . map convertVote $ votesAndStakes
     -- New proposal always has a fresh vote (not revote).
-    convertVote (UpdateVote {..}, _) = (uvKey, newVoteState uvDecision)
+    convertVote (vote, _) = (uvKey vote, newVoteState (uvDecision vote))
     ups =
         UndecidedProposalState
         { upsVotes = votes

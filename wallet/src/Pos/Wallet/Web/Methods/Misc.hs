@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds    #-}
 {-# LANGUAGE TypeFamilies #-}
 
 -- | Various small endpoints
@@ -13,74 +14,82 @@ module Pos.Wallet.Web.Methods.Misc
        , applyUpdate
 
        , syncProgress
+       , localTimeDifference
+
+       , requestShutdown
 
        , testResetAll
        , dumpState
        , WalletStateSnapshot (..)
 
+       , resetAllFailedPtxs
+
        , PendingTxsSummary (..)
-       , gatherPendingTxsSummary
        , cancelAllApplyingPtxs
        , cancelOneApplyingPtx
        ) where
 
 import           Universum
 
-import           Data.Aeson                   (encode)
-import           Data.Aeson.TH                (defaultOptions, deriveJSON)
+import           Data.Aeson (encode)
+import           Data.Aeson.TH (defaultOptions, deriveJSON)
 import qualified Data.Text.Buildable
-import           Formatting                   (bprint, build, (%))
-import           Serokell.Util.Text           (listJson)
-import           Servant.API.ContentTypes     (MimeRender (..), OctetStream)
+import           Data.Time.Units (toMicroseconds)
+import           Formatting (bprint, build, sformat, (%))
+import           Mockable (Delay, LowLevelAsync, Mockables, async, delay)
+import           Serokell.Util (listJson, sec)
+import           Servant.API.ContentTypes (MimeRender (..), NoContent (..), OctetStream)
+import           System.Wlog (WithLogger)
 
-import           Pos.Aeson.ClientTypes        ()
-import           Pos.Core                     (SlotId, SoftwareVersion (..))
-import           Pos.Crypto                   (hashHexF, hash)
-import           Pos.Txp                      (Tx (..), TxAux (..), TxIn, TxOut, TxId)
-import           Pos.Update.Configuration     (curSoftwareVersion)
-import           Pos.Util                     (maybeThrow)
-import           Pos.Util.Servant             (HasTruncateLogPolicy (..), encodeCType)
+import           Ntp.Client (NtpStatus (..))
 
-import           Pos.Aeson.Storage            ()
-import           Pos.Util.Chrono              (getNewestFirst, toNewestFirst)
-import           Pos.Wallet.KeyStorage        (deleteSecretKey, getSecretKeys)
-import           Pos.Wallet.WalletMode        (applyLastUpdate, connectedPeers,
-                                               localChainDifficulty,
-                                               networkChainDifficulty)
-import           Pos.Wallet.Web.ClientTypes   (Addr, CId, CProfile (..), CTxId (..),
-                                               CPtxCondition, CUpdateInfo (..),
-                                               SyncProgress (..), cIdToAddress)
-import           Pos.Wallet.Web.Error         (WalletError (..))
-import           Pos.Wallet.Web.Mode          (MonadWalletWebMode)
-import           Pos.Wallet.Web.Pending       (PendingTx (..), isPtxInBlocks,
-                                               sortPtxsChrono)
-import           Pos.Wallet.Web.State         (WalletSnapshot, cancelApplyingPtxs,
-                                               cancelSpecificApplyingPtx, getNextUpdate,
-                                               getPendingTxs, getProfile, askWalletDB,
-                                               askWalletSnapshot, removeNextUpdate,
-                                               setProfile, testReset)
-import           Pos.Wallet.Web.Util          (decodeCTypeOrFail, testOnlyEndpoint)
-
+import           Pos.Client.KeyStorage (MonadKeys (..), deleteAllSecretKeys)
+import           Pos.Configuration (HasNodeConfiguration)
+import           Pos.Core (HasConfiguration, SlotId, SoftwareVersion (..))
+import           Pos.Crypto (hashHexF)
+import           Pos.Shutdown (HasShutdownContext, triggerShutdown)
+import           Pos.Slotting (MonadSlots, getCurrentSlotBlocking)
+import           Pos.Txp (TxId, TxIn, TxOut)
+import           Pos.Update.Configuration (HasUpdateConfiguration, curSoftwareVersion)
+import           Pos.Util (maybeThrow)
+import           Pos.Util.LogSafe (logInfoUnsafeP)
+import           Pos.Util.Servant (HasTruncateLogPolicy (..))
+import           Pos.Wallet.Aeson.ClientTypes ()
+import           Pos.Wallet.Aeson.Storage ()
+import           Pos.Wallet.WalletMode (MonadBlockchainInfo, MonadUpdates, applyLastUpdate,
+                                        connectedPeers, localChainDifficulty,
+                                        networkChainDifficulty)
+import           Pos.Wallet.Web.ClientTypes (Addr, CId (..), CProfile (..), CPtxCondition,
+                                             CTxId (..), CUpdateInfo (..), SyncProgress (..),
+                                             cIdToAddress)
+import           Pos.Wallet.Web.Error (WalletError (..))
+import           Pos.Wallet.Web.State (WalletDbReader, WalletSnapshot, askWalletDB,
+                                       askWalletSnapshot, cancelApplyingPtxs,
+                                       cancelSpecificApplyingPtx, getNextUpdate, getProfile,
+                                       removeNextUpdate, resetFailedPtxs,
+                                       setProfile, testReset)
+import           Pos.Wallet.Web.Util (decodeCTypeOrFail, testOnlyEndpoint)
 
 ----------------------------------------------------------------------------
 -- Profile
 ----------------------------------------------------------------------------
 
-getUserProfile :: MonadWalletWebMode m => m CProfile
+getUserProfile :: (WalletDbReader ctx m, MonadIO m) => m CProfile
 getUserProfile = getProfile <$> askWalletSnapshot
 
-updateUserProfile :: MonadWalletWebMode m => CProfile -> m CProfile
+updateUserProfile :: (WalletDbReader ctx m, MonadIO m)
+                  => CProfile
+                  -> m CProfile
 updateUserProfile profile = do
     db <- askWalletDB
     setProfile db profile
-    ws <- askWalletSnapshot --TODO: the update tx should get the relevant info
-    return (getProfile ws)
+    getUserProfile
 
 ----------------------------------------------------------------------------
 -- Address
 ----------------------------------------------------------------------------
 
-isValidAddress :: MonadWalletWebMode m => CId Addr -> m Bool
+isValidAddress :: Monad m => CId Addr -> m Bool
 isValidAddress = pure . isRight . cIdToAddress
 
 ----------------------------------------------------------------------------
@@ -88,7 +97,14 @@ isValidAddress = pure . isRight . cIdToAddress
 ----------------------------------------------------------------------------
 
 -- | Get last update info
-nextUpdate :: MonadWalletWebMode m => m CUpdateInfo
+nextUpdate
+    :: ( MonadIO m
+       , HasConfiguration
+       , MonadThrow m
+       , WalletDbReader ctx m
+       , HasUpdateConfiguration
+       )
+    => m CUpdateInfo
 nextUpdate = do
     ws <- askWalletSnapshot
     updateInfo <- maybeThrow noUpdates (getNextUpdate ws)
@@ -102,37 +118,76 @@ nextUpdate = do
         && svNumber ver > svNumber curSoftwareVersion
     noUpdates = RequestError "No updates available"
 
-
 -- | Postpone next update after restart
-postponeUpdate :: MonadWalletWebMode m => m ()
-postponeUpdate = askWalletDB >>= removeNextUpdate
+postponeUpdate :: (MonadIO m, WalletDbReader ctx m) => m NoContent
+postponeUpdate = askWalletDB >>= removeNextUpdate >> return NoContent
 
 -- | Delete next update info and restart immediately
-applyUpdate :: MonadWalletWebMode m => m ()
-applyUpdate = askWalletDB >>= removeNextUpdate >> applyLastUpdate
+applyUpdate :: ( MonadIO m
+               , WalletDbReader ctx m
+               , MonadUpdates m
+               )
+            => m NoContent
+applyUpdate = askWalletDB >>= removeNextUpdate
+              >> applyLastUpdate >> return NoContent
+
+----------------------------------------------------------------------------
+-- System
+----------------------------------------------------------------------------
+
+-- | Triggers shutdown in a short interval after called. Delay is
+-- needed in order for http request to succeed.
+requestShutdown ::
+       ( MonadIO m
+       , MonadReader ctx m
+       , WithLogger m
+       , HasShutdownContext ctx
+       , Mockables m [Delay, LowLevelAsync]
+       )
+    => m NoContent
+requestShutdown = NoContent <$ async (delay (sec 1) >> triggerShutdown)
 
 ----------------------------------------------------------------------------
 -- Sync progress
 ----------------------------------------------------------------------------
 
-syncProgress :: MonadWalletWebMode m => m SyncProgress
-syncProgress =
-    SyncProgress
-    <$> localChainDifficulty
-    <*> networkChainDifficulty
-    <*> connectedPeers
+syncProgress
+    :: (MonadIO m, WithLogger m, MonadBlockchainInfo m)
+    => m SyncProgress
+syncProgress = do
+    _spLocalCD <- localChainDifficulty
+    _spNetworkCD <- networkChainDifficulty
+    _spPeers <- connectedPeers
+    -- servant already logs this, but only to secret logs
+    logInfoUnsafeP $
+        sformat ("Current sync progress: "%build%"/"%build)
+        _spLocalCD _spNetworkCD
+    return SyncProgress{..}
+
+----------------------------------------------------------------------------
+-- NTP (Network Time Protocol) based time difference
+----------------------------------------------------------------------------
+
+localTimeDifference :: MonadIO m => TVar NtpStatus -> m (Maybe Integer)
+localTimeDifference ntpStatus = diff <$> readTVarIO ntpStatus
+  where
+    diff :: NtpStatus -> Maybe Integer
+    diff = \case
+        NtpDrift time -> Just (toMicroseconds time)
+        NtpSyncPending -> Nothing
+        NtpSyncUnavailable -> Nothing
 
 ----------------------------------------------------------------------------
 -- Reset
 ----------------------------------------------------------------------------
 
-testResetAll :: MonadWalletWebMode m => m ()
-testResetAll = testOnlyEndpoint $ deleteAllKeys
-               >> (testReset =<< askWalletDB)
-  where
-    deleteAllKeys = do
-        keyNum <- length <$> getSecretKeys
-        replicateM_ keyNum $ deleteSecretKey 0
+testResetAll ::
+       ( HasNodeConfiguration, MonadIO m
+       , MonadThrow m, WalletDbReader ctx m, MonadKeys m)
+    => m NoContent
+testResetAll = do
+    db <- askWalletDB
+    testOnlyEndpoint $ deleteAllSecretKeys >> testReset db >> return NoContent
 
 ----------------------------------------------------------------------------
 -- Print wallet state
@@ -150,8 +205,19 @@ instance MimeRender OctetStream WalletStateSnapshot where
 instance Buildable WalletStateSnapshot where
     build _ = "<wallet-state-snapshot>"
 
-dumpState :: MonadWalletWebMode m => m WalletStateSnapshot
+dumpState :: (MonadIO m, WalletDbReader ctx m)
+          => m WalletStateSnapshot
 dumpState = WalletStateSnapshot <$> askWalletSnapshot
+
+----------------------------------------------------------------------------
+-- Tx resubmitting
+----------------------------------------------------------------------------
+
+resetAllFailedPtxs :: (HasConfiguration, MonadSlots ctx m, WalletDbReader ctx m) => m NoContent
+resetAllFailedPtxs = do
+    db <- askWalletDB
+    getCurrentSlotBlocking >>= resetFailedPtxs db
+    return NoContent
 
 ----------------------------------------------------------------------------
 -- Print pending transactions info
@@ -184,29 +250,26 @@ instance HasTruncateLogPolicy PendingTxsSummary where
     -- called rarely, and we are very interested in the output
     truncateLogPolicy = identity
 
-gatherPendingTxsSummary :: MonadWalletWebMode m => m [PendingTxsSummary]
-gatherPendingTxsSummary = do
-    ws <- askWalletSnapshot
-    pure $ map mkInfo .
-           getNewestFirst . toNewestFirst . sortPtxsChrono .
-           filter unconfirmedPtx $ getPendingTxs ws
-  where
-    unconfirmedPtx = not . isPtxInBlocks . _ptxCond
-    mkInfo PendingTx{..} =
-        let tx = taTx _ptxTxAux
-        in  PendingTxsSummary
-            { ptiSlot = _ptxCreationSlot
-            , ptiCond = encodeCType (Just _ptxCond)
-            , ptiInputs = _txInputs tx
-            , ptiOutputs = _txOutputs tx
-            , ptiTxId = hash tx
-            }
+cancelAllApplyingPtxs
+    :: ( HasNodeConfiguration
+       , MonadIO m
+       , MonadThrow m
+       , WalletDbReader ctx m
+       )
+    => m NoContent
+cancelAllApplyingPtxs = do
+  db <- askWalletDB
+  testOnlyEndpoint $ NoContent <$ cancelApplyingPtxs db
 
-cancelAllApplyingPtxs :: MonadWalletWebMode m => m ()
-cancelAllApplyingPtxs = testOnlyEndpoint $ cancelApplyingPtxs =<< askWalletDB
-
-cancelOneApplyingPtx :: MonadWalletWebMode m => CTxId -> m ()
-cancelOneApplyingPtx cTxId = do
+cancelOneApplyingPtx ::
+       ( HasNodeConfiguration
+       , MonadThrow m
+       , WalletDbReader ctx m
+       , MonadIO m
+       )
+    => CTxId
+    -> m NoContent
+cancelOneApplyingPtx cTxId = testOnlyEndpoint $ NoContent <$ do
     db <- askWalletDB
     txId <- decodeCTypeOrFail cTxId
-    testOnlyEndpoint (cancelSpecificApplyingPtx db txId)
+    cancelSpecificApplyingPtx db txId

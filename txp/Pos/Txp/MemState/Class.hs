@@ -1,12 +1,13 @@
 {-# LANGUAGE TypeFamilies #-}
 
--- | Type class necessary for Transaction processing (Txp)
+-- | Type class necessary for transaction processing (Txp)
 -- and some useful getters and setters.
 
 module Pos.Txp.MemState.Class
        ( MonadTxpMem
        , TxpHolderTag
        , withTxpLocalData
+       , withTxpLocalDataLog
        , getUtxoModifier
        , getLocalUndos
        , getMemPool
@@ -16,19 +17,29 @@ module Pos.Txp.MemState.Class
        , getTxpTip
        , setTxpLocalData
        , clearTxpMemPool
+
+       , MonadTxpLocal (..)
+       , TxpLocalWorkMode
+       , MempoolExt
        ) where
 
 import           Universum
 
 import qualified Control.Concurrent.STM as STM
-import           Data.Default           (Default(..))
-import qualified Data.HashMap.Strict    as HM
-import           Ether.Internal         (HasLens (..))
-
-import           Pos.Core.Types         (HeaderHash)
-import           Pos.Txp.Core.Types     (TxAux, TxId)
+import           Data.Default (Default (..))
+import qualified Data.HashMap.Strict as HM
+import           Mockable (CurrentTime, Mockable)
+import           Pos.Core.Common (HeaderHash)
+import           Pos.Core.Txp (TxAux, TxId)
+import           Pos.DB.Class (MonadDBRead, MonadGState (..))
+import           Pos.Reporting (MonadReporting)
+import           Pos.Slotting (MonadSlots (..))
+import           Pos.Txp.Configuration (HasTxpConfiguration)
 import           Pos.Txp.MemState.Types (GenericTxpLocalData (..))
-import           Pos.Txp.Toil.Types     (MemPool (..), UndoMap, UtxoModifier)
+import           Pos.Txp.Toil.Failure (ToilVerFailure)
+import           Pos.Txp.Toil.Types (MemPool (..), UndoMap, UtxoModifier)
+import           Pos.Util.Util (HasLens (..))
+import           System.Wlog (NamedPureLogger, WithLogger, launchNamedPureLog)
 
 data TxpHolderTag
 
@@ -36,6 +47,7 @@ data TxpHolderTag
 type MonadTxpMem ext ctx m
      = ( MonadReader ctx m
        , HasLens TxpHolderTag ctx (GenericTxpLocalData ext)
+       , Default ext
        )
 
 askTxpMem :: MonadTxpMem ext ctx m => m (GenericTxpLocalData ext)
@@ -49,6 +61,15 @@ withTxpLocalData
     :: (MonadIO m, MonadTxpMem e ctx m)
     => (GenericTxpLocalData e -> STM.STM a) -> m a
 withTxpLocalData f = askTxpMem >>= \ld -> atomically (f ld)
+
+-- | Operate with some of all of the TXP local data, allowing
+--   logging.
+withTxpLocalDataLog
+    :: (MonadIO m, MonadTxpMem e ctx m, WithLogger m)
+    => (GenericTxpLocalData e -> NamedPureLogger STM.STM a)
+    -> m a
+withTxpLocalDataLog f = askTxpMem >>=
+    \ld -> launchNamedPureLog atomically $ f ld
 
 -- | Read the UTXO modifier from the local TXP data.
 getUtxoModifier
@@ -100,3 +121,26 @@ clearTxpMemPool
 clearTxpMemPool txpData = do
   tip <- getTxpTip txpData
   setTxpLocalData txpData (mempty, def, mempty, tip, def)
+
+----------------------------------------------------------------------------
+-- Abstract txNormalize and processTx
+----------------------------------------------------------------------------
+
+type family MempoolExt (m :: * -> *) :: *
+
+class Monad m => MonadTxpLocal m where
+    txpNormalize :: m ()
+    txpProcessTx :: (TxId, TxAux) -> m (Either ToilVerFailure ())
+
+type TxpLocalWorkMode ctx m =
+    ( MonadIO m
+    , MonadDBRead m
+    , MonadGState m
+    , MonadSlots ctx m
+    , MonadTxpMem (MempoolExt m) ctx m
+    , WithLogger m
+    , Mockable CurrentTime m
+    , MonadMask m
+    , MonadReporting ctx m
+    , HasTxpConfiguration
+    )

@@ -20,6 +20,7 @@ module Pos.Txp.DB.Utxo
 
        -- * Get utxo
        , getFilteredUtxo
+       , filterUtxo
        , getAllPotentiallyHugeUtxo
 
        -- * Sanity checks
@@ -30,32 +31,26 @@ module Pos.Txp.DB.Utxo
 import           Universum
 
 import           Control.Monad.Trans.Resource (ResourceT)
-import           Data.Conduit                 (Sink, Source, mapOutput, runConduitRes,
-                                               (.|))
-import qualified Data.Conduit.List            as CL
-import qualified Data.HashSet                 as HS
-import qualified Data.Map                     as M
+import           Data.Conduit (ConduitT, mapOutput, runConduitRes, (.|))
+import qualified Data.Conduit.List as CL
+import qualified Data.HashSet as HS
+import qualified Data.Map as M
 import qualified Data.Text.Buildable
-import qualified Database.RocksDB             as Rocks
-import           Formatting                   (bprint, build, sformat, (%))
-import           Serokell.Util                (Color (Red), colorize)
-import           System.Wlog                  (WithLogger, logError)
+import qualified Database.RocksDB as Rocks
+import           Formatting (bprint, build, sformat, (%))
+import           Serokell.Util (Color (Red), colorize)
+import           System.Wlog (WithLogger, logError)
+import           UnliftIO (MonadUnliftIO)
 
-import           Pos.Binary.Core              ()
-import           Pos.Core                     (Address, Coin,
-                                               GenesisData (gdBootStakeholders),
-                                               HasConfiguration, coinF, genesisData,
-                                               mkCoin, sumCoins, unsafeAddCoin,
-                                               unsafeIntegerToCoin)
-import           Pos.DB                       (DBError (..), DBIteratorClass (..),
-                                               DBTag (GStateDB), IterType, MonadDB,
-                                               MonadDBRead, RocksBatchOp (..),
-                                               dbIterSource, dbSerializeValue,
-                                               encodeWithKeyPrefix)
-import           Pos.DB.GState.Common         (gsGetBi, writeBatchGState)
-import           Pos.Txp.Core                 (TxIn (..), TxOutAux (toaOut),
-                                               addrBelongsToSet, txOutStake)
-import           Pos.Txp.Toil.Types           (GenesisUtxo (..), Utxo)
+import           Pos.Core (Address, Coin, coinF, mkCoin, sumCoins, unsafeAddCoin,
+                           unsafeIntegerToCoin, HasCoreConfiguration, HasGenesisData)
+import           Pos.Core.Txp (TxIn (..), TxOutAux (toaOut))
+import           Pos.DB (DBError (..), DBIteratorClass (..), DBTag (GStateDB), IterType, MonadDB,
+                         MonadDBRead, RocksBatchOp (..), dbIterSource, dbSerializeValue,
+                         encodeWithKeyPrefix)
+import           Pos.DB.GState.Common (gsGetBi, writeBatchGState)
+import           Pos.Txp.Base (addrBelongsToSet, txOutStake)
+import           Pos.Txp.Toil.Types (GenesisUtxo (..), Utxo)
 
 ----------------------------------------------------------------------------
 -- Getters
@@ -79,7 +74,7 @@ instance Buildable UtxoOp where
         bprint ("AddTxOut ("%build%", "%build%")")
         txIn txOutAux
 
-instance HasConfiguration => RocksBatchOp UtxoOp where
+instance HasCoreConfiguration => RocksBatchOp UtxoOp where
     toBatchOp (AddTxOut txIn txOut) =
         [Rocks.Put (txInKey txIn) (dbSerializeValue txOut)]
     toBatchOp (DelTxIn txIn) = [Rocks.Del $ txInKey txIn]
@@ -108,25 +103,29 @@ instance DBIteratorClass UtxoIter where
     iterKeyPrefix = iterationUtxoPrefix
 
 -- | 'Source' corresponding to the whole utxo (inputs and outputs).
-utxoSource :: (MonadDBRead m) => Source (ResourceT m) (TxIn, TxOutAux)
+utxoSource :: (MonadDBRead m) => ConduitT () (TxIn, TxOutAux) (ResourceT m) ()
 utxoSource = dbIterSource GStateDB (Proxy @UtxoIter)
 
-utxoSink :: (MonadDBRead m) => Sink (IterType UtxoIter) m Utxo
+utxoSink :: (MonadDBRead m) => ConduitT (IterType UtxoIter) Void m Utxo
 utxoSink = CL.fold (\u (k,v) -> M.insert k v u) mempty
 
 -- | Retrieves only portion of UTXO related to given addresses list.
-getFilteredUtxo :: MonadDBRead m => [Address] -> m Utxo
-getFilteredUtxo addrs =
-    runConduitRes $
-    utxoSource .|
-    CL.filter (\(_,out) -> out `addrBelongsToSet` addrsSet) .|
-    utxoSink
+getFilteredUtxo :: (MonadDBRead m, MonadUnliftIO m) => [Address] -> m Utxo
+getFilteredUtxo addrs = filterUtxo (\(_,out) -> out `addrBelongsToSet` addrsSet)
   where
     addrsSet = HS.fromList addrs
 
+-- | Retrieves only portion of UTXO matching the given predicate.
+filterUtxo :: (MonadDBRead m, MonadUnliftIO m) => ((TxIn, TxOutAux) -> Bool) -> m Utxo
+filterUtxo predicate =
+    runConduitRes $
+    utxoSource .|
+    CL.filter predicate .|
+    utxoSink
+
 -- | Get full utxo. Use with care – the utxo can be very big (hundreds of
 -- megabytes).
-getAllPotentiallyHugeUtxo :: MonadDBRead m => m Utxo
+getAllPotentiallyHugeUtxo :: (MonadDBRead m, MonadUnliftIO m) => m Utxo
 getAllPotentiallyHugeUtxo = runConduitRes $ utxoSource .| utxoSink
 
 ----------------------------------------------------------------------------
@@ -134,12 +133,11 @@ getAllPotentiallyHugeUtxo = runConduitRes $ utxoSource .| utxoSink
 ----------------------------------------------------------------------------
 
 sanityCheckUtxo
-    :: (MonadDBRead m, WithLogger m)
+    :: (MonadDBRead m, WithLogger m, MonadUnliftIO m, HasGenesisData)
     => Coin -> m ()
 sanityCheckUtxo expectedTotalStake = do
-    let gws = gdBootStakeholders genesisData
     let stakesSource =
-            mapOutput (map snd . txOutStake gws . toaOut . snd) utxoSource
+            mapOutput (map snd . txOutStake . toaOut . snd) utxoSource
     calculatedTotalStake <-
         runConduitRes $ stakesSource .| CL.fold foldAdd (mkCoin 0)
     let fmt =

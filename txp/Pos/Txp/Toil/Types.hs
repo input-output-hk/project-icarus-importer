@@ -1,54 +1,45 @@
 {-# LANGUAGE TypeFamilies #-}
 
--- | Types used for managing of transactions
--- and synchronization with database.
+-- | Types used for pure transaction processing (aka Toil).
 
 module Pos.Txp.Toil.Types
        ( Utxo
-       , utxoToStakes
+       , UtxoLookup
+       , UtxoModifier
        , formatUtxo
        , utxoF
+       , utxoToModifier
+       , utxoToLookup
        , GenesisUtxo (..)
        , _GenesisUtxo
+
+       , StakesView (..)
+       , svStakes
+       , svTotal
 
        , TxFee(..)
        , MemPool (..)
        , mpLocalTxs
        , mpSize
        , TxMap
-       , StakesView (..)
-       , svStakes
-       , svTotal
        , UndoMap
-       , UtxoModifier
        , AddrCoinMap
-       , utxoToModifier
        , applyUtxoModToAddrCoinMap
-       , GenericToilModifier (..)
-       , ToilModifier
-       , tmUtxo
-       , tmStakes
-       , tmMemPool
-       , tmUndos
-       , tmExtra
        ) where
 
 import           Universum
 
-import           Control.Lens           (makeLenses, makePrisms, makeWrapped)
-import           Data.Default           (Default, def)
-import qualified Data.HashMap.Strict    as HM
-import qualified Data.Map               as M (lookup, member, toList)
+import           Control.Lens (makeLenses, makePrisms, makeWrapped)
+import           Data.Default (Default, def)
+import qualified Data.HashMap.Strict as HM
+import qualified Data.Map as M (lookup, member, toList)
 import           Data.Text.Lazy.Builder (Builder)
-import           Formatting             (Format, later)
-import           Serokell.Util.Text     (mapBuilderJson)
+import           Formatting (Format, later)
+import           Serokell.Util.Text (mapBuilderJson)
 
-import           Pos.Core               (Address, Coin, GenesisWStakeholders,
-                                         StakeholderId, StakesMap, unsafeAddCoin,
-                                         unsafeSubCoin)
-import           Pos.Txp.Core           (TxAux, TxId, TxIn, TxOutAux (..), TxUndo,
-                                         txOutStake, _TxOut)
-import qualified Pos.Util.Modifier      as MM
+import           Pos.Core (Address, Coin, StakeholderId, unsafeAddCoin, unsafeSubCoin)
+import           Pos.Core.Txp (TxAux, TxId, TxIn, TxOutAux (..), TxUndo, _TxOut)
+import qualified Pos.Util.Modifier as MM
 
 ----------------------------------------------------------------------------
 -- UTXO
@@ -60,12 +51,11 @@ import qualified Pos.Util.Modifier      as MM
 -- output) pairs.
 type Utxo = Map TxIn TxOutAux
 
--- | Convert 'Utxo' to 'StakesMap'.
-utxoToStakes :: GenesisWStakeholders -> Utxo -> StakesMap
-utxoToStakes gws = foldl' putDistr mempty . M.toList
-  where
-    plusAt hm (key, val) = HM.insertWith unsafeAddCoin key val hm
-    putDistr hm (_, TxOutAux txOut) = foldl' plusAt hm (txOutStake gws txOut)
+-- | Type of function to look up an entry in 'Utxo'.
+type UtxoLookup = TxIn -> Maybe TxOutAux
+
+-- | All modifications (additions and deletions) to be applied to 'Utxo'.
+type UtxoModifier = MM.MapModifier TxIn TxOutAux
 
 -- | Format 'Utxo' map for showing
 formatUtxo :: Utxo -> Builder
@@ -74,6 +64,12 @@ formatUtxo = mapBuilderJson . M.toList
 -- | Specialized formatter for 'Utxo'.
 utxoF :: Format r (Utxo -> r)
 utxoF = later formatUtxo
+
+utxoToModifier :: Utxo -> UtxoModifier
+utxoToModifier = foldl' (flip $ uncurry MM.insert) mempty . M.toList
+
+utxoToLookup :: Utxo -> UtxoLookup
+utxoToLookup = flip M.lookup
 
 -- | Wrapper for genesis utxo.
 newtype GenesisUtxo = GenesisUtxo
@@ -127,15 +123,11 @@ instance Default MemPool where
         }
 
 ----------------------------------------------------------------------------
--- UtxoModifier, UndoMap and AddrCoinsMap
+-- UndoMap and AddrCoinsMap
 ----------------------------------------------------------------------------
 
-type UtxoModifier = MM.MapModifier TxIn TxOutAux
 type UndoMap = HashMap TxId TxUndo
 type AddrCoinMap = HashMap Address Coin
-
-utxoToModifier :: Utxo -> UtxoModifier
-utxoToModifier = foldl' (flip $ uncurry MM.insert) mempty . M.toList
 
 -- | Takes utxo modifier and address-coin map with correspodning utxo
 -- and applies utxo modifier to map.
@@ -179,25 +171,3 @@ applyUtxoModToAddrCoinMap modifier (addrCoins, utxo) = result
     -- Add coins to balances
     result :: HashMap Address Coin
     result = foldl' (flip $ uncurry $ HM.insertWith unsafeAddCoin) addrCoinsRest addrCoinsAdditions
-
-instance Default UndoMap where
-    def = mempty
-
-----------------------------------------------------------------------------
--- ToilModifier
-----------------------------------------------------------------------------
-
-data GenericToilModifier extension = ToilModifier
-    { _tmUtxo    :: !UtxoModifier
-    , _tmStakes  :: !StakesView
-    , _tmMemPool :: !MemPool
-    , _tmUndos   :: !UndoMap
-    , _tmExtra   :: !extension
-    }
-
-type ToilModifier = GenericToilModifier ()
-
-instance Default ext => Default (GenericToilModifier ext) where
-    def = ToilModifier mempty def def mempty def
-
-makeLenses ''GenericToilModifier

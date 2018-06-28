@@ -16,33 +16,33 @@ module Pos.Script
        , isKnownScriptVersion
        ) where
 
-import           Control.Exception          (ArithException (..), ArrayException (..),
-                                             ErrorCall (..), Handler (..),
-                                             PatternMatchFail (..), SomeException (..),
-                                             catches, displayException, throwIO)
-import           Control.Lens               (_Left)
-import           Control.Monad.Error.Class  (MonadError, throwError)
-import qualified Data.ByteArray             as BA
-import qualified Data.ByteString.Lazy       as BSL
-import qualified Data.Set                   as S
-import qualified Data.Text.Buildable        as Buildable
-import qualified Elaboration.Contexts       as PL
-import qualified Interface.Integration      as PL
-import qualified Interface.Prelude          as PL
-import           Language.Haskell.TH.Syntax (Lift (..), runIO)
-import qualified PlutusCore.EvaluatorTypes  as PLCore
-import qualified PlutusCore.Program         as PL
-import           System.IO.Unsafe           (unsafePerformIO)
-import           Universum                  hiding (lift)
-import qualified Utils.Names                as PL
+import           Universum hiding (lift)
 
-import           Pos.Binary.Class           (Bi)
-import qualified Pos.Binary.Class           as Bi
-import           Pos.Binary.Crypto          ()
-import           Pos.Binary.Txp.Core        ()
-import           Pos.Core.Script            ()
-import           Pos.Core.Types             (Script (..), ScriptVersion, Script_v0)
-import           Pos.Txp.Core.Types         (TxSigData (..))
+import           Control.Exception (ArithException (..), ArrayException (..), ErrorCall (..),
+                                    PatternMatchFail (..))
+import           Control.Exception.Safe (Handler (..), SomeException (..), catches,
+                                         displayException)
+import           Control.Lens (_Left)
+import           Control.Monad.Error.Class (throwError)
+import qualified Data.ByteArray as BA
+import qualified Data.ByteString.Lazy as BSL
+import qualified Data.Set as S
+import qualified Data.Text.Buildable as Buildable
+import qualified Elaboration.Contexts as PL
+import qualified Interface.Integration as PL
+import qualified Interface.Prelude as PL
+import           Language.Haskell.TH.Syntax (Lift (..), runIO)
+import qualified PlutusCore.EvaluatorTypes as PLCore
+import qualified PlutusCore.Program as PL
+import           System.IO.Unsafe (unsafePerformIO)
+import qualified Utils.Names as PL
+
+import qualified Pos.Binary.Class as Bi
+import           Pos.Binary.Core ()
+import           Pos.Binary.Crypto ()
+import           Pos.Core.Common (Script (..), ScriptVersion)
+import           Pos.Core.Script ()
+import           Pos.Core.Txp (TxSigData (..))
 
 {- NOTE
 
@@ -67,7 +67,7 @@ stripStdlib (PL.Program xs) = PL.Program (filter (not . std) xs)
 
 -- | Parse a script intended to serve as a validator (or “lock”) in a
 -- transaction output.
-parseValidator :: Bi Script_v0 => Text -> Either String Script
+parseValidator :: Text -> Either String Script
 parseValidator t = do
     scr <- stripStdlib <$> PL.loadValidator stdlib (toString t)
     return Script {
@@ -76,7 +76,7 @@ parseValidator t = do
 
 -- | Parse a script intended to serve as a redeemer (or “proof”) in a
 -- transaction input.
-parseRedeemer :: Bi Script_v0 => Text -> Either String Script
+parseRedeemer :: Text -> Either String Script
 parseRedeemer t = do
     scr <- stripStdlib <$> PL.loadRedeemer stdlib (toString t)
     return Script {
@@ -114,11 +114,10 @@ instance Buildable PlutusError where
 
 -- | Validate a transaction, given a validator and a redeemer.
 txScriptCheck
-    :: (MonadError PlutusError m, Bi Script_v0)
-    => TxSigData
+    :: TxSigData
     -> Script                     -- ^ Validator
     -> Script                     -- ^ Redeemer
-    -> m ()
+    -> Either PlutusError ()
 txScriptCheck sigData validator redeemer = case spoon result of
     Left err            -> throwError (PlutusException (toText err))
     Right (Left err)    -> throwError err
@@ -131,11 +130,11 @@ txScriptCheck sigData validator redeemer = case spoon result of
         -- don't match
         valScr <- case scrVersion validator of
             0 -> over _Left PlutusDecodingFailure $
-                     Bi.decodeFull (scrScript validator)
+                     Bi.decodeFull' (scrScript validator)
             v -> Left (PlutusUnknownVersion v)
         redScr <- case scrVersion redeemer of
             0 -> over _Left PlutusDecodingFailure $
-                     Bi.decodeFull (scrScript redeemer)
+                     Bi.decodeFull' (scrScript redeemer)
             v -> Left (PlutusUnknownVersion v)
         (script, env) <- over _Left (PlutusExecutionFailure . toText) $
             PL.buildValidationScript stdlib valScr redScr
@@ -158,13 +157,13 @@ stdlib = case PL.loadLibrary PL.emptyDeclContext prelude of
 ----------------------------------------------------------------------------
 
 {-# INLINEABLE defaultHandles #-}
-defaultHandles :: [Handler (Either String a)]
+defaultHandles :: [Handler IO (Either String a)]
 defaultHandles =
     [ Handler $ \(x :: ArithException)   -> return (Left (displayException x))
     , Handler $ \(x :: ArrayException)   -> return (Left (displayException x))
     , Handler $ \(x :: ErrorCall)        -> return (Left (displayException x))
     , Handler $ \(x :: PatternMatchFail) -> return (Left (displayException x))
-    , Handler $ \(x :: SomeException)    -> throwIO x ]
+    , Handler $ \(x :: SomeException)    -> throwM x ]
 
 {-# INLINE spoon #-}
 spoon :: NFData a => a -> Either String a

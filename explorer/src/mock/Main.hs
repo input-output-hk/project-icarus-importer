@@ -6,11 +6,11 @@ module Main
 
 import           Universum
 
-import           Data.Version                (showVersion)
-import           Options.Applicative         (execParser, footer, fullDesc, header, help,
-                                              helper, info, infoOption, long, progDesc)
+import           Data.Version (showVersion)
+import           Options.Applicative (execParser, footer, fullDesc, header, help, helper, info,
+                                      infoOption, long, progDesc)
 
-import qualified Paths_cardano_sl_explorer   as CSLE
+import qualified Paths_cardano_sl_explorer as CSLE
 import           Pos.Explorer.Web.TestServer (runMockServer)
 
 
@@ -29,7 +29,7 @@ main = do
                      <> header   "Cardano SL Explorer web mock."
                      <> footer   ("This program returns just the mocked data. " <>
                                   "It doesn't call any CSL functions and doesn't interact with it. " <>
-                                  "It just implements the API and returns simeple test data.")
+                                  "It just implements the API and returns simple test data.")
 
         versionOption = infoOption
             ("cardano-mock-" <> showVersion CSLE.version)

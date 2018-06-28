@@ -7,26 +7,24 @@ module Pos.DHT.Workers
 
 import           Universum
 
-import qualified Data.ByteString.Lazy       as BSL
-import           Formatting                 (sformat, (%))
-import           Mockable                   (Async, Catch, Delay, Fork, Mockable)
-import           Network.Kademlia           (takeSnapshot)
-import           System.Wlog                (WithLogger, logNotice)
+import qualified Data.ByteString.Lazy as BSL
+import           Formatting (sformat, (%))
+import           Mockable (Async, Delay, Mockable)
+import           Network.Kademlia (takeSnapshot)
+import           System.Wlog (WithLogger, logNotice)
 
-import           Pos.Binary.Class           (serialize)
-import           Pos.Binary.Infra.DHTModel  ()
-import           Pos.Communication.Protocol (OutSpecs, WorkerSpec, localOnNewSlotWorker)
-import           Pos.Core.Configuration     (HasConfiguration)
-import           Pos.Core.Slotting          (flattenSlotId)
-import           Pos.Core.Types             (slotIdF)
-import           Pos.DHT.Configuration      (kademliaDumpInterval)
-import           Pos.DHT.Real.Types         (KademliaDHTInstance (..))
-import           Pos.Infra.Configuration    (HasInfraConfiguration)
-import           Pos.KnownPeers             (MonadKnownPeers)
-import           Pos.Recovery.Info          (MonadRecoveryInfo, recoveryCommGuard)
-import           Pos.Reporting              (MonadReporting)
-import           Pos.Shutdown               (HasShutdownContext)
-import           Pos.Slotting.Class         (MonadSlots)
+import           Pos.Binary.Class (serialize)
+import           Pos.Binary.Infra.DHTModel ()
+import           Pos.Core.Slotting (flattenSlotId, slotIdF)
+import           Pos.DHT.Constants (kademliaDumpInterval)
+import           Pos.DHT.Real.Types (KademliaDHTInstance (..))
+import           Pos.Diffusion.Types (Diffusion)
+import           Pos.Recovery.Info (MonadRecoveryInfo, recoveryCommGuard)
+import           Pos.Reporting (MonadReporting)
+import           Pos.Shutdown (HasShutdownContext)
+import           Pos.Slotting.Class (MonadSlots)
+import           Pos.Slotting.Util (defaultOnNewSlotParams, onNewSlot)
+import           Pos.Core (HasProtocolConstants)
 
 type DhtWorkMode ctx m =
     ( WithLogger m
@@ -34,32 +32,30 @@ type DhtWorkMode ctx m =
     , MonadIO m
     , MonadMask m
     , Mockable Async m
-    , Mockable Fork m
     , Mockable Delay m
-    , Mockable Catch m
     , MonadRecoveryInfo m
     , MonadReader ctx m
     , MonadReporting ctx m
-    , MonadKnownPeers m
     , HasShutdownContext ctx
-    , HasConfiguration
-    , HasInfraConfiguration
     )
 
 dhtWorkers
     :: ( DhtWorkMode ctx m
+       , HasProtocolConstants
        )
-    => KademliaDHTInstance -> ([WorkerSpec m], OutSpecs)
-dhtWorkers kademliaInst@KademliaDHTInstance {..} = mconcat
-    [ first pure (dumpKademliaStateWorker kademliaInst) ]
+    => KademliaDHTInstance -> [Diffusion m -> m ()]
+dhtWorkers kademliaInst@KademliaDHTInstance {..} =
+    [ dumpKademliaStateWorker kademliaInst ]
 
 dumpKademliaStateWorker
     :: ( DhtWorkMode ctx m
+       , HasProtocolConstants
        )
     => KademliaDHTInstance
-    -> (WorkerSpec m, OutSpecs)
-dumpKademliaStateWorker kademliaInst = localOnNewSlotWorker True $ \slotId ->
-    when (isTimeToDump slotId) $ recoveryCommGuard $ do
+    -> Diffusion m
+    -> m ()
+dumpKademliaStateWorker kademliaInst = \_ -> onNewSlot onsp $ \slotId ->
+    when (isTimeToDump slotId) $ recoveryCommGuard "dump kademlia state" $ do
         let dumpFile = kdiDumpPath kademliaInst
         logNotice $ sformat ("Dumping kademlia snapshot on slot: "%slotIdF) slotId
         let inst = kdiHandle kademliaInst
@@ -68,4 +64,5 @@ dumpKademliaStateWorker kademliaInst = localOnNewSlotWorker True $ \slotId ->
             Just fp -> liftIO . BSL.writeFile fp . serialize $ snapshot
             Nothing -> return ()
   where
+    onsp = defaultOnNewSlotParams
     isTimeToDump slotId = flattenSlotId slotId `mod` kademliaDumpInterval == 0

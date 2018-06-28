@@ -10,57 +10,44 @@ module Lib where
 
 import           Universum
 
-import           Data.Aeson                           (FromJSON (..), ToJSON,
-                                                       eitherDecodeStrict, withObject,
-                                                       (.:))
-import qualified Data.ByteString                      as B
-import           Data.Function                        (id)
-import qualified Data.List.NonEmpty                   as NE
-import           Data.Map                             (fromList, union)
-import           Data.String.Conv                     (toS)
-import           Data.Time                            (diffUTCTime, getCurrentTime)
-import           GHC.Generics                         (Generic)
+import           Data.Aeson (FromJSON (..), ToJSON, eitherDecodeStrict, withObject, (.:))
+import qualified Data.ByteString as B
+import           Data.Function (id)
+import qualified Data.List.NonEmpty as NE
+import           Data.Map (fromList, union)
+import           Data.String.Conv (toS)
+import           Data.Time (diffUTCTime, getCurrentTime)
+import           GHC.Generics (Generic)
 
-import           Crypto.Random.Entropy                (getEntropy)
-import           Pos.Client.Txp.History               (TxHistoryEntry (..))
-import           Pos.Core.Types                       (Address, Coin, mkCoin)
-import           Pos.Data.Attributes                  (mkAttributes)
-import           Pos.DB.GState.Common                 (getTip)
-import           Pos.StateLock                        (StateLock (..))
-import           Pos.Txp                              (getLocalTxs, getLocalUndos,
-                                                       withTxpLocalData)
-import           Pos.Txp.Core.Types                   (Tx (..), TxId, TxIn (..),
-                                                       TxOut (..), TxOutAux (..))
-import           Pos.Txp.Toil.Types                   (utxoToModifier)
-import           Pos.Util.BackupPhrase                (BackupPhrase, mkBackupPhrase12)
-import           Pos.Util.Mnemonics                   (toMnemonic)
-import           Pos.Util.Servant                     (decodeCType)
-import           Pos.Util.Util                        (lensOf)
-import           Pos.Wallet.Web.Account               (GenSeed (..))
-import           Pos.Wallet.Web.ClientTypes           (AccountId (..), CAccount (..),
-                                                       CAccountInit (..),
-                                                       CAccountMeta (..), CAddress (..),
-                                                       CId (..), CWallet (..),
-                                                       CWalletAssurance (..),
-                                                       CWalletInit (..), CWalletMeta (..),
-                                                       Wal)
+import           Crypto.Random.Entropy (getEntropy)
+import           Pos.Client.Txp (TxHistoryEntry (..))
+import           Pos.Core (Address, Coin, mkCoin)
+import           Pos.Data.Attributes (mkAttributes)
+import           Pos.DB.GState.Common (getTip)
+import           Pos.StateLock (StateLock (..))
+import           Pos.Txp (Tx (..), TxId, TxIn (..), TxOut (..), TxOutAux (..))
+import           Pos.Txp.Toil.Types (utxoToModifier)
+import           Pos.Util.BackupPhrase (BackupPhrase (..))
+import           Pos.Util.Mnemonics (toMnemonic)
+import           Pos.Util.Servant (decodeCType)
+import           Pos.Util.Util (lensOf)
+import           Pos.Wallet.Web.Account (GenSeed (..))
+import           Pos.Wallet.Web.ClientTypes (AccountId (..), CAccount (..), CAccountInit (..),
+                                             CAccountMeta (..), CAddress (..), CId (..),
+                                             CWallet (..), CWalletAssurance (..), CWalletInit (..),
+                                             CWalletMeta (..), Wal)
 import           Pos.Wallet.Web.ClientTypes.Instances ()
-import           Pos.Wallet.Web.Methods.Logic         (getAccounts,
-                                                       newAccountIncludeUnready,
-                                                       newAddress)
-import           Pos.Wallet.Web.Methods.Restore       (newWallet)
-import           Pos.Wallet.Web.State.State           (askWalletDB, askWalletSnapshot,
-                                                       getWalletSnapshot, getWalletUtxo,
-                                                       insertIntoHistoryCache,
-                                                       setWalletUtxo,
-                                                       updateWalletBalancesAndUtxo)
-import           Test.QuickCheck                      (Gen, arbitrary, choose, frequency,
-                                                       generate, vectorOf)
-import           Text.Printf                          (printf)
+import           Pos.Wallet.Web.Methods.Logic (getAccounts, newAccountIncludeUnready, newAddress)
+import           Pos.Wallet.Web.Methods.Restore (newWallet)
+import           Pos.Wallet.Web.State.State (askWalletDB, getWalletSnapshot, getWalletUtxo,
+                                             insertIntoHistoryCache, setWalletUtxo,
+                                             updateWalletBalancesAndUtxo)
+import           Test.QuickCheck (Gen, arbitrary, choose, frequency, generate, vectorOf)
+import           Text.Printf (printf)
 
-import           CLI                                  (CLI (..))
-import           Rendering                            (green, renderAccountId, say)
-import           Types                                (UberMonad)
+import           CLI (CLI (..))
+import           Rendering (green, renderAccountId, say)
+import           Types (UberMonad)
 
 --
 -- Types
@@ -437,7 +424,7 @@ newRandomMnemonic = do
 
     let newMnemonic = either (error . show) id (toMnemonic genMnemonic)
 
-    pure $ mkBackupPhrase12 $ words newMnemonic
+    pure $ BackupPhrase $ words newMnemonic
 
 
 -- | Creates a new 'CAccount'.
@@ -457,10 +444,5 @@ genAccount CWallet{..} accountNum = do
 -- | Creates a new 'CAddress'.
 genAddress :: AccountId -> UberMonad CAddress
 genAddress cid = do
-    ws <- askWalletSnapshot
-    mps <- withTxpLocalData $ \txpData -> (,)
-          <$> getLocalTxs txpData
-          <*> getLocalUndos txpData
-
     let (walletId, addrNum) = (aiWId cid, aiIndex cid)
-    newAddress ws mps RandomSeed mempty (AccountId walletId addrNum)
+    newAddress RandomSeed mempty (AccountId walletId addrNum)

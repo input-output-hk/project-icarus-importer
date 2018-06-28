@@ -1,0 +1,16 @@
+rotation:
+    logLimit: 5242880 # 5MB
+    keepFiles: 20
+severity: Debug
+file: blockchain-importer-node.log
+node:
+    plugin:
+        notifier:
+            severity: Debug
+            file: blockchain-importer.log
+            socket-io:
+                severity: Debug
+                file: socket-io.log
+drop:
+    severity: Error
+

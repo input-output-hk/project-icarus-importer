@@ -2,67 +2,73 @@
 {-# LANGUAGE ExistentialQuantification #-}
 
 module Pos.Network.Types
-    ( -- * Network configuration
-      NetworkConfig (..)
-    , NodeName (..)
-    , defaultNetworkConfig
-      -- * Topology
-    , StaticPeers(..)
-    , Topology(..)
-      -- ** Derived information
-    , SubscriptionWorker(..)
-    , topologyNodeType
-    , topologySubscribers
-    , topologyUnknownNodeType
-    , topologySubscriptionWorker
-    , topologyRunKademlia
-    , topologyEnqueuePolicy
-    , topologyDequeuePolicy
-    , topologyFailurePolicy
-    , topologyMaxBucketSize
-    , topologyRoute53HealthCheckEnabled
-      -- * Queue initialization
-    , Bucket(..)
-    , initQueue
-      -- * Constructing peers
-    , Valency
-    , Fallbacks
-    , choosePeers
-      -- * DNS support
-    , Resolver
-    , resolveDnsDomains
-    , initDnsOnUse
-      -- * Helpers
-    , HasNodeType (..)
-    , getNodeTypeDefault
-      -- * Re-exports
-      -- ** from .DnsDomains
-    , DnsDomains(..)
-      -- ** from time-warp
-    , NodeType (..)
-    , MsgType (..)
-    , Origin (..)
-      -- ** other
-    , NodeId (..)
-    ) where
+       ( -- * Network configuration
+         NetworkConfig (..)
+       , NodeName (..)
+       -- * Topology
+       , StaticPeers(..)
+       , Topology(..)
+       -- ** Derived information
+       , SubscriptionWorker(..)
+       , topologyNodeType
+       , topologySubscribers
+       , topologyUnknownNodeType
+       , topologySubscriptionWorker
+       , topologyRunKademlia
+       , topologyEnqueuePolicy
+       , topologyDequeuePolicy
+       , topologyFailurePolicy
+       , topologyMaxBucketSize
+       , topologyHealthStatus
+       , topologyRoute53HealthCheckEnabled
+       -- * Queue initialization
+       , Bucket(..)
+       , initQueue
+       -- * Constructing peers
+       , Valency
+       , Fallbacks
+       , choosePeers
+       -- * DNS support
+       , Resolver
+       , resolveDnsDomains
+       , initDnsOnUse
+       -- * Helpers
+       , HasNodeType (..)
+       , getNodeTypeDefault
+       -- * Re-exports
+       -- ** from .DnsDomains
+       , DnsDomains(..)
+       -- ** from time-warp
+       , NodeType (..)
+       , MsgType (..)
+       , Origin (..)
+       -- ** other
+       , NodeId (..)
+       ) where
 
-import           Data.IP                               (IPv4)
-import           GHC.Show                              (Show (..))
-import           Network.Broadcast.OutboundQueue       (OutboundQ)
-import qualified Network.Broadcast.OutboundQueue       as OQ
+import           Universum
+
+import           Data.IP (IPv4)
+import qualified Data.Set as Set (null)
+import           Network.Broadcast.OutboundQueue (OutboundQ)
+import qualified Network.Broadcast.OutboundQueue as OQ
 import           Network.Broadcast.OutboundQueue.Types
-import           Network.DNS                           (DNSError)
-import qualified Network.DNS                           as DNS
-import           Node.Internal                         (NodeId (..))
-import           Pos.Network.DnsDomains                (DnsDomains (..), NodeAddr)
-import qualified Pos.Network.DnsDomains                as DnsDomains
-import qualified Pos.Network.Policy                    as Policy
-import           Pos.System.Metrics.Constants          (cardanoNamespace)
-import           Pos.Util.TimeWarp                     (addressToNodeId)
-import           Pos.Util.Util                         (HasLens', lensOf)
-import qualified System.Metrics                        as Monitoring
-import           System.Wlog.CanLog                    (WithLogger)
-import           Universum                             hiding (show)
+import           Network.DNS (DNSError)
+import qualified Network.DNS as DNS
+import qualified Network.Transport.TCP as TCP
+import           Node.Internal (NodeId (..))
+import qualified Prelude
+import qualified System.Metrics as Monitoring
+import           System.Wlog (LoggerName (..))
+
+import           Pos.Network.DnsDomains (DnsDomains (..), NodeAddr)
+import qualified Pos.Network.DnsDomains as DnsDomains
+import qualified Pos.Network.Policy as Policy
+import           Pos.Reporting.Health.Types (HealthStatus (..))
+import           Pos.System.Metrics.Constants (cardanoNamespace)
+import           Pos.Util.TimeWarp (addressToNodeId)
+import           Pos.Util.Trace (wlogTrace)
+import           Pos.Util.Util (HasLens', lensOf)
 
 {-------------------------------------------------------------------------------
   Network configuration
@@ -85,17 +91,19 @@ data NetworkConfig kademlia = NetworkConfig
     , ncEnqueuePolicy :: !(OQ.EnqueuePolicy NodeId)
     , ncDequeuePolicy :: !OQ.DequeuePolicy
     , ncFailurePolicy :: !(OQ.FailurePolicy NodeId)
+    , ncTcpAddr       :: !TCP.TCPAddr
+      -- ^ External TCP address of the node.
+      -- It encapsulates both bind address and address visible to other nodes.
     }
 
 instance Show kademlia => Show (NetworkConfig kademlia) where
     show = show . showableNetworkConfig
 
-data ShowableNetworkConfig kademlia = ShowableNetworkConfig {
-      sncTopology    :: !(Topology kademlia)
+data ShowableNetworkConfig kademlia = ShowableNetworkConfig
+    { sncTopology    :: !(Topology kademlia)
     , sncDefaultPort :: !Word16
     , sncSelfName    :: !(Maybe NodeName)
-    }
-    deriving (Show)
+    } deriving (Show)
 
 showableNetworkConfig :: NetworkConfig kademlia -> ShowableNetworkConfig kademlia
 showableNetworkConfig NetworkConfig {..} =
@@ -104,34 +112,28 @@ showableNetworkConfig NetworkConfig {..} =
         sncSelfName    = ncSelfName
     in  ShowableNetworkConfig {..}
 
-defaultNetworkConfig :: Topology kademlia -> NetworkConfig kademlia
-defaultNetworkConfig ncTopology = NetworkConfig {
-      ncDefaultPort   = 3000
-    , ncSelfName      = Nothing
-    , ncEnqueuePolicy = topologyEnqueuePolicy ncTopology
-    , ncDequeuePolicy = topologyDequeuePolicy ncTopology
-    , ncFailurePolicy = topologyFailurePolicy ncTopology
-    , ..
-    }
-
-{-------------------------------------------------------------------------------
-  Topology (from the pov of a single node)
--------------------------------------------------------------------------------}
+----------------------------------------------------------------------------
+-- Topology
+----------------------------------------------------------------------------
 
 -- | Statically configured peers
 --
 -- Although the peers are statically configured, this is nonetheless stateful
 -- because we re-read the file on SIGHUP.
-data StaticPeers = forall m. (MonadIO m, WithLogger m) => StaticPeers {
+data StaticPeers = StaticPeers {
       -- | Register a handler to be invoked whenever the static peers change
       --
       -- The handler will also be called on registration
       -- (with the current value).
-      staticPeersOnChange :: (Peers NodeId -> m ()) -> IO ()
+      staticPeersOnChange   :: (Peers NodeId -> IO ()) -> IO ()
+    , -- | Monitoring worker which is supposed to be started in a
+      -- separate thread. This worker processes handlers registered by
+      -- 'staticPeersOnChange'.
+      staticPeersMonitoring :: IO ()
     }
 
 instance Show StaticPeers where
-  show _ = "<<StaticPeers>>"
+    show _ = "<<StaticPeers>>"
 
 -- | Topology of the network, from the point of view of the current node
 data Topology kademlia =
@@ -187,9 +189,9 @@ data Topology kademlia =
       }
   deriving (Show)
 
-{-------------------------------------------------------------------------------
-  Information derived from the topology
--------------------------------------------------------------------------------}
+----------------------------------------------------------------------------
+-- Information derived from the topology
+----------------------------------------------------------------------------
 
 -- See the networking policy document for background to understand this
 -- docs/network/policy.md
@@ -244,12 +246,12 @@ topologyUnknownNodeType topology = OQ.UnknownNodeType $ go topology
     go TopologyBehindNAT{}   = const NodeEdge   -- should never happen
     go TopologyAuxx{}        = const NodeEdge   -- should never happen
 
-data SubscriptionWorker kademlia =
+data SubscriptionWorker =
     SubscriptionWorkerBehindNAT (DnsDomains DNS.Domain)
-  | SubscriptionWorkerKademlia kademlia NodeType Valency Fallbacks
+  | SubscriptionWorkerKademlia NodeType Valency Fallbacks
 
 -- | What kind of subscription worker do we run?
-topologySubscriptionWorker :: Topology kademlia -> Maybe (SubscriptionWorker kademlia)
+topologySubscriptionWorker :: Topology kademlia -> Maybe SubscriptionWorker
 topologySubscriptionWorker = go
   where
     go TopologyCore{}          = Nothing
@@ -260,12 +262,10 @@ topologySubscriptionWorker = go
     go TopologyBehindNAT{..}   = Just $ SubscriptionWorkerBehindNAT
                                           topologyDnsDomains
     go TopologyP2P{..}         = Just $ SubscriptionWorkerKademlia
-                                          topologyKademlia
                                           NodeRelay
                                           topologyValency
                                           topologyFallbacks
     go TopologyTraditional{..} = Just $ SubscriptionWorkerKademlia
-                                          topologyKademlia
                                           NodeCore
                                           topologyValency
                                           topologyFallbacks
@@ -293,7 +293,7 @@ topologyEnqueuePolicy = go
     go TopologyBehindNAT{..} = Policy.defaultEnqueuePolicyEdgeBehindNat
     go TopologyP2P{}         = Policy.defaultEnqueuePolicyEdgeP2P
     go TopologyTraditional{} = Policy.defaultEnqueuePolicyCore
-    go TopologyAuxx{}        = Policy.defaultEnqueuePolicyEdgeBehindNat
+    go TopologyAuxx{}        = Policy.defaultEnqueuePolicyAuxx
 
 -- | Dequeue policy for the given topology
 topologyDequeuePolicy :: Topology kademia -> OQ.DequeuePolicy
@@ -304,22 +304,88 @@ topologyDequeuePolicy = go
     go TopologyBehindNAT{..} = Policy.defaultDequeuePolicyEdgeBehindNat
     go TopologyP2P{}         = Policy.defaultDequeuePolicyEdgeP2P
     go TopologyTraditional{} = Policy.defaultDequeuePolicyCore
-    go TopologyAuxx{}        = Policy.defaultDequeuePolicyEdgeBehindNat
+    go TopologyAuxx{}        = Policy.defaultDequeuePolicyAuxx
 
 -- | Failure policy for the given topology
 topologyFailurePolicy :: Topology kademia -> OQ.FailurePolicy NodeId
-topologyFailurePolicy = Policy.defaultFailurePolicy . topologyNodeType
+topologyFailurePolicy = go
+  where
+    go TopologyAuxx{} = Policy.defaultFailurePolicyAuxx
+    go topo           = Policy.defaultFailurePolicy . topologyNodeType $ topo
 
 -- | Maximum bucket size
-topologyMaxBucketSize :: Topology kademia -> Bucket -> OQ.MaxBucketSize
+topologyMaxBucketSize :: Topology kademia -> Bucket -> Maybe OQ.MaxBucketSize
 topologyMaxBucketSize topology bucket =
     case bucket of
       BucketSubscriptionListener ->
         case topologySubscribers topology of
-          Just (_subscriberType, maxBucketSize) -> maxBucketSize
-          Nothing                               -> OQ.BucketSizeMax 0 -- subscription not allowed
-      _otherBucket ->
-        OQ.BucketSizeUnlimited
+          Just (_subscriberType, maxBucketSize) -> Just maxBucketSize
+          Nothing                               -> Nothing -- subscription not allowed
+      _otherBucket -> Just OQ.BucketSizeUnlimited
+
+topologyHealthStatus :: MonadIO m => Topology kademlia -> OutboundQ msg nid Bucket -> m HealthStatus
+topologyHealthStatus topology = case topology of
+    TopologyCore{}        -> const (pure topologyHealthStatusCore)
+    TopologyRelay{..}     -> topologyHealthStatusRelay topologyMaxSubscrs
+    TopologyBehindNAT{}   -> topologyHealthStatusNAT
+    TopologyP2P{}         -> topologyHealthStatusP2P
+    TopologyTraditional{} -> topologyHealthStatusTraditional
+    TopologyAuxx{}        -> topologyHealthStatusAuxx
+
+-- | Core nodes are always healthy.
+topologyHealthStatusCore :: HealthStatus
+topologyHealthStatusCore = HSHealthy ""
+
+-- | Health of a relay is determined by its spare capacity.
+topologyHealthStatusRelay
+    :: MonadIO m
+    => OQ.MaxBucketSize
+    -> OQ.OutboundQ msg nid Bucket
+    -> m HealthStatus
+topologyHealthStatusRelay mbs oq = do
+    let maxCapacityText :: Text
+        maxCapacityText = case mbs of
+            OQ.BucketSizeUnlimited -> fromString "unlimited"
+            OQ.BucketSizeMax x     -> fromString (show x)
+    spareCapacity <- liftIO $ OQ.bucketSpareCapacity oq BucketSubscriptionListener
+    pure $ case spareCapacity of
+        OQ.SpareCapacity sc  | sc == 0 -> HSUnhealthy (fromString "0/" <> maxCapacityText)
+        OQ.SpareCapacity sc  -> HSHealthy $ fromString (show sc) <> "/" <> maxCapacityText
+        OQ.UnlimitedCapacity -> HSHealthy maxCapacityText
+
+-- | Health of a behind-NAT node is good iff it is connected to some other node.
+topologyHealthStatusNAT
+    :: MonadIO m
+    => OQ.OutboundQ msg nid bucket
+    -> m HealthStatus
+topologyHealthStatusNAT oq = do
+    peers <- liftIO $ OQ.getAllPeers oq
+    if (Set.null (peersSet peers))
+    then pure $ HSUnhealthy "not connected"
+    else pure $ HSHealthy "connected"
+
+-- | Health status of a P2P node is the same as for behind NAT. Its capacity to
+-- support new subscribers is ignored.
+topologyHealthStatusP2P
+    :: MonadIO m
+    => OQ.OutboundQ msg nid bucket
+    -> m HealthStatus
+topologyHealthStatusP2P = topologyHealthStatusNAT
+
+-- | Health status of a traditional node is the same as for behind NAT. Its
+-- capacity to support new subscribers is ignored.
+topologyHealthStatusTraditional
+    :: MonadIO m
+    => OQ.OutboundQ msg nid bucket
+    -> m HealthStatus
+topologyHealthStatusTraditional = topologyHealthStatusTraditional
+
+-- | Auxx health status is the same as for behind-NAT.
+topologyHealthStatusAuxx
+    :: MonadIO m
+    => OQ.OutboundQ msg nid bucket
+    -> m HealthStatus
+topologyHealthStatusAuxx = topologyHealthStatusNAT
 
 -- | Whether or not we want to enable the health-check endpoint to be used by Route53
 -- in determining if a relay is healthy (i.e. it can accept more subscriptions or not)
@@ -364,16 +430,22 @@ data Bucket =
 -- For behind NAT nodes and Kademlia nodes (P2P or traditional) we start
 -- (elsewhere) specialized workers that add peers to the queue and subscribe
 -- to (some of) those peers.
-initQueue :: (MonadIO m, WithLogger m, FormatMsg msg)
+--
+-- This will use the log-warper trace for logging from the outbound queue.
+-- You can choose what name to give it.
+initQueue :: (MonadIO m, FormatMsg msg)
           => NetworkConfig kademlia
+          -> LoggerName
           -> Maybe Monitoring.Store -- ^ EKG store (if used)
           -> m (OutboundQ msg NodeId Bucket)
-initQueue NetworkConfig{..} mStore = do
-    oq <- OQ.new (maybe "self" toString ncSelfName)
+initQueue NetworkConfig{..} loggerName mStore = liftIO $ do
+    let NodeName selfName = fromMaybe (NodeName "self") ncSelfName
+        oqTrace           = wlogTrace (loggerName <> LoggerName selfName)
+    oq <- OQ.new oqTrace
                  ncEnqueuePolicy
                  ncDequeuePolicy
                  ncFailurePolicy
-                 (topologyMaxBucketSize   ncTopology)
+                 (fromMaybe (OQ.BucketSizeMax 0) . topologyMaxBucketSize ncTopology)
                  (topologyUnknownNodeType ncTopology)
 
     case mStore of
@@ -393,20 +465,20 @@ initQueue NetworkConfig{..} mStore = do
       TopologyTraditional{} ->
         -- Kademlia worker is responsible for adding peers
         return ()
-      TopologyCore{topologyStaticPeers = StaticPeers{..}} -> liftIO $
+      TopologyCore{topologyStaticPeers = StaticPeers{..}} ->
         staticPeersOnChange $ \peers -> do
           OQ.clearRecentFailures oq
           void $ OQ.updatePeersBucket oq BucketStatic (\_ -> peers)
-      TopologyRelay{topologyStaticPeers = StaticPeers{..}} -> liftIO $
+      TopologyRelay{topologyStaticPeers = StaticPeers{..}} ->
         staticPeersOnChange $ \peers -> do
           OQ.clearRecentFailures oq
           void $ OQ.updatePeersBucket oq BucketStatic (\_ -> peers)
 
     return oq
 
-{-------------------------------------------------------------------------------
-  Constructing peers
--------------------------------------------------------------------------------}
+----------------------------------------------------------------------------
+-- Constructing peers
+----------------------------------------------------------------------------
 
 -- | The number of peers we want to send to
 --
@@ -434,20 +506,23 @@ choosePeers valency fallbacks peerType =
     mkGroupsOf n lst = case splitAt n lst of
                          (these, those) -> these : mkGroupsOf n those
 
-{-------------------------------------------------------------------------------
-  DNS support
--------------------------------------------------------------------------------}
+----------------------------------------------------------------------------
+-- DNS support
+----------------------------------------------------------------------------
 
 type Resolver = DNS.Domain -> IO (Either DNSError [IPv4])
 
 -- | Variation on resolveDnsDomains that returns node IDs
-resolveDnsDomains :: NetworkConfig kademlia
+--
+-- This uses the network, and so may throw exceptions in case of, for instance,
+-- and unreachable network.
+resolveDnsDomains :: Word16
                   -> [NodeAddr DNS.Domain]
                   -> IO [Either DNSError [NodeId]]
-resolveDnsDomains NetworkConfig{..} dnsDomains =
+resolveDnsDomains defaultPort dnsDomains =
     initDnsOnUse $ \resolve -> (fmap . fmap . fmap . fmap) addressToNodeId $
         DnsDomains.resolveDnsDomains resolve
-                                     ncDefaultPort
+                                     defaultPort
                                      dnsDomains
 {-# ANN resolveDnsDomains ("HLint: ignore Use <$>" :: String) #-}
 

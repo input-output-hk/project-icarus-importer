@@ -24,7 +24,7 @@ for `cardano-sl` it doesn't make sense, because we don't even have a
 notion of _installer_ for it. So when we update `cardano-sl` it
 doesn't make sense to attach any data about installers into update
 proposal. There are few reasons to propose an update of `cardano-sl`:
-1. It allows us to make a protocol update without updating end
+1. It allows us to make a protocol-only update without updating end
    users. For example we may want to change some protocol parameter
    and not bother users with updates. Note that we can also propose an
    update of non-existing application, but it doesn't make much sense
@@ -34,17 +34,17 @@ proposal. There are few reasons to propose an update of `cardano-sl`:
    essential, probably doesn't deserve spending time on it).
 
 Flow for an update is the following (brief sketch, no details):
-1. Software update is proposed. Proposal is a datatype that gets into
+1. New software is prepared, some values in configuration are
+   changed. If we want to update `csl-daedalus`, new installers are
+   prepared. If we want to update `cardano-sl`, everything should be
+   setup to redeploy core and relay nodes.
+2. Software update is proposed. Proposal is a datatype that gets into
    the blockchain. It contains information about version changes and
    hashes of update files (can be empty). It also contains
    `BlockVersion` and `BlockVersionData`. They define protocol version
    and its parameters. They can be the same as the previous ones (in
    which case there is no protocol update) or can differ (then there
    is also a protocol update).
-2. New software is prepared, some values in configuration are
-   changed. If we want to update `csl-daedalus`, new installers are
-   prepared. If we want to update `cardano-sl`, everything should be
-   setup to redeploy core and relay nodes.
 3. If wallets should be updated, installers are uploaded to the S3 bucket.
 4. An update is confirmed by voting from majority of nodes.
 5. Nodes that see an update try to download and apply it
@@ -135,9 +135,9 @@ The following variables will be used in all following commands:
 CONFIG_KEY=mainnet_dryrun_full  # Should be the same as on the running nodes!
 RELAY_PEER=<IP>:3000            # A host of any relay node.
 
-COMMONOPTS="--system-start 0 --configuration-file ../cardano-sl/node/configuration.yaml --configuration-key ${CONFIG_KEY}"
+COMMONOPTS="--system-start 0 --configuration-file ../cardano-sl/lib/configuration.yaml --configuration-key ${CONFIG_KEY} --mode=with-config"
 
-AUXXOPTS="--log-config ../cardano-sl/scripts/log-templates/log-config-qa.yaml --logs-prefix logs/aux-update.1.0.1 --db-path aux-update-1.0.1 --peer ${RELAY_PEER}"
+AUXXOPTS="--log-config ../cardano-sl/log-configs/connect-to-cluster.yaml --logs-prefix logs/aux-update.1.0.1 --db-path aux-update-1.0.1 --peer ${RELAY_PEER}"
 ```
 
 Feel free to change the paths above (ending with `aux-update-1.0.1`)
@@ -146,11 +146,11 @@ to desired locations.
 Sending an update proposal
 ------------------
 
-Let's say that you want to push an update with the following Windows/macOS installers (note: it's important that the installers must be in current directory, i.e. there must be no slashes):
+Let's say that you want to push an update with the following Windows/macOS installers (note: the file path must start with either `/` or `./` and only alphanumeric characters and `.`, `-`, `_`, `/` are allowed):
 
 ```
-WIN64_INSTALLER=daedalus-win64-1.0.3350.0-installer.exe
-DARWIN_INSTALLER=Daedalus-installer-1.0-rc.3202.pkg
+WIN64_INSTALLER=./daedalus-win64-1.0.3350.0-installer.exe
+DARWIN_INSTALLER=./Daedalus-installer-1.0-rc.3202.pkg
 ```
 
 Or you may want to update `cardano-sl` application, in this case you
@@ -162,7 +162,7 @@ It's assumed that you are doing everything from scratch and don't have
 `secret.key` file before using the command below.
 
 ```
-stack exec -- cardano-auxx $COMMONOPTS $AUXXOPTS cmd --commands "add-key key0.sk primary, add-key key1.sk primary, add-key key2.sk primary, add-key key3.sk primary, listaddr"
+stack exec -- cardano-auxx $COMMONOPTS $AUXXOPTS cmd --commands "add-key ./key0.sk primary:true; add-key ./key1.sk primary:true; add-key ./key2.sk primary:true; add-key ./key3.sk primary:true; listaddr"
 ```
 
 Flag `primary` indicates that signing secret key will be added.
@@ -172,7 +172,7 @@ If the `listaddr` command hasn't printed the addresses belonging to the four key
 To create and send an update proposal with votes from all imported secret keys, you need to run this command:
 
 ```
-stack exec -- cardano-auxx $COMMONOPTS $AUXXOPTS cmd --commands "propose-update 0 vote-all 0.1.0 65536 70000 <software-version> [win64 ${WIN64_INSTALLER} none macos64 ${DARWIN_INSTALLER} none]"
+stack exec -- cardano-auxx $COMMONOPTS $AUXXOPTS cmd --commands "propose-update 0 vote-all:true 0.1.0 ~software~<software-version> (upd-bin \"win64\" ${WIN64_INSTALLER}) (upd-bin \"macos64\" ${DARWIN_INSTALLER})"
 ```
 
 Notice that the last part of this command is optional, its presence
@@ -181,32 +181,31 @@ depends on whether you want to update `cardano-sl` or `csl-daedalus`.
 Examples:
 
 ```
-stack exec -- cardano-auxx $COMMONOPTS $AUXXOPTS cmd --commands "propose-update 0 vote-all 0.1.0 65536 70000 csl-daedalus:1 win64 ${WIN64_INSTALLER} none macos64 ${DARWIN_INSTALLER} none"
-stack exec -- cardano-auxx $COMMONOPTS $AUXXOPTS cmd --commands "propose-update 0 vote-all 0.1.0 65536 70000 cardano-sl:1"
+stack exec -- cardano-auxx $COMMONOPTS $AUXXOPTS cmd --commands "propose-update 0 vote-all:true 0.1.0 ~software~csl-daedalus:1 (upd-bin \"win64\" ${WIN64_INSTALLER}) (upd-bin \"macos64\" ${DARWIN_INSTALLER})"
+stack exec -- cardano-auxx $COMMONOPTS $AUXXOPTS cmd --commands "propose-update 0 vote-all:true 0.1.0 ~software~cardano-sl:1"
 ```
 
 You also can combine importing keys and sending an update proposal in
 one command for your convenience. Example:
 
-
 ```
-stack exec -- cardano-auxx $COMMONOPTS $AUXXOPTS cmd --commands "add-key key0.sk primary, add-key key1.sk primary, add-key key2.sk primary, add-key key3.sk primary, propose-update 0 vote-all 0.1.0 65536 70000 csl-daedalus:1 win64 ${WIN64_INSTALLER} none macos64 ${DARWIN_INSTALLER} none"
+stack exec -- cardano-auxx $COMMONOPTS $AUXXOPTS cmd --commands "add-key ./key0.sk primary:true; add-key ./key1.sk primary:true; add-key ./key2.sk primary:true; add-key ./key3.sk primary:true; propose-update 0 vote-all:true 0.1.0 bvm ~software~csl-daedalus:1 (upd-bin "win64" ${WIN64_INSTALLER}) (upd-bin "macos64" ${DARWIN_INSTALLER})"
 ```
-
 
 Let's break down the invocation of `propose-update`. First come arguments that you almost certainly won't need to modify:
 
-* `0` is the index of key that will be used to sign the update.
-* `vote-all` flag means that update proposal will be submitted along
+* `0` is the index of key that will be used to sign the update. You
+  can use different key (if you add four keys on previous step, this
+  index should be in range `[0 .. 3]`). It's recommended that
+  different people use different keys so that later we can inspect the
+  blockchain to know who proposed which update.
+* `vote-all:true` flag means that update proposal will be submitted along
   with votes from all our keys.
 * `0.1.0` is block version to be used after the
   update. See [Prerequisites](#prerequisites), you should know it in
   advance. `0.1.0` is used as an example.
-* `65536` is maximal tx size. Should be set to this value (`65536`) in `0.1.0`.
-* `70000` is maximal size of update proposal. Should be set to this
-  value (`70000`) in `0.1.0`.
 
-The next argument (`<software-version>`, e. g. `csl-daedalus:1`) is
+The next argument (`~software~<software-version>`, e. g. `~software~csl-daedalus:1`) is
 software version description. You should substitute `1` (version) with
 the integer provided along with installers (see *Prerequisites*
 section). Recall that currently we are maintaining two softwares:
@@ -214,13 +213,14 @@ section). Recall that currently we are maintaining two softwares:
 by wallets).
 
 Further arguments are optional, should be provided in `csl-daedalus`
-case and omitted in `cardano-sl` case. Those arguments are an arbitrary number
-of _triples_ (two in `csl-daedalus` case, one for Windows and one for
-macOS). Each triple is `<system tag> <installer filename> none`. Once
-again, those are filenames in the current dir, not arbitrary
-paths. `none` stands for binary diff (this feature is not used for
-now). System tags should corresponds to `systemTag` values in
-configuration file.
+case and omitted in `cardano-sl` case. Those arguments are update proposals
+for a system. You can specify an arbitary amount of them
+(two in `csl-daedalus` case, one for Windows and one for macOS).
+They're constructed with `upd-bin` function, which takes two arguments:
+a system tag and the installer filename. Once again, they must start
+with either `/` or `./` and only alphanumeric characters and `-`, `_`, `.`
+and `/` are allowed in the file path. System tags should corresponds to
+`systemTag` values in configuration file.
 
 Successfull command output looks like this:
 
@@ -251,7 +251,7 @@ These hashes are Blake2b_256 hashes of CBOR-encoded contents of the files.
 There is a simple command to calculate the hash of an installer:
 
 ```
-stack exec -- cardano-auxx $COMMONOPTS $AUXXOPTS cmd --commands "hash-installer <FILEPATH>"
+./scripts/hash-installer.sh <FILEPATH>
 ```
 
 Note:
@@ -273,6 +273,8 @@ Upload installers to S3 bucket:
 * For mainnet:
     * URL: https://update.cardano-mainnet.iohk.io
     * S3 Bucket: `update.cardano-mainnet.iohk.io` in mainnet AWS role
+
+Make sure you made installers public.
 
 Download server URL is passed to the launcher/node in the following way:
 https://github.com/input-output-hk/daedalus/blob/eb713a66eb2c0445fbe8c2faa59f0884edd83712/installers/Launcher.hs#L68

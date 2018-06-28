@@ -17,14 +17,24 @@ function find_build_binary {
 }
 
 function ensure_run {
-  run_dir="$base_common/../run"
+  if [[ $1 == "" ]]
+  then
+    local run_dir="$base_common/../run"
+  else
+    run_dir=$1
+  fi
   mkdir -p "$run_dir"
 }
 
 LOGS_TIME=`date '+%F_%H%M%S'`
 
 function ensure_logs {
-  logs_dir="$base_common/../logs/$LOGS_TIME"
+  if [[ $1 == "" ]]
+  then
+    logs_dir="$base_common/../logs/$LOGS_TIME"
+  else
+    logs_dir=$1
+  fi
   mkdir -p "$logs_dir"
 }
 
@@ -34,23 +44,24 @@ function dump_path {
 }
 
 function logs {
-  ensure_logs
+  local log_file=$2
+  ensure_logs $1
 
-  local log_file=$1
   local conf_dir="$logs_dir/conf"
-  local template_name="log-templates/log-template.yaml"
+  local template_name="../log-configs/template-demo.yaml"
   if [[ "$LOG_TEMPLATE" != "" ]]; then
-    template_name="$LOG_TEMPLATE"
+    local template="$LOG_TEMPLATE"
+  else
+    local template_name="../log-configs/template-demo.yaml"
+    local template="$base_common/$template_name"
   fi
-  local template="$base_common/$template_name"
 
   mkdir -p "$conf_dir"
   mkdir -p "$logs_dir/dump"
 
   local conf_file="$conf_dir/$log_file.yaml"
   cat "$template" \
-    | sed "s/{{file}}/$log_file/g" \
-    > "$conf_file"
+    | sed "s|{{file}}|$logs_dir/$log_file|g" > "$conf_file"
   echo -n " --json-log=$logs_dir/node$i.json "
   echo -n " --logs-prefix $logs_dir --log-config $conf_file "
 }
@@ -74,7 +85,7 @@ function dht_key {
   $(find_binary cardano-dht-keygen) -n 000000000000$i2 | tr -d '\n'
 }
 
-# Generates kademliaN.yaml and topologyN.yaml for demo setup 
+# Generates kademliaN.yaml and topologyN.yaml for demo setup
 # for N \in {0..n-1} where n is number of nodes specified.
 function gen_kademlia_topology {
   local total_nodes=$1
@@ -92,8 +103,8 @@ function gen_kademlia_topology {
   fi
 
   echo "Cleaning up topology/kademlia files"
-  rm -v $out_dir/topology*.yaml
-  rm -v $out_dir/kademlia*.yaml
+  rm -fv $out_dir/topology*.yaml
+  rm -fv $out_dir/kademlia*.yaml
 
   echo "Generating new topology/kademlia files"
   for i in $(seq 0 $total_nodes); do
@@ -108,12 +119,13 @@ function gen_kademlia_topology {
       local others_n=$npred
     fi
 
+    touch $kfile
     if [[ $total_nodes -eq 1 ]]; then
       echo "peers: []" > $kfile
     else
       echo "peers: " > $kfile
     fi
-    
+
     for j in $(seq 0 $others_n); do
       if [[ $j -eq $i ]]; then continue; fi
       echo "  - host: '127.0.0.1'" >> $kfile
@@ -132,17 +144,14 @@ function gen_kademlia_topology {
     local tfile=$out_dir/topology$i.yaml
     echo "nodes: " > $tfile
     for j in $(seq 0 $npred); do
-  
+
       local routes="["
-      for k in $(seq 0 $npred); do 
+      for k in $(seq 0 $npred); do
         if [ $k -eq $j ]; then continue; fi
-        routes="$routes[\"node$k\"]"
-        # don't put comma after last element and after pre-last element of last list item
-        if ! ([ $k -eq $npred ] || [ $k -eq $(($npred-1)) -a $j -eq $npred ]); then 
-          routes=$routes", "
-        fi
+        routes="$routes[\"node$k\"], "
       done
-      routes="$routes]"
+      # If we have explorer add it so that the other nodes converse with it.
+      routes="$routes[\"explorer\"]]"
 
       echo "  \"node$j\":"              >> $tfile
       echo "    type: core"             >> $tfile
@@ -150,6 +159,29 @@ function gen_kademlia_topology {
       echo "    static-routes: $routes" >> $tfile
       echo "    addr: 127.0.0.1"        >> $tfile
       echo "    port: 300$j"            >> $tfile
+
+      # add explorer (as relay node)
+      if [[ $j -eq $npred ]]; then
+        # count port
+        local exp=($j + 1)
+        # explorers routes
+        local exr="["
+        for k in $(seq 0 $npred); do
+          exr="$exr[\"node$k\"]"
+          # don't put comma after last element and after pre-last element of last list item
+          if ! ([ $k -eq $npred ]); then
+            exr=$exr", "
+          fi
+        done
+        exr="$exr]"
+
+        echo "  \"explorer\":"            >> $tfile
+        echo "    type: relay"            >> $tfile
+        echo "    region: undefined"      >> $tfile
+        echo "    static-routes: $exr"    >> $tfile
+        echo "    addr: 127.0.0.1"        >> $tfile
+        echo "    port: 300$exp"          >> $tfile
+      fi
     done
   done
 
@@ -157,56 +189,48 @@ function gen_kademlia_topology {
 
 function node_cmd {
   local i=$1
-  local is_stat=$2
-  local wallet_args=$3
-  local system_start=$4
-  local config_dir=$5
-  local exec_name=$6
+  local wallet_args=$2
+  local system_start=$3
+  local config_dir=$4
+  local conf_file=$5
+  local log_dir=$6
+  local run_dir=$7
   local st=''
   local reb=''
-  local no_ntp=''
-  local ssc_algo=''
   local web=''
-  local config_key=''
+  local configuration=''
 
-  ensure_run
+  ensure_run $run_dir
 
-  keys_args="--vss-genesis $i --spending-genesis $i"
+  keys_args="--genesis-secret $i"
   if [[ "$CSL_PRODUCTION" != "" ]]; then
       keys_args="--keyfile \"secrets/secret-$((i+1)).key\""
   fi
 
-  if [[ "$SSC_ALGO" != "" ]]; then
-    ssc_algo=" --ssc-algo $SSC_ALGO "
-  fi
   if [[ $NO_REBUILD == "" ]]; then
     reb=" --rebuild-db "
-  fi
-  if [[ $NO_NTP != "" ]]; then
-    no_ntp=" --no-ntp "
-  fi
-  if [[ $is_stat != "" ]]; then
-    stats=" --stats "
   fi
   if [[ "$REPORT_SERVER" != "" ]]; then
     report_server=" --report-server $REPORT_SERVER "
   fi
-  if [[ $i == "0" ]]; then
-    if [[ $CARDANO_WEB != "" ]]; then
-      web=" --web "
-    fi
-  fi
   if [[ "$CSL_RTS" != "" ]] && [[ $i -eq 0 ]]; then
     rts_opts="+RTS -N -pa -A6G -qg -RTS"
   fi
+
+
+  if [[ "$conf_file" != "" ]]; then
+     configuration=" --configuration-file $conf_file "
+  fi
+
   if [[ "$CONFIG_KEY" != "" ]]; then
-    config_key=" --configuration-key $CONFIG_KEY "
+    configuration=" $configuration --configuration-key $CONFIG_KEY "
   fi
 
   local topology_file="$config_dir/topology$i.yaml"
-  local kademlia_file="$config_dir/kademlia$i.yaml"
+  #local kademlia_file="$config_dir/kademlia$i.yaml"
+  local updater_file="$config_dir/updater$i.sh"
 
-  echo -n "$(find_binary $exec_name) --db-path $run_dir/node-db$i $rts_opts $reb $no_ntp $keys_args"
+  echo -n " --db-path $run_dir/node-db$i $rts_opts $reb $keys_args"
 
   ekg_server="127.0.0.1:"$((8000+$i))
   statsd_server="127.0.0.1:"$((8125+$i))
@@ -214,14 +238,13 @@ function node_cmd {
   # A sloppy test but it'll do for now.
   local topology_first_six_bytes=`cat $topology_file | head -c 6`
   if [[ "$topology_first_six_bytes" != "wallet" ]]; then
-    echo -n " --address 127.0.0.1:"`get_port $i`
+    #echo -n " --address 127.0.0.1:"`get_port $i`
     echo -n " --listen 127.0.0.1:"`get_port $i`
   fi
-  if [[ "$config_key" != "" ]]; then
-    echo -n " $config_key "
+  if [[ "$configuration" != "" ]]; then
+    echo -n " $configuration "
   fi
-  echo -n " $(logs node$i.log) $time_lord $stats"
-  echo -n " $ssc_algo "
+  echo -n " $(logs $log_dir node$i.log) $time_lord $stats"
   echo -n " $web "
   echo -n " $report_server "
   echo -n " $wallet_args "
@@ -231,12 +254,15 @@ function node_cmd {
   #echo -n " --statsd-server $statsd_server"
   echo -n " --node-id node$i"
   echo -n " --topology $topology_file"
-  echo -n " --kademlia $kademlia_file"
+  #echo -n " --kademlia $kademlia_file"
   # Use the policies option if you want to change enqueue/dequeue/failure
   # policies without re-compiling. See example files
   #   scripts/policies/policy_core.yaml
   #   scripts/policies/policy_relay.yaml
   #echo -n " --policies $config_dir/policy$i.yaml"
+  echo -n "  --update-latest-path $updater_file"
+  echo -n "  --update-with-package"
+  echo -n "  --update-server 'http://127.0.0.1:10228/'"
   echo ''
   sleep 0.8
 }
@@ -253,9 +279,9 @@ function bench_cmd {
   echo -n "$(find_binary cardano-auxx)"
   # This assumes that the n-1 node is the relay
   echo -n " --peer 127.0.0.1:"`get_port $((i-1))`
-  echo -n " $(logs node_auxx.log)"
+  echo -n " $(logs "" node_auxx.log)"
   echo -n " --system-start $system_start"
-  echo -n " cmd --commands \"send-to-all-genesis $time $conc $delay $sendmode tps-sent.csv\""
+  echo -n " cmd --commands \"send-to-all-genesis $time $conc $delay $sendmode ./tps-sent.csv\""
   echo -n " --configuration-key bench "
   echo -n " --rebuild-db "
 

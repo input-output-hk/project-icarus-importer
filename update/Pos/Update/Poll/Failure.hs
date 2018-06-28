@@ -8,16 +8,14 @@ module Pos.Update.Poll.Failure
 import           Universum
 
 import qualified Data.Text.Buildable
-import           Formatting                 (bprint, build, int, sformat, stext, (%))
+import           Formatting (bprint, build, int, sformat, stext, (%))
 import           Serokell.Data.Memory.Units (Byte, memory)
 
-import           Pos.Core                   (ApplicationName, BlockVersion,
-                                             BlockVersionData, Coin, EpochIndex,
-                                             HeaderHash, NumSoftwareVersion,
-                                             ScriptVersion, StakeholderId, coinF)
-import           Pos.Crypto                 (shortHashF)
-import           Pos.Reporting              (MonadReporting, reportError)
-import           Pos.Update.Core            (BlockVersionModifier, UpAttributes, UpId)
+import           Pos.Core (ApplicationName, BlockVersion, BlockVersionData, Coin, EpochIndex,
+                           HeaderHash, NumSoftwareVersion, ScriptVersion, StakeholderId, coinF)
+import           Pos.Core.Update (BlockVersionModifier, UpAttributes, UpId)
+import           Pos.Crypto (shortHashF)
+import           Pos.Reporting (MonadReporting, reportError)
 
 -- | PollVerFailure represents all possible errors which can
 -- appear in Poll data verification.
@@ -87,6 +85,7 @@ data PollVerFailure
     | PollTipMismatch { ptmTipDB     :: !HeaderHash
                       , ptmTipMemory :: !HeaderHash
                       }
+    | PollInvalidUpdatePayload !Text
     | PollInternalError !Text
 
 instance Buildable PollVerFailure where
@@ -174,6 +173,8 @@ instance Buildable PollVerFailure where
         bprint ("tip we store in US mem-state ("%shortHashF%
                 ") differs from the tip we store in DB ("%build%")")
         ptmTipMemory ptmTipDB
+    build (PollInvalidUpdatePayload msg) =
+        bprint ("invalid update payload: "%stext) msg
     build (PollInternalError msg) =
         bprint ("internal error: "%stext) msg
 

@@ -9,7 +9,8 @@ environment:
     STACK_ROOT: "c:\\s"
     STACK_WORK: ".w"
     WORK_DIR: "c:\\w"
-    CACHE_S3_VERSION: v0.1.3
+    CACHE_S3_VERSION: v0.1.4
+    CACHE_S3_MAX_SIZE: 1600MB  # AppVeyor limits the amount uploaded to approx 2GB
     AWS_REGION: us-west-1
     S3_BUCKET: appveyor-ci-cache
     AWS_ACCESS_KEY_ID:
@@ -30,12 +31,12 @@ before_test:
     if ( $env:CACHE_S3_READY -eq $true ) {
       Start-FileDownload https://github.com/fpco/cache-s3/releases/download/$env:CACHE_S3_VERSION/cache-s3-$env:CACHE_S3_VERSION-windows-x86_64.zip -FileName cache-s3.zip
       7z x cache-s3.zip cache-s3.exe
-      .\cache-s3 --prefix=$env:APPVEYOR_PROJECT_NAME --git-branch=$env:APPVEYOR_REPO_BRANCH --suffix=windows -v info -c restore stack --base-branch=master
-      .\cache-s3 --prefix=$env:APPVEYOR_PROJECT_NAME --git-branch=$env:APPVEYOR_REPO_BRANCH --suffix=windows -v info -c restore stack work --base-branch=master
+      .\cache-s3 --max-size=$env:CACHE_S3_MAX_SIZE --prefix=$env:APPVEYOR_PROJECT_NAME --git-branch=$env:APPVEYOR_REPO_BRANCH --suffix=windows -v info -c restore stack --base-branch=develop
+      .\cache-s3 --max-size=$env:CACHE_S3_MAX_SIZE --prefix=$env:APPVEYOR_PROJECT_NAME --git-branch=$env:APPVEYOR_REPO_BRANCH --suffix=windows -v info -c restore stack work --base-branch=develop
     }
 
 # Install OpenSSL 1.0.2 (see https://github.com/appveyor/ci/issues/1665)
-- ps: (New-Object Net.WebClient).DownloadFile('https://slproweb.com/download/Win64OpenSSL-1_0_2n.exe', "$($env:USERPROFILE)\Win64OpenSSL.exe")
+- ps: (New-Object Net.WebClient).DownloadFile('https://slproweb.com/download/Win64OpenSSL-1_0_2o.exe', "$($env:USERPROFILE)\Win64OpenSSL.exe")
 - ps: cmd /c start /wait "$($env:USERPROFILE)\Win64OpenSSL.exe" /silent /verysilent /sp- /suppressmsgboxes /DIR=C:\OpenSSL-Win64-v102
 - ps: Install-Product node 6
 # Install stack
@@ -48,7 +49,7 @@ before_test:
 - ps: Start-FileDownload 'https://ci.appveyor.com/api/buildjobs/kbpteb8j55p6sa2m/artifacts/rocksdb%2Fbuild%2FRocksdb.zip' -FileName rocksdb.zip
 - 7z x rocksdb.zip
 
-# CSL-1509: After moving the 'cardano-sl' project itself into a separate folder ('node/'), the 'cardano-text.exe' executable fails on AppVeyor CI.
+# CSL-1509: After moving the 'cardano-sl' project itself into a separate folder ('lib/'), the 'cardano-text.exe' executable fails on AppVeyor CI.
 # After some investigation, it was discovered that this was because 'rocksdb.dll' has to be located in this folder as well, or else the test executable doesn't work.
 - copy rocksdb.dll node
 - copy rocksdb.dll lib
@@ -61,6 +62,7 @@ before_test:
 
 test_script:
   - cd "%WORK_DIR%"
+  - stack exec -- ghc-pkg recache
   - stack --verbosity warn setup --no-reinstall > nul
   # Install happy separately: https://github.com/commercialhaskell/stack/issues/3151#issuecomment-310642487. Also install cpphs because it's a build-tool and Stack can't figure out by itself that it should be installed
   - scripts\ci\appveyor-retry call stack --verbosity warn install happy cpphs
@@ -69,51 +71,51 @@ test_script:
       --local-bin-path %SYSTEMROOT%\system32
       --extra-include-dirs="C:\OpenSSL-Win64-v102\include"
       --extra-lib-dirs="C:\OpenSSL-Win64-v102"
+      --extra-include-dirs="C:\xz_extracted\include"
+      --extra-lib-dirs="C:\xz_extracted\bin_x86-64"
       --extra-include-dirs="%WORK_DIR%\rocksdb\include"
       --extra-lib-dirs="%WORK_DIR%"
 #   TODO: CSL-1133. To be reenabled.
 #   - stack test --coverage
-#   - stack hpc report cardano-sl cardano-sl-txp cardano-sl-core cardano-sl-db cardano-sl-update cardano-sl-godtossing cardano-sl-infra cardano-sl-lrc cardano-sl-ssc
+#   - stack hpc report cardano-sl cardano-sl-txp cardano-sl-core cardano-sl-db cardano-sl-update cardano-sl-infra cardano-sl-lrc cardano-sl-ssc
 # Retry transient failures due to https://github.com/haskell/cabal/issues/4005
   # We intentionally don't build auxx here, because this build is for installer.
-  - scripts\ci\appveyor-retry call stack install cardano-sl cardano-sl-tools cardano-sl-wallet
+  - scripts\ci\appveyor-retry call stack --dump-logs install cardano-sl cardano-sl-tools cardano-sl-wallet cardano-sl-wallet-new
       -j 2
       --no-terminal
       --local-bin-path %WORK_DIR%
       --test
       --no-haddock-deps
-      --ghc-options="-DGITREV=%APPVEYOR_REPO_COMMIT%"
-      --flag cardano-sl:with-wallet
       --flag cardano-sl-core:-asserts
-      --flag cardano-sl-core:-dev-mode
       --flag cardano-sl-tools:for-installer
       --flag cardano-sl-wallet:for-installer
       --extra-include-dirs="C:\OpenSSL-Win64-v102\include"
       --extra-lib-dirs="C:\OpenSSL-Win64-v102"
+      --extra-include-dirs="C:\xz_extracted\include"
+      --extra-lib-dirs="C:\xz_extracted\bin_x86-64"
       --extra-include-dirs="%WORK_DIR%\rocksdb\include"
       --extra-lib-dirs="%WORK_DIR%"
-  - stack exec -- cardano-wallet-hs2purs
-  # Prepare files for frontend build
-  - copy log-config-prod.yaml daedalus\
-  - copy node\configuration.yaml daedalus\
-  - copy node\*genesis*.json daedalus\
+  # Cardano pieces, modulo the frontend
+  - mkdir daedalus
+    # log config is called `log-config-prod.yaml` just in case, it's the old name
+  - copy log-configs\daedalus.yaml daedalus\log-config-prod.yaml
+  - copy lib\configuration.yaml daedalus\
+  - copy lib\*genesis*.json daedalus\
   - copy cardano-launcher.exe daedalus\
   - copy cardano-node.exe daedalus\
-  # Build the bridge
   - cd daedalus
   - Echo %APPVEYOR_BUILD_VERSION% > build-id
-  - ps: Install-Product node 7
-  - ..\scripts\ci\appveyor-retry call npm install
-  - npm run build:prod
+  - Echo %APPVEYOR_REPO_COMMIT% > commit-id
+  - Echo https://ci.appveyor.com/project/%APPVEYOR_ACCOUNT_NAME%/%APPVEYOR_PROJECT_SLUG%/build/%APPVEYOR_BUILD_VERSION% > ci-url
 
 after_test:
  - cd "%WORK_DIR%" # Get back to where cache-s3.exe is located
  - ps: >-
     if ( ($env:CACHE_S3_READY -eq $true) -and (-not $env:APPVEYOR_PULL_REQUEST_NUMBER) ) {
       if ($env:APPVEYOR_REPO_BRANCH -eq "master" -Or $env:APPVEYOR_REPO_BRANCH -eq "develop" -Or $env:APPVEYOR_REPO_BRANCH -like "release*") {
-        .\cache-s3 --prefix=$env:APPVEYOR_PROJECT_NAME --git-branch=$env:APPVEYOR_REPO_BRANCH --suffix=windows -c -v info save stack
+        .\cache-s3 --max-size=$env:CACHE_S3_MAX_SIZE --prefix=$env:APPVEYOR_PROJECT_NAME --git-branch=$env:APPVEYOR_REPO_BRANCH --suffix=windows -c -v info save stack
       }
-      .\cache-s3 --prefix=$env:APPVEYOR_PROJECT_NAME --git-branch=$env:APPVEYOR_REPO_BRANCH --suffix=windows -c -v info save stack work
+      .\cache-s3 --max-size=$env:CACHE_S3_MAX_SIZE --prefix=$env:APPVEYOR_PROJECT_NAME --git-branch=$env:APPVEYOR_REPO_BRANCH --suffix=windows -c -v info save stack work
     }
  - xcopy /q /s /e /r /k /i /v /h /y "%WORK_DIR%\daedalus" "%APPVEYOR_BUILD_FOLDER%\daedalus"
 

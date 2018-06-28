@@ -1,4 +1,3 @@
-
 -- | Logic of local data processing in Update System.
 
 module Pos.Update.Logic.Local
@@ -24,49 +23,46 @@ module Pos.Update.Logic.Local
 import           Universum
 
 import           Control.Concurrent.STM (modifyTVar', readTVar, writeTVar)
-import           Control.Lens           (views)
-import           Control.Monad.Except   (runExceptT, throwError)
-import           Data.Default           (Default (def))
-import qualified Data.HashMap.Strict    as HM
-import qualified Data.HashSet           as HS
-import           Formatting             (sformat, (%))
-import           System.Wlog            (WithLogger, logWarning)
+import           Control.Lens (views)
+import           Control.Monad.Except (runExceptT, throwError)
+import           Data.Default (Default (def))
+import qualified Data.HashMap.Strict as HM
+import qualified Data.HashSet as HS
+import           Formatting (sformat, (%))
+import           System.Wlog (WithLogger, logWarning)
+import           UnliftIO (MonadUnliftIO)
 
-import           Pos.Binary.Class       (biSize)
-import           Pos.Core               (BlockVersionData (bvdMaxBlockSize),
-                                         HasConfiguration, HeaderHash, SlotId (..),
-                                         slotIdF)
-import           Pos.Crypto             (PublicKey, shortHashF)
-import           Pos.DB.Class           (MonadDBRead)
-import qualified Pos.DB.GState.Common   as DB
-import           Pos.Lrc.Context        (LrcContext)
-import           Pos.Reporting          (MonadReporting)
-import           Pos.StateLock          (StateLock)
+import           Pos.Binary.Class (biSize)
+import           Pos.Core (BlockVersionData (bvdMaxBlockSize), HeaderHash, HasGenesisBlockVersionData,
+                           SlotId (..), slotIdF, HasProtocolConstants)
+import           Pos.Core.Update (UpId, UpdatePayload (..), UpdateProposal, UpdateVote (..))
+import           Pos.Crypto (PublicKey, shortHashF)
+import           Pos.DB.Class (MonadDBRead)
+import qualified Pos.DB.GState.Common as DB
+import           Pos.Lrc.Context (HasLrcContext)
+import           Pos.Reporting (MonadReporting)
+import           Pos.StateLock (StateLock)
 import           Pos.Update.Configuration (HasUpdateConfiguration)
-import           Pos.Update.Context     (UpdateContext (..))
-import           Pos.Update.Core        (UpId, UpdatePayload (..), UpdateProposal,
-                                         UpdateVote (..), canCombineVotes)
-import qualified Pos.Update.DB          as DB
-import           Pos.Update.MemState    (LocalVotes, MemPool (..), MemState (..),
-                                         MemVar (mvState), UpdateProposals, addToMemPool,
-                                         withUSLock)
-import           Pos.Update.Poll        (MonadPoll (deactivateProposal),
-                                         MonadPollRead (getProposal), PollModifier,
-                                         PollVerFailure (..), evalPollT, execPollT,
-                                         filterProposalsByThd, modifyPollModifier,
-                                         normalizePoll, psVotes, refreshPoll,
-                                         reportUnexpectedError, runDBPoll, runPollT,
-                                         verifyAndApplyUSPayload)
-import           Pos.Util.Util          (HasLens (..), HasLens')
+import           Pos.Update.Context (UpdateContext (..))
+import qualified Pos.Update.DB as DB
+import           Pos.Update.MemState (LocalVotes, MemPool (..), MemState (..), MemVar (mvState),
+                                      UpdateProposals, addToMemPool, withUSLock)
+import           Pos.Update.Poll (MonadPoll (deactivateProposal), MonadPollRead (getProposal),
+                                  PollModifier, PollVerFailure (..), evalPollT, execPollT,
+                                  filterProposalsByThd, getAdoptedBV, modifyPollModifier,
+                                  normalizePoll, refreshPoll, reportUnexpectedError, runDBPoll,
+                                  runPollT, verifyAndApplyUSPayload)
+import           Pos.Update.Poll.Types (canCombineVotes, psVotes)
+import           Pos.Util.Util (HasLens (..), HasLens')
 
 type USLocalLogicMode ctx m =
     ( MonadIO m
     , MonadDBRead m
+    , MonadUnliftIO m
     , WithLogger m
     , MonadReader ctx m
     , HasLens UpdateContext ctx UpdateContext
-    , HasLens LrcContext ctx LrcContext
-    , HasConfiguration
+    , HasLrcContext ctx
     , HasUpdateConfiguration
     )
 
@@ -124,6 +120,8 @@ modifyMemState action = do
 processSkeleton ::
        ( USLocalLogicModeWithLock ctx m
        , MonadReporting ctx m
+       , HasProtocolConstants
+       , HasGenesisBlockVersionData
        )
     => UpdatePayload
     -> m (Either PollVerFailure ())
@@ -132,7 +130,7 @@ processSkeleton payload =
     withUSLock $
     runExceptT $
     modifyMemState $ \ms@MemState {..} -> do
-        dbTip <- DB.getTip
+        dbTip <- lift DB.getTip
         -- We must check tip here, because we can't be sure that tip
         -- in DB is the same as the tip in memory. Normally it will be
         -- the case, but if normalization fails, it won't be true.
@@ -143,31 +141,36 @@ processSkeleton payload =
         unless (dbTip == msTip) $ do
             let err = PollTipMismatch {ptmTipMemory = msTip, ptmTipDB = dbTip}
             throwError err
-        maxBlockSize <- bvdMaxBlockSize <$> DB.getAdoptedBVData
+        maxBlockSize <- bvdMaxBlockSize <$> lift DB.getAdoptedBVData
         msIntermediate <-
             -- TODO: This is a rather arbitrary limit, we should revisit it (see CSL-1664)
-            if | maxBlockSize * 2 <= mpSize msPool -> refreshMemPool ms
+            if | maxBlockSize * 2 <= mpSize msPool -> lift (refreshMemPool ms)
                | otherwise -> pure ms
         processSkeletonDo msIntermediate
   where
     processSkeletonDo ms@MemState {..} = do
-        modifier <-
-            runDBPoll . evalPollT msModifier . execPollT def $
-            verifyAndApplyUSPayload True (Left msSlot) payload
-        let newModifier = modifyPollModifier msModifier modifier
-        let newPool = addToMemPool payload msPool
-        pure $ ms {msModifier = newModifier, msPool = newPool}
+        modifierOrFailure <-
+            lift . runDBPoll . runExceptT . evalPollT msModifier . execPollT def $ do
+                lastAdopted <- getAdoptedBV
+                verifyAndApplyUSPayload lastAdopted True (Left msSlot) payload
+        case modifierOrFailure of
+            Left failure -> throwError failure
+            Right modifier -> do
+                let newModifier = modifyPollModifier msModifier modifier
+                let newPool = addToMemPool payload msPool
+                pure $ ms {msModifier = newModifier, msPool = newPool}
 
 -- Remove most useless data from mem pool to make it smaller.
 refreshMemPool
     :: ( MonadDBRead m
+       , MonadUnliftIO m
        , MonadIO m
        , MonadReader ctx m
        , HasLens UpdateContext ctx UpdateContext
-       , HasLens LrcContext ctx LrcContext
+       , HasLrcContext ctx
        , WithLogger m
-       , HasConfiguration
        , HasUpdateConfiguration
+       , HasGenesisBlockVersionData
        )
     => MemState -> m MemState
 refreshMemPool ms@MemState {..} = do
@@ -214,6 +217,8 @@ getLocalProposalNVotes id = do
 processProposal
     :: ( USLocalLogicModeWithLock ctx m
        , MonadReporting ctx m
+       , HasGenesisBlockVersionData
+       , HasProtocolConstants
        )
     => UpdateProposal -> m (Either PollVerFailure ())
 processProposal proposal = processSkeleton $ UpdatePayload (Just proposal) []
@@ -229,7 +234,7 @@ lookupVote propId pk locVotes = HM.lookup propId locVotes >>= HM.lookup pk
 -- identifier issued by stakeholder with given PublicKey and with
 -- given decision should be requested.
 isVoteNeeded
-    :: USLocalLogicMode ctx m
+    :: (USLocalLogicMode ctx m, HasGenesisBlockVersionData)
     => UpId -> PublicKey -> Bool -> m Bool
 isVoteNeeded propId pk decision = do
     modifier <- getPollModifier
@@ -265,6 +270,8 @@ getLocalVote propId pk decision = do
 processVote
     :: ( USLocalLogicModeWithLock ctx m
        , MonadReporting ctx m
+       , HasProtocolConstants
+       , HasGenesisBlockVersionData
        )
     => UpdateVote -> m (Either PollVerFailure ())
 processVote vote = processSkeleton $ UpdatePayload Nothing [vote]
@@ -277,7 +284,7 @@ processVote vote = processSkeleton $ UpdatePayload Nothing [vote]
 -- current GState.  This function assumes that GState is locked. It
 -- tries to leave as much data as possible. It assumes that
 -- 'stateLock' is taken.
-usNormalize :: (USLocalLogicMode ctx m) => m ()
+usNormalize :: (USLocalLogicMode ctx m, HasGenesisBlockVersionData) => m ()
 usNormalize = do
     tip <- DB.getTip
     stateVar <- mvState <$> views (lensOf @UpdateContext) ucMemState
@@ -288,7 +295,7 @@ usNormalize = do
 -- from mempool and apply it to empty mempool, so it depends only on
 -- GState.
 usNormalizeDo
-    :: (USLocalLogicMode ctx m)
+    :: (USLocalLogicMode ctx m, HasGenesisBlockVersionData)
     => Maybe HeaderHash -> Maybe SlotId -> m MemState
 usNormalizeDo tip slot = do
     stateVar <- mvState <$> views (lensOf @UpdateContext) ucMemState
@@ -314,10 +321,10 @@ usNormalizeDo tip slot = do
     return newMS
 
 -- | Update memory state to make it correct for given slot.
-processNewSlot :: (USLocalLogicModeWithLock ctx m) => SlotId -> m ()
+processNewSlot :: (USLocalLogicModeWithLock ctx m, HasGenesisBlockVersionData) => SlotId -> m ()
 processNewSlot slotId = withUSLock $ processNewSlotNoLock slotId
 
-processNewSlotNoLock :: (USLocalLogicMode ctx m) => SlotId -> m ()
+processNewSlotNoLock :: (USLocalLogicMode ctx m, HasGenesisBlockVersionData) => SlotId -> m ()
 processNewSlotNoLock slotId = modifyMemState $ \ms@MemState{..} -> do
     if | msSlot >= slotId -> pure ms
        -- Crucial changes happen only when epoch changes.
@@ -336,7 +343,7 @@ processNewSlotNoLock slotId = modifyMemState $ \ms@MemState{..} -> do
 -- payload, because it's important to create blocks for system
 -- maintenance (empty blocks are better than no blocks).
 usPreparePayload ::
-       (USLocalLogicMode ctx m)
+       (USLocalLogicMode ctx m, HasGenesisBlockVersionData)
     => HeaderHash
     -> SlotId
     -> m UpdatePayload
@@ -400,6 +407,7 @@ finishPrepare badProposals proposals votes = do
         | chosenUpId == Just upId = pass
         | otherwise =
             deactivateProposal upId
-    isVoteValid UpdateVote {..} =
-        (not (HS.member uvProposalId badProposals) &&) . isJust <$>
-        getProposal uvProposalId
+    isVoteValid vote = do
+        let id = uvProposalId vote
+        proposalIsPresent <- isJust <$> getProposal id
+        pure $ not (HS.member id badProposals) && proposalIsPresent

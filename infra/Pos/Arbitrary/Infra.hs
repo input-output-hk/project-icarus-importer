@@ -4,18 +4,18 @@ module Pos.Arbitrary.Infra () where
 
 import           Universum
 
-import qualified Data.ByteString                   as BS
-import           Network.Kademlia.HashNodeId       (HashId (..))
-import           Test.QuickCheck                   (Arbitrary (..), choose, oneof)
+import qualified Data.ByteString as BS
+import           Network.Kademlia.HashNodeId (HashId (..))
+import           Test.QuickCheck (Arbitrary (..), choose, oneof)
 import           Test.QuickCheck.Arbitrary.Generic (genericArbitrary, genericShrink)
 
-import           Pos.Arbitrary.Core                ()
-import           Pos.Communication.Types.Protocol  (HandlerSpec (..), VerInfo (..))
-import           Pos.Communication.Types.Relay     (DataMsg (..), InvMsg (..),
-                                                    MempoolMsg (..), ReqMsg (..))
-import           Pos.Core.Configuration            (HasConfiguration)
-import           Pos.Core.Types                    (ProxySKHeavy, ProxySKLight)
-import           Pos.DHT                           (DHTData (..), DHTKey (..))
+import           Pos.Arbitrary.Core ()
+import           Pos.Communication.Types.Protocol (HandlerSpec (..), VerInfo (..))
+import           Pos.Communication.Types.Relay (DataMsg (..), InvMsg (..), MempoolMsg (..),
+                                                ReqMsg (..))
+import           Pos.Crypto (HasProtocolMagic)
+import           Pos.Core.Delegation (ProxySKHeavy)
+import           Pos.DHT (DHTData (..), DHTKey (..))
 
 deriving instance Arbitrary DHTData
 
@@ -41,10 +41,6 @@ instance Arbitrary VerInfo where
     arbitrary = genericArbitrary
     shrink = genericShrink
 
-instance HasConfiguration => Arbitrary (DataMsg ProxySKHeavy) where
-    arbitrary = genericArbitrary
-    shrink = genericShrink
-
-instance HasConfiguration => Arbitrary (DataMsg ProxySKLight) where
+instance HasProtocolMagic => Arbitrary (DataMsg ProxySKHeavy) where
     arbitrary = genericArbitrary
     shrink = genericShrink

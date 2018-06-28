@@ -1,49 +1,41 @@
-{-# LANGUAGE RankNTypes   #-}
-{-# LANGUAGE TypeFamilies #-}
-
--- | Pending transactions utils.
+-- | Pending tx utils which db depends on
 
 module Pos.Wallet.Web.Pending.Util
-    ( ptxPoolInfo
-    , isPtxInBlocks
+    ( incPtxSubmitTimingPure
+    , mkPtxSubmitTiming
+    , ptxMarkAcknowledgedPure
+    , cancelApplyingPtx
+    , resetFailedPtx
     , sortPtxsChrono
-    , mkPendingTx
-    , isReclaimableFailure
-    , usingPtxCoords
     , allPendingAddresses
     , nonConfirmedTransactions
     ) where
 
 import           Universum
 
-import qualified Data.Set                       as Set
-import           Formatting                     (build, sformat, (%))
+import           Control.Lens ((*=), (+=), (+~), (<<*=), (<<.=))
+import qualified Data.Set as Set
+import Data.Reflection (give)
 
-import           Pos.Client.Txp.History         (TxHistoryEntry)
-import           Pos.Client.Txp.Util            (PendingAddresses (..))
-import           Pos.Core.Types                 (Address)
-import           Pos.Crypto                     (WithHash (..))
-import           Pos.Slotting.Class             (getCurrentSlotInaccurate)
-import           Pos.Txp                        (ToilVerFailure (..), Tx (..), TxAux (..),
-                                                 TxId, TxOut(..), topsortTxs)
-import           Pos.Util.Chrono                (OldestFirst (..))
-import           Pos.Util.Util                  (maybeThrow)
+import           Pos.Client.Txp.Util (PendingAddresses (..))
+import           Pos.Core.Common (Address)
+import           Pos.Core (ProtocolConstants(..))
+import           Pos.Core.Slotting (FlatSlotId, SlotId, flatSlotId)
+import           Pos.Crypto (WithHash (..))
+import           Pos.Txp (Tx (..), TxAux (..), TxOut (..), topsortTxs)
+import           Pos.Util.Chrono (OldestFirst (..))
+import           Pos.Wallet.Web.Pending.Types (PendingTx (..), PtxCondition (..), PtxCondition (..),
+                                               PtxSubmitTiming (..), pstNextDelay, pstNextSlot,
+                                               ptxPeerAck, ptxSubmitTiming)
 
-import           Pos.Wallet.Web.ClientTypes     (CId, CWalletMeta (..), Wal, cwAssurance)
-import           Pos.Wallet.Web.Error           (WalletError (RequestError))
-import           Pos.Wallet.Web.Mode            (MonadWalletWebMode)
-import           Pos.Wallet.Web.Pending.Types   (PendingTx (..), PtxCondition (..),
-                                                 PtxPoolInfo)
-import           Pos.Wallet.Web.Pending.Updates (mkPtxSubmitTiming)
-import           Pos.Wallet.Web.State           (WalletSnapshot, getWalletMeta)
-
-ptxPoolInfo :: PtxCondition -> Maybe PtxPoolInfo
-ptxPoolInfo (PtxApplying i)    = Just i
-ptxPoolInfo (PtxWontApply _ i) = Just i
-ptxPoolInfo _                  = Nothing
-
-isPtxInBlocks :: PtxCondition -> Bool
-isPtxInBlocks = isNothing . ptxPoolInfo
+mkPtxSubmitTiming :: ProtocolConstants -> SlotId -> PtxSubmitTiming
+mkPtxSubmitTiming pc creationSlot = give pc $
+    PtxSubmitTiming
+    { _pstNextSlot  = creationSlot & flatSlotId +~ initialSubmitDelay
+    , _pstNextDelay = 1
+    }
+    where
+      initialSubmitDelay = 3 :: FlatSlotId
 
 -- | Sort pending transactions as close as possible to chronological order.
 sortPtxsChrono :: [PendingTx] -> OldestFirst [] PendingTx
@@ -52,50 +44,42 @@ sortPtxsChrono = OldestFirst . sortWith _ptxCreationSlot . tryTopsort
     tryTopsort txs = fromMaybe txs $ topsortTxs wHash txs
     wHash PendingTx{..} = WithHash (taTx _ptxTxAux) _ptxTxId
 
-mkPendingTx
-    :: MonadWalletWebMode m
-    => WalletSnapshot
-    -> CId Wal -> TxId -> TxAux -> TxHistoryEntry -> m PendingTx
-mkPendingTx ws wid _ptxTxId _ptxTxAux th = do
-    _ptxCreationSlot <- getCurrentSlotInaccurate
-    CWalletMeta{..} <- maybeThrow noWallet (getWalletMeta ws wid)
-    return PendingTx
-        { _ptxCond = PtxApplying th
-        , _ptxWallet = wid
-        , _ptxPeerAck = False
-        , _ptxSubmitTiming = mkPtxSubmitTiming _ptxCreationSlot
-        , ..
-        }
+incPtxSubmitTimingPure
+    :: ProtocolConstants
+    -> PtxSubmitTiming
+    -> PtxSubmitTiming
+incPtxSubmitTimingPure pc = give pc $ execState $ do
+    curDelay <- pstNextDelay <<*= 2
+    pstNextSlot . flatSlotId += curDelay
+
+ptxMarkAcknowledgedPure :: PendingTx -> PendingTx
+ptxMarkAcknowledgedPure = execState $ do
+    wasAcked <- ptxPeerAck <<.= True
+    unless wasAcked $ ptxSubmitTiming . pstNextDelay *= 8
+
+-- | If given pending transaction is not yet confirmed, cancels it.
+cancelApplyingPtx :: () => PendingTx -> PendingTx
+cancelApplyingPtx ptx@PendingTx{..}
+    | PtxApplying poolInfo <- _ptxCond =
+          ptx { _ptxCond = PtxWontApply reason poolInfo
+              , _ptxPeerAck = False
+              }
+    | otherwise = ptx
   where
-    noWallet =
-        RequestError $ sformat ("Failed to get meta of wallet "%build) wid
+    reason = "Canceled manually"
 
--- | Whether formed transaction ('TxAux') has a chance to be applied later
--- after specified error.
-isReclaimableFailure :: ToilVerFailure -> Bool
-isReclaimableFailure = \case
-    -- We consider all cases explicitly here to prevent changing
-    -- constructors set blindly
-    ToilKnown                -> True
-    ToilTipsMismatch{}       -> True
-    ToilSlotUnknown          -> True
-    ToilOverwhelmed{}        -> True
-    ToilNotUnspent{}         -> False
-    ToilOutGTIn{}            -> False
-    ToilInconsistentTxAux{}  -> False
-    ToilInvalidOutputs{}     -> False
-    ToilUnknownInput{}       -> False
-    ToilWitnessDoesntMatch{} -> False
-    ToilInvalidWitness{}     -> False
-    ToilTooLargeTx{}         -> False
-    ToilInvalidMinFee{}      -> False
-    ToilInsufficientFee{}    -> False
-    ToilUnknownAttributes{}  -> False
-    ToilNonBootstrapDistr{}  -> False
-    ToilRepeatedInput{}      -> False
-
-usingPtxCoords :: (CId Wal -> TxId -> a) -> PendingTx -> a
-usingPtxCoords f PendingTx{..} = f _ptxWallet _ptxTxId
+-- | If given transaction is in 'PtxWontApply' condition, sets its condition
+-- to 'PtxApplying'. This allows "stuck" transactions to be resubmitted
+-- again.
+--
+-- Has no effect for transactions in other conditions.
+resetFailedPtx :: ProtocolConstants -> SlotId -> PendingTx -> PendingTx
+resetFailedPtx pc curSlot ptx@PendingTx{..}
+    | PtxWontApply _ poolInfo <- _ptxCond =
+          ptx { _ptxCond = PtxApplying poolInfo
+              , _ptxSubmitTiming = mkPtxSubmitTiming pc curSlot
+              }
+    | otherwise = ptx
 
 -- | Returns the full list of "pending addresses", which are @output@ addresses
 -- associated to transactions not yet persisted in the blockchain.

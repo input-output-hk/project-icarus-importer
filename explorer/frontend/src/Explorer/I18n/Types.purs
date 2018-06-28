@@ -147,6 +147,7 @@ type Block =
     , blRoot :: String
     , blEpochSlotNotFound :: String
     , blSlotNotFound :: String
+    , blSlotEmpty :: String
     }
 
 -- translations of block detail page
@@ -178,7 +179,6 @@ type Footer =
     , fooWhyCardano :: String
     , fooCardanoRoadmap :: String
     , fooCardanoSource :: String
-    , fooCardanoLaunch :: String
     , fooCardanoDocumentation :: String
     , fooCardanoFoundation :: String
     , fooCardanoFoundationYoutube :: String

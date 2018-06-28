@@ -9,24 +9,22 @@ module Pos.Update.Poll.Pure
 
 import           Universum
 
-import           Control.Lens              (at, mapped, to, uses, (%=), (.=))
-import qualified Data.HashMap.Strict       as HM
-import qualified Data.HashSet              as HS
-import           System.Wlog               (CanLog, HasLoggerName (..), LogEvent,
-                                            NamedPureLogger, logDebug, logWarning,
-                                            runNamedPureLog)
+import           Control.Lens (at, mapped, to, uses, (%=), (.=))
+import qualified Data.HashMap.Strict as HM
+import qualified Data.HashSet as HS
+import           System.Wlog (CanLog, HasLoggerName (..), LogEvent, NamedPureLogger, logDebug,
+                              logWarning, runNamedPureLog)
 
-import           Pos.Binary.Class          (Bi)
-import           Pos.Core                  (HasConfiguration, SoftwareVersion (..))
-import           Pos.Crypto                (hash)
-import           Pos.Update.Core           (UpdateProposal (..), applyBVM)
-import           Pos.Update.Poll.Class     (MonadPoll (..), MonadPollRead (..))
+import           Pos.Binary.Class (Bi)
+import           Pos.Core (SoftwareVersion (..))
+import           Pos.Core.Update (UpdateProposal (..))
+import           Pos.Crypto (hash)
+import           Pos.Update.BlockVersion (applyBVM)
+import           Pos.Update.Poll.Class (MonadPoll (..), MonadPollRead (..))
 import qualified Pos.Update.Poll.PollState as Poll
-import           Pos.Update.Poll.Types     (BlockVersionState (..),
-                                            DecidedProposalState (..),
-                                            UndecidedProposalState (..),
-                                            cpsSoftwareVersion, propStateToEither,
-                                            psProposal)
+import           Pos.Update.Poll.Types (BlockVersionState (..), DecidedProposalState (..),
+                                        UndecidedProposalState (..), cpsSoftwareVersion,
+                                        propStateToEither, psProposal)
 
 newtype PurePoll a = PurePoll
     { getPurePoll :: StateT Poll.PollState (NamedPureLogger Identity) a
@@ -43,7 +41,7 @@ evalPurePollWithLogger r = view _1 . runPurePollWithLogger r
 execPurePollWithLogger :: Poll.PollState -> PurePoll a -> Poll.PollState
 execPurePollWithLogger r = view _2 . runPurePollWithLogger r
 
-instance HasConfiguration => MonadPollRead PurePoll where
+instance MonadPollRead PurePoll where
     getBVState bv = PurePoll $ use $ Poll.psBlockVersions . at bv
     getProposedBVs = PurePoll $ use $ Poll.psBlockVersions . to HM.keys
     getEpochProposers = PurePoll $ use $ Poll.psEpochProposers
@@ -90,7 +88,7 @@ instance HasConfiguration => MonadPollRead PurePoll where
         PurePoll $ uses Poll.psIssuersStakes $ HM.lookup si <=< HM.lookup ei
     getSlottingData = PurePoll $ use Poll.psSlottingData
 
-instance (HasConfiguration, Bi UpdateProposal) => MonadPoll PurePoll where
+instance (Bi UpdateProposal) => MonadPoll PurePoll where
     putBVState bv bvs = PurePoll $ Poll.psBlockVersions . at bv .= Just bvs
     delBVState bv = PurePoll $ Poll.psBlockVersions . at bv .= Nothing
     setAdoptedBV bv = do
@@ -109,8 +107,9 @@ instance (HasConfiguration, Bi UpdateProposal) => MonadPoll PurePoll where
         PurePoll $ Poll.psConfirmedProposals . at (cpsSoftwareVersion cps) .= Just cps
     delConfirmedProposal sv = PurePoll $ Poll.psConfirmedProposals . at sv .= Nothing
     insertActiveProposal p =
-        PurePoll $ (Poll.psActiveProposals %= decideProp) >>
-                   (Poll.psActivePropsIdx %= addUIdtoApp)
+        PurePoll $ do
+            Poll.psActiveProposals %= decideProp
+            Poll.psActivePropsIdx %= addUIdtoApp
       where
           decideProp = HM.insert uId p
           addUIdtoApp = HM.insertWith HS.union appName (HS.singleton uId)

@@ -1,8 +1,11 @@
 {-# LANGUAGE RankNTypes    #-}
+{-# LANGUAGE TypeFamilies  #-}
 {-# LANGUAGE TypeOperators #-}
 
 module Pos.Explorer.Web.Transform
        ( ExplorerProd
+       , runExplorerProd
+       , liftToExplorerProd
        , explorerServeWebReal
        , explorerPlugin
        , notifierPlugin
@@ -10,86 +13,106 @@ module Pos.Explorer.Web.Transform
 
 import           Universum
 
-import qualified Control.Monad.Catch     as Catch (Handler (..), catches)
-import           Control.Monad.Except    (MonadError (throwError))
-import qualified Control.Monad.Reader    as Mtl
-import           Mockable                (runProduction)
-import           Servant.Server          (Handler)
-import           Servant.Utils.Enter     ((:~>) (..), enter)
+import qualified Control.Exception.Safe as E
+import           Control.Monad.Except (MonadError (throwError))
+import qualified Control.Monad.Reader as Mtl
+import           Mockable (runProduction)
+import           Servant.Server (Handler, hoistServer)
 
-import           Pos.Communication       (OutSpecs, SendActions, WorkerSpec, worker)
-import           Pos.Configuration       (HasNodeConfiguration)
-import           Pos.Core                (HasConfiguration)
-import           Pos.Infra.Configuration (HasInfraConfiguration)
-import           Pos.Ssc.GodTossing      (SscGodTossing)
-import           Pos.Ssc.GodTossing.Configuration (HasGtConfiguration)
+import           Pos.Block.Configuration (HasBlockConfiguration)
+import           Pos.Configuration (HasNodeConfiguration)
+import           Pos.Core (HasConfiguration)
+import           Pos.Diffusion.Types (Diffusion)
+import           Pos.Recovery ()
+import           Pos.Ssc.Configuration (HasSscConfiguration)
+import           Pos.Txp (HasTxpConfiguration, MempoolExt, MonadTxpLocal (..))
 import           Pos.Update.Configuration (HasUpdateConfiguration)
-import           Pos.WorkMode            (RealMode, RealModeContext (..))
+import           Pos.Util.CompileInfo (HasCompileInfo)
+import           Pos.Util.Mockable ()
+import           Pos.WorkMode (RealMode, RealModeContext (..))
 
-import           Pos.Explorer            (ExplorerBListener, runExplorerBListener)
+import           Pos.Explorer.BListener (ExplorerBListener, runExplorerBListener)
+import           Pos.Explorer.ExtraContext (ExtraContext, ExtraContextT, makeExtraCtx,
+                                            runExtraContextT)
 import           Pos.Explorer.Socket.App (NotifierSettings, notifierApp)
-import           Pos.Explorer.Web.Server (explorerApp, explorerHandlers,
-                                          explorerServeImpl)
+import           Pos.Explorer.Txp (ExplorerExtraModifier, eTxNormalize, eTxProcessTransaction)
+import           Pos.Explorer.Web.Api (explorerApi)
+import           Pos.Explorer.Web.Server (explorerApp, explorerHandlers, explorerServeImpl)
 
 -----------------------------------------------------------------
 -- Transformation to `Handler`
 -----------------------------------------------------------------
 
-type ExplorerProd = ExplorerBListener (RealMode SscGodTossing)
+type RealModeE = RealMode ExplorerExtraModifier
+type ExplorerProd = ExtraContextT (ExplorerBListener RealModeE)
+
+type instance MempoolExt ExplorerProd = ExplorerExtraModifier
+
+instance (HasConfiguration, HasTxpConfiguration, HasCompileInfo) =>
+         MonadTxpLocal RealModeE where
+    txpNormalize = eTxNormalize
+    txpProcessTx = eTxProcessTransaction
+
+instance (HasConfiguration, HasTxpConfiguration, HasCompileInfo) =>
+         MonadTxpLocal ExplorerProd where
+    txpNormalize = lift $ lift txpNormalize
+    txpProcessTx = lift . lift . txpProcessTx
+
+runExplorerProd :: ExtraContext -> ExplorerProd a -> RealModeE a
+runExplorerProd extraCtx = runExplorerBListener . runExtraContextT extraCtx
+
+liftToExplorerProd :: RealModeE a -> ExplorerProd a
+liftToExplorerProd = lift . lift
+
+type HasExplorerConfiguration =
+    ( HasConfiguration
+    , HasBlockConfiguration
+    , HasNodeConfiguration
+    , HasUpdateConfiguration
+    , HasSscConfiguration
+    , HasCompileInfo
+    )
 
 notifierPlugin
-    :: ( HasConfiguration
-       , HasNodeConfiguration
-       , HasInfraConfiguration
-       , HasUpdateConfiguration
-       , HasGtConfiguration
-       )
+    :: HasExplorerConfiguration
     => NotifierSettings
-    -> ([WorkerSpec ExplorerProd], OutSpecs)
-notifierPlugin = first pure . worker mempty .
-    \settings _sa -> notifierApp @SscGodTossing settings
+    -> Diffusion ExplorerProd
+    -> ExplorerProd ()
+notifierPlugin settings _ = notifierApp settings
 
 explorerPlugin
-    :: ( HasConfiguration
-       , HasNodeConfiguration
-       , HasGtConfiguration
-       , HasInfraConfiguration
-       , HasUpdateConfiguration
-       )
+    :: HasExplorerConfiguration
     => Word16
-    -> ([WorkerSpec ExplorerProd], OutSpecs)
-explorerPlugin port =
-    first pure $ worker mempty $
-    (\sa -> explorerServeWebReal sa port)
+    -> Diffusion ExplorerProd
+    -> ExplorerProd ()
+explorerPlugin = flip explorerServeWebReal
 
 explorerServeWebReal
-    :: ( HasConfiguration
-       , HasNodeConfiguration
-       , HasGtConfiguration
-       , HasInfraConfiguration
-       , HasUpdateConfiguration
-       )
-    => SendActions ExplorerProd
+    :: HasExplorerConfiguration
+    => Diffusion ExplorerProd
     -> Word16
     -> ExplorerProd ()
-explorerServeWebReal sendActions = explorerServeImpl
-    (explorerApp $ flip enter (explorerHandlers sendActions) <$> nat)
-
-nat :: ExplorerProd (ExplorerProd :~> Handler)
-nat = do
+explorerServeWebReal diffusion port = do
     rctx <- ask
-    pure $ NT (convertHandler rctx)
+    let handlers = explorerHandlers diffusion
+        server = hoistServer explorerApi (convertHandler rctx) handlers
+        app = explorerApp (pure server)
+    explorerServeImpl app port
 
 convertHandler
-    :: RealModeContext SscGodTossing
+    :: HasConfiguration
+    => RealModeContext ExplorerExtraModifier
     -> ExplorerProd a
     -> Handler a
 convertHandler rctx handler =
-    liftIO (realRunner $ runExplorerBListener $ handler) `Catch.catches` excHandlers
+    let extraCtx = makeExtraCtx
+        ioAction = realRunner $
+                   runExplorerProd extraCtx
+                   handler
+    in liftIO ioAction `E.catches` excHandlers
   where
-
-    realRunner :: forall t . RealMode SscGodTossing t -> IO t
+    realRunner :: forall t . RealModeE t -> IO t
     realRunner act = runProduction $ Mtl.runReaderT act rctx
 
-    excHandlers = [Catch.Handler catchServant]
+    excHandlers = [E.Handler catchServant]
     catchServant = throwError

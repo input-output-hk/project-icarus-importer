@@ -1,5 +1,5 @@
 name:                cardano-sl-db
-version:             1.0.3
+version:             1.1.1
 synopsis:            Cardano SL - basic DB interfaces
 description:         Cardano SL - basic DB interfaces
 license:             MIT
@@ -9,6 +9,7 @@ maintainer:          hi@serokell.io
 copyright:           2016 IOHK
 category:            Currency
 build-type:          Simple
+extra-source-files:  README.md
 cabal-version:       >=1.10
 
 library
@@ -17,6 +18,7 @@ library
                        Pos.DB.Class
                        Pos.DB.Error
                        Pos.DB.Functions
+                       Pos.DB.BlockIndex
                        Pos.DB.GState.Common
                        Pos.DB.GState.Stakes
                        Pos.DB.Misc.Common
@@ -28,7 +30,10 @@ library
 
   build-depends:       base
                      , bytestring
+                     , cardano-sl-binary
                      , cardano-sl-core
+                     , cardano-sl-crypto
+                     , cardano-sl-util
                      , concurrent-extra
                      , conduit
                      , containers
@@ -38,18 +43,13 @@ library
                      , filepath
                      , formatting
                      , lens
-                     , log-warper
-                     , monad-control
-                     , mmorph
+                     , memory
                      , mtl
-                     , node-sketch
                      , resourcet
-                     , rocksdb-haskell >= 1.0.0
+                     , rocksdb-haskell-ng
                      , serokell-util
                      , text-format
                      , transformers
-                     , transformers-base
-                     , transformers-lift
                      , universum
 
   default-language:    Haskell2010
@@ -76,6 +76,7 @@ library
                        BangPatterns
                        TemplateHaskell
                        ScopedTypeVariables
+                       MonadFailDesugaring
 
   ghc-options:         -Wall
                        -fno-warn-orphans

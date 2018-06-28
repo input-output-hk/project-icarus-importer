@@ -17,45 +17,48 @@ module Pos.Wallet.Web.Server.Launcher
 
 import           Universum
 
-import           Network.Wai                      (Application)
+import           Network.Wai (Application)
+import           Network.Wai.Handler.Warp (Settings)
 import           Serokell.AcidState.ExtendedState (ExtendedState)
-import           Servant.API                      ((:<|>) (..))
-import           Servant.Server                   (Handler, Server, serve)
-import           Servant.Swagger.UI               (swaggerSchemaUIServer)
-import           Servant.Utils.Enter              ((:~>) (..), enter)
+import           Servant.Server (Handler, Server, serve)
+import           System.Wlog (WithLogger, logInfo)
 
-import qualified Data.ByteString.Char8            as BS8
-import           Pos.Communication                (OutSpecs, SendActions (..), sendTxOuts)
-import           Pos.Launcher.Configuration       (HasConfigurations)
-import           Pos.Util.TimeWarp                (NetworkAddress)
-import           Pos.Wallet.SscType               (WalletSscType)
-import           Pos.Wallet.Web.Account           (findKey, myRootAddresses)
-import           Pos.Wallet.Web.Api               (WalletSwaggerApi, swaggerWalletApi)
-import           Pos.Wallet.Web.Mode              (MonadWalletWebMode)
-import           Pos.Wallet.Web.Pending           (startPendingTxsResubmitter)
-import           Pos.Wallet.Web.Server.Handlers   (servantHandlers)
-import           Pos.Wallet.Web.Sockets           (ConnectionsVar, closeWSConnections,
-                                                   getWalletWebSockets, initWSConnections,
-                                                   launchNotifier, upgradeApplicationWS)
-import           Pos.Wallet.Web.State             (closeState, openState)
-import           Pos.Wallet.Web.State.Storage     (WalletStorage)
-import           Pos.Wallet.Web.Swagger.Spec      (swaggerSpecForWalletApi)
-import           Pos.Wallet.Web.Tracking          (syncWalletsWithGState)
-import           Pos.Web                          (TlsParams, serveImpl)
+import qualified Data.ByteString.Char8 as BS8
+
+import           Ntp.Client (NtpStatus)
+
+import           Pos.Client.Txp.Network (sendTxOuts)
+import           Pos.Communication (OutSpecs)
+import           Pos.Diffusion.Types (Diffusion (sendTx))
+import           Pos.Util (bracketWithLogging)
+import           Pos.Util.TimeWarp (NetworkAddress)
+import           Pos.Wallet.Web.Account (findKey, myRootAddresses)
+import           Pos.Wallet.Web.Api (WalletSwaggerApi, swaggerWalletApi)
+import           Pos.Wallet.Web.Mode (MonadFullWalletWebMode, MonadWalletWebMode,
+                                      MonadWalletWebSockets)
+import           Pos.Wallet.Web.Server.Handlers (servantHandlersWithSwagger)
+import           Pos.Wallet.Web.Sockets (ConnectionsVar, closeWSConnections, getWalletWebSockets,
+                                         initWSConnections, upgradeApplicationWS)
+import           Pos.Wallet.Web.State (closeState, openState)
+import           Pos.Wallet.Web.State.Storage (WalletStorage)
+import           Pos.Wallet.Web.Tracking (syncWallet)
+import           Pos.Wallet.Web.Tracking.Decrypt (eskToWalletDecrCredentials)
+import           Pos.Web (TlsParams, serveImpl)
 
 -- TODO [CSM-407]: Mixture of logic seems to be here
 
 walletServeImpl
-    :: MonadWalletWebMode m
+    :: (MonadIO m)
     => m Application     -- ^ Application getter
     -> NetworkAddress    -- ^ IP and port to listen
     -> Maybe TlsParams
+    -> Maybe Settings
+    -> Maybe (Word16 -> IO ())
     -> m ()
-walletServeImpl app (ip, port) =
-    serveImpl app (BS8.unpack ip) port
+walletServeImpl app (ip, port) = serveImpl app (BS8.unpack ip) port
 
 walletApplication
-    :: MonadWalletWebMode m
+    :: (MonadWalletWebMode ctx m, MonadWalletWebSockets ctx m)
     => m (Server WalletSwaggerApi)
     -> m Application
 walletApplication serv = do
@@ -63,45 +66,44 @@ walletApplication serv = do
     upgradeApplicationWS wsConn . serve swaggerWalletApi <$> serv
 
 walletServer
-    :: forall m.
-       ( MonadWalletWebMode m )
-    => SendActions m
-    -> m (m :~> Handler)
+    :: forall ctx m.
+       ( MonadFullWalletWebMode ctx m )
+    => Diffusion m
+    -> TVar NtpStatus
+    -> (forall x. m x -> Handler x)
     -> m (Server WalletSwaggerApi)
-walletServer sendActions natM = do
-    nat <- natM
-    syncWalletsWithGState @WalletSscType =<< mapM findKey =<< myRootAddresses
-    startPendingTxsResubmitter sendActions
-    launchNotifier nat
-    return (walletSwaggerHandlers nat)
+walletServer diffusion ntpStatus nat = do
+    mapM_ (findKey >=> syncWallet . eskToWalletDecrCredentials) =<< myRootAddresses
+    return $ servantHandlersWithSwagger ntpStatus submitTx nat
   where
-    walletSwaggerHandlers nat =
-        nat `enter` servantHandlers sendActions
-       :<|>
-        swaggerSchemaUIServer swaggerSpecForWalletApi
+    -- Diffusion layer takes care of submitting transactions.
+    submitTx = sendTx diffusion
 
 bracketWalletWebDB
     :: ( MonadIO m
        , MonadMask m
-       , HasConfigurations
+       , WithLogger m
        )
     => FilePath  -- ^ Path to wallet acid-state
     -> Bool      -- ^ Rebuild flag for acid-state
     -> (ExtendedState WalletStorage -> m a)
     -> m a
 bracketWalletWebDB daedalusDbPath dbRebuild =
-    bracket (openState dbRebuild daedalusDbPath)
-            closeState
+    bracketWithLogging msg (openState dbRebuild daedalusDbPath) closeState
+  where
+    msg = "bracketWalletWebDB"
 
 bracketWalletWS
     :: ( MonadIO m
        , MonadMask m
+       , WithLogger m
        )
     => (ConnectionsVar -> m a)
     -> m a
-bracketWalletWS = bracket initWS closeWSConnections
+bracketWalletWS = bracketWithLogging msg initWS closeWSConnections
   where
-    initWS = putText "walletServeImpl initWsConnection" >> initWSConnections
+    initWS = logInfo "walletServeImpl initWsConnection" >> initWSConnections
+    msg = "bracketWalletWS"
 
 walletServerOuts :: OutSpecs
 walletServerOuts = sendTxOuts

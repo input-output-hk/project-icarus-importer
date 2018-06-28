@@ -1,5 +1,5 @@
 name:                cardano-sl-core
-version:             1.0.3
+version:             1.1.1
 synopsis:            Cardano SL - core
 description:         Cardano SL - core
 license:             MIT
@@ -9,189 +9,165 @@ maintainer:          hi@serokell.io
 copyright:           2016 IOHK
 category:            Currency
 build-type:          Simple
+extra-source-files:  README.md
 cabal-version:       >=1.10
 
 flag asserts
   default:     True
   manual:      True
 
-flag dev-mode
-  default:     True
-  manual:      True
-
-  description: Switch between Development and Production mode
-
 library
+  hs-source-dirs:      src
   exposed-modules:
                        Pos.Arbitrary.Core
                        Pos.Arbitrary.Core.Unsafe
-                       Pos.Arbitrary.Crypto
-                       Pos.Arbitrary.Crypto.Unsafe
 
                        Pos.Aeson.Core
                        Pos.Aeson.Core.Configuration
-                       Pos.Aeson.Crypto
                        Pos.Aeson.Fee
                        Pos.Aeson.Genesis
 
+                       Pos.Binary.Core
+                       Pos.Binary.Merkle
 
                        Pos.Core
-                       Pos.Core.Address
+
+                       Pos.Core.ProtocolConstants
+
                        Pos.Core.Block
-                       Pos.Core.BlockVersionData
+                       Pos.Core.Block.Blockchain
+                       Pos.Core.Block.Genesis
+                       Pos.Core.Block.Main
+                       Pos.Core.Block.Union
+
                        Pos.Core.Class
+                       Pos.Core.Common
                        Pos.Core.Configuration
+                       Pos.Core.Constants
+                       Pos.Core.Context
+                       Pos.Core.Delegation
+                       Pos.Core.Genesis
+                       Pos.Core.Script
+                       Pos.Core.Slotting
+                       Pos.Core.Ssc
+                       Pos.Core.Txp
+                       Pos.Core.Update
+
+                       Pos.Data.Attributes
+                       Pos.Exception
+                       Pos.Merkle
+
+                       Pos.System.Metrics.Constants
+
+  other-modules:
+                       -- Binary
+                       Pos.Binary.Core.Address
+                       Pos.Binary.Core.Block
+                       Pos.Binary.Core.Blockchain
+                       Pos.Binary.Core.Common
+                       Pos.Binary.Core.Delegation
+                       Pos.Binary.Core.Fee
+                       Pos.Binary.Core.Script
+                       Pos.Binary.Core.Slotting
+                       Pos.Binary.Core.Ssc
+                       Pos.Binary.Core.Txp
+                       Pos.Binary.Core.Update
+
+                       -- Block
+                       Pos.Core.Block.Genesis.Chain
+                       Pos.Core.Block.Genesis.Lens
+                       Pos.Core.Block.Genesis.Instances
+                       Pos.Core.Block.Genesis.Types
+                       Pos.Core.Block.Main.Chain
+                       Pos.Core.Block.Main.Lens
+                       Pos.Core.Block.Main.Instances
+                       Pos.Core.Block.Main.Types
+                       Pos.Core.Block.Union.Instances
+                       Pos.Core.Block.Union.Types
+
+                       -- Common
+                       Pos.Core.Common.Address
+                       Pos.Core.Common.Coin
+                       Pos.Core.Common.Fee
+                       Pos.Core.Common.Types
+
+                       -- Configuration
                        Pos.Core.Configuration.BlockVersionData
                        Pos.Core.Configuration.Core
                        Pos.Core.Configuration.GeneratedSecrets
                        Pos.Core.Configuration.GenesisData
                        Pos.Core.Configuration.GenesisHash
                        Pos.Core.Configuration.Protocol
-                       Pos.Core.Constants
-                       Pos.Core.Coin
-                       Pos.Core.Context
-                       Pos.Core.Fee
-                       Pos.Core.Script
-                       Pos.Core.SharedSeed
-                       Pos.Core.Slotting
-                       Pos.Core.Timestamp
-                       Pos.Core.Types
-                       Pos.Core.Version
-                       Pos.Core.Vss
-                       Pos.Core.Vss.Types
 
-                       Pos.Core.Genesis
-                       Pos.Core.Genesis.Canonical
-                       Pos.Core.Genesis.Constants
-                       Pos.Core.Genesis.Generate
-                       Pos.Core.Genesis.Types
-
-                       Pos.Crypto
-                       Pos.Crypto.Encryption
-                       Pos.Crypto.AsBinary
-                       Pos.Crypto.HD
-                       Pos.Crypto.Random
-                       Pos.Crypto.Hashing
-                       Pos.Crypto.Signing
-                       Pos.Crypto.Signing.Tag
-                       Pos.Crypto.Signing.Redeem
-                       Pos.Crypto.Signing.Safe
-                       Pos.Crypto.Signing.Signing
-                       Pos.Crypto.Signing.Types
-                       Pos.Crypto.Signing.Types.Tag
-                       Pos.Crypto.Signing.Types.Redeem
-                       Pos.Crypto.Signing.Types.Safe
-                       Pos.Crypto.Signing.Types.Signing
-                       Pos.Crypto.Scrypt
-                       Pos.Crypto.SecretSharing
-
-                       Pos.Merkle
-                       Pos.Data.Attributes
-                       Pos.Exception
-
-                       Pos.Binary.Class
-                       Pos.Binary.Class.Core
-                       Pos.Binary.Class.Numbers
-                       Pos.Binary.Class.Primitive
-                       Pos.Binary.Class.TH
-                       Pos.Binary.Crypto
-                       Pos.Binary.Merkle
-                       Pos.Binary.Core
-                       Pos.Binary.Core.Address
-                       Pos.Binary.Core.Block
-                       Pos.Binary.Core.Coin
-                       Pos.Binary.Core.Fee
-                       Pos.Binary.Core.Script
-                       Pos.Binary.Core.Types
-                       Pos.Binary.Core.Version
-                       Pos.Binary.Core.Genesis
-
-                       Pos.System.Metrics.Constants
-
-                       Pos.Util.Arbitrary
-                       Pos.Util.Concurrent
-                       Pos.Util.Concurrent.LockedTVar
-                       Pos.Util.Concurrent.PriorityLock
-                       Pos.Util.Concurrent.RWLock
-                       Pos.Util.Concurrent.RWVar
-                       Pos.Util.Chrono
-                       Pos.Util.HVect
-                       Pos.Util.Limits
-                       Pos.Util.LRU
-                       Pos.Util.Mnemonics
-                       Pos.Util.Modifier
-                       Pos.Util.Future
-                       Pos.Util.Queue
-                       Pos.Util.Util
-
-  other-modules:
+                       -- Context
                        Pos.Core.Context.PrimaryKey
 
-  build-depends:       QuickCheck
-                     , aeson
+                       -- Genesis
+                       Pos.Core.Genesis.Canonical
+                       Pos.Core.Genesis.Generate
+                       Pos.Core.Genesis.Helpers
+                       Pos.Core.Genesis.Types
+
+                       -- Slotting
+                       Pos.Core.Slotting.Timestamp
+                       Pos.Core.Slotting.Types
+                       Pos.Core.Slotting.Util
+
+                       -- SSC
+                       Pos.Core.Ssc.Types
+                       Pos.Core.Ssc.Util
+                       Pos.Core.Ssc.Vss
+
+                       -- Update
+                       Pos.Core.Update.Types
+                       Pos.Core.Update.Util
+
+  build-depends:       aeson
                      , ansi-terminal
-                     , autoexporter
                      , base
-                     , base16-bytestring
                      , base58-bytestring
-                     , binary
                      , bytestring
+                     , Cabal
                      , canonical-json
-                     , cardano-crypto
+                     , cardano-sl-binary
+                     , cardano-sl-crypto
+                     , cardano-sl-crypto-test
+                     , cardano-sl-networking
+                     , cardano-sl-util
+                     , cardano-sl-util-test
                      , cborg
-                     , cereal
-                     , concurrent-extra
                      , containers
-                     , contravariant
                      , cryptonite
-                     , cryptonite-openssl >= 0.5
                      , data-default
                      , deepseq
                      , deriving-compat
-                     , digest
-                     , directory
-                     , ed25519
-                     , ether >= 0.5
                      , exceptions
-                     , file-embed
+                     , extra
                      , filepath
+                     , fmt
                      , formatting
                      , generic-arbitrary
                      , hashable
                      , lens
                      , log-warper >= 1.0.3
-                     , lrucache
                      , memory
-                     , mmorph
                      , mtl
-                     , node-sketch
-                     , parsec
                      , plutus-prototype
-                     , pvss
                      , quickcheck-instances
                      , random
                      , reflection
-                     , resourcet
-                     , safecopy
-                     , scrypt >= 0.5
-                     , semigroups
+                     , safe-exceptions
                      , serokell-util
-                     , stm
-                     , tagged
                      , template-haskell
                      , text
                      , text-format
                      , th-lift-instances
-                     , th-utilities
                      , time
                      , time-units
-                     , transformers
-                     , transformers-base
-                     , transformers-lift
                      , universum
                      , unordered-containers
                      , vector
-                     , yaml
+                     , QuickCheck
 
   default-language:    Haskell2010
 
@@ -206,8 +182,10 @@ library
                        DefaultSignatures
                        NoImplicitPrelude
                        OverloadedStrings
+                       RankNTypes
                        RecordWildCards
                        TypeApplications
+                       TypeFamilies
                        TupleSections
                        ViewPatterns
                        LambdaCase
@@ -217,6 +195,7 @@ library
                        BangPatterns
                        TemplateHaskell
                        ScopedTypeVariables
+                       MonadFailDesugaring
 
   ghc-options:         -Wall
                        -fno-warn-orphans
@@ -226,5 +205,65 @@ library
   ghc-options: -pgmP cpphs -optP --cpp
   if flag(asserts)
     cpp-options: -DASSERTS_ON
-  if flag(dev-mode)
-    cpp-options: -DDEV_MODE
+
+test-suite test
+  main-is:             test.hs
+  hs-source-dirs:      test
+  default-language:    Haskell2010
+  type:                exitcode-stdio-1.0
+
+  other-modules:
+                       Spec
+                       Test.Pos.Core.AddressSpec
+                       Test.Pos.Core.CoinSpec
+
+  build-depends:       base
+                     , bytestring
+                     , cardano-sl-binary
+                     , cardano-sl-core
+                     , cardano-sl-crypto
+                     , cardano-sl-util-test
+                     , formatting
+                     , hspec
+                     , QuickCheck
+                     , serokell-util >= 0.1.3.4
+                     , text
+                     , universum >= 0.1.11
+
+  ghc-options:         -threaded
+                       -rtsopts
+                       -Wall
+                       -fno-warn-orphans
+
+  -- linker speed up for linux
+  if os(linux)
+    ghc-options:       -optl-fuse-ld=gold
+    ld-options:        -fuse-ld=gold
+
+  default-extensions:   DeriveDataTypeable
+                        DeriveGeneric
+                        GeneralizedNewtypeDeriving
+                        StandaloneDeriving
+                        FlexibleContexts
+                        FlexibleInstances
+                        MultiParamTypeClasses
+                        FunctionalDependencies
+                        DefaultSignatures
+                        NoImplicitPrelude
+                        OverloadedStrings
+                        RecordWildCards
+                        TypeApplications
+                        TupleSections
+                        ViewPatterns
+                        LambdaCase
+                        MultiWayIf
+                        ConstraintKinds
+                        UndecidableInstances
+                        BangPatterns
+                        TemplateHaskell
+                        ScopedTypeVariables
+                        GADTs
+                        MonadFailDesugaring
+
+  build-tools: cpphs >= 1.19
+  ghc-options: -pgmP cpphs -optP --cpp

@@ -22,17 +22,18 @@ module Pos.Wallet.Web.Tracking.Modifier
 
 import           Universum
 
-import           Data.DList                   (DList)
-import qualified Data.Text.Buildable
-import           Formatting                   (bprint, build, (%))
-import           Serokell.Util                (listJson, listJsonIndent)
+import           Data.DList (DList)
+import           Formatting (bprint, build, (%))
+import           Serokell.Util (listJson, listJsonIndent)
 
-import           Pos.Client.Txp.History       (TxHistoryEntry (..))
-import           Pos.Core                     (Address, HeaderHash)
-import           Pos.Txp.Core                 (TxId)
-import           Pos.Txp.Toil                 (UtxoModifier)
-import           Pos.Util.Modifier            (MapModifier)
-import qualified Pos.Util.Modifier            as MM
+import           Pos.Client.Txp.History (TxHistoryEntry (..))
+import           Pos.Core (Address, HeaderHash)
+import           Pos.Core.Txp (TxId)
+import           Pos.Txp.Toil (UtxoModifier)
+import           Pos.Util.LogSafe (BuildableSafeGen (..), deriveSafeBuildable, secretOnlyF,
+                                   secureListF)
+import           Pos.Util.Modifier (MapModifier)
+import qualified Pos.Util.Modifier as MM
 
 import           Pos.Wallet.Web.Pending.Types (PtxBlockInfo)
 import           Pos.Wallet.Web.State         (WAddressMeta)
@@ -52,10 +53,13 @@ sortedInsertions = map fst . sortWith snd . MM.insertions . immModifier
 indexedDeletions :: IndexedMapModifier a -> [a]
 indexedDeletions = MM.deletions . immModifier
 
+instance (Eq a, Hashable a) => Semigroup (IndexedMapModifier a) where
+    IndexedMapModifier m1 c1 <> IndexedMapModifier m2 c2 =
+        IndexedMapModifier (m1 <> fmap (+ c1) m2) (c1 + c2)
+
 instance (Eq a, Hashable a) => Monoid (IndexedMapModifier a) where
     mempty = IndexedMapModifier mempty 0
-    IndexedMapModifier m1 c1 `mappend` IndexedMapModifier m2 c2 =
-        IndexedMapModifier (m1 <> fmap (+ c1) m2) (c1 + c2)
+    mappend = (<>)
 
 data CAccModifier = CAccModifier
     { camAddresses            :: !(IndexedMapModifier WAddressMeta)
@@ -68,23 +72,27 @@ data CAccModifier = CAccModifier
     , camDeletedPtxCandidates :: !(DList (TxId, TxHistoryEntry))
     }
 
+instance Semigroup CAccModifier where
+    (CAccModifier a b c d ah dh aptx dptx) <> (CAccModifier a1 b1 c1 d1 ah1 dh1 aptx1 dptx1) =
+        CAccModifier (a <> a1) (b <> b1) (c <> c1) (d <> d1) (ah1 <> ah)
+                     (dh <> dh1) (aptx <> aptx1) (dptx <> dptx1)
+
 instance Monoid CAccModifier where
     mempty = CAccModifier mempty mempty mempty mempty mempty mempty mempty mempty
-    (CAccModifier a b c d ah dh aptx dptx) `mappend` (CAccModifier a1 b1 c1 d1 ah1 dh1 aptx1 dptx1) =
-        CAccModifier (a <> a1) (b <> b1) (c <> c1) (d <> d1) (ah1 <> ah) (dh <> dh1) (aptx <> aptx1) (dptx <> dptx1)
+    mappend = (<>)
 
-instance Buildable CAccModifier where
-    build CAccModifier{..} =
+instance BuildableSafeGen CAccModifier where
+    buildSafeGen sl CAccModifier{..} =
         bprint
-            ( "\n    added addresses: "%listJsonIndent 8
-            %",\n    deleted addresses: "%listJsonIndent 8
-            %",\n    used addresses: "%listJson
-            %",\n    change addresses: "%listJson
-            %",\n    local utxo (difference): "%build
-            %",\n    added history entries: "%listJsonIndent 8
-            %",\n    deleted history entries: "%listJsonIndent 8
-            %",\n    added pending candidates: "%listJson
-            %",\n    deleted pending candidates: "%listJson)
+            ( "\n    added addresses: "%secureListF sl (listJsonIndent 8)
+            %",\n    deleted addresses: "%secureListF sl (listJsonIndent 8)
+            %",\n    used addresses: "%secureListF sl listJson
+            %",\n    change addresses: "%secureListF sl listJson
+            %",\n    local utxo (difference): "%secretOnlyF sl build
+            %",\n    added history entries: "%secureListF sl (listJsonIndent 8)
+            %",\n    deleted history entries: "%secureListF sl (listJsonIndent 8)
+            %",\n    added pending candidates: "%secureListF sl listJson
+            %",\n    deleted pending candidates: "%secureListF sl listJson)
         (sortedInsertions camAddresses)
         (indexedDeletions camAddresses)
         (map (fst . fst) $ MM.insertions camUsed)
@@ -94,6 +102,8 @@ instance Buildable CAccModifier where
         camDeletedHistory
         (map fst camAddedPtxCandidates)
         (map fst camDeletedPtxCandidates)
+
+deriveSafeBuildable ''CAccModifier
 
 -- | `txMempoolToModifier`, once evaluated, is passed around under this type in
 -- scope of single request.
@@ -157,4 +167,3 @@ deleteAndInsertMM dels ins mapModifier =
 
     deleteAcc :: (Hashable k, Eq k) => MapModifier k v -> k -> MapModifier k v
     deleteAcc = flip deleteNotDeep
-

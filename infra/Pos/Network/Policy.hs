@@ -1,18 +1,23 @@
 module Pos.Network.Policy
-    ( defaultEnqueuePolicyCore
-    , defaultEnqueuePolicyRelay
-    , defaultEnqueuePolicyEdgeBehindNat
-    , defaultEnqueuePolicyEdgeP2P
-    , defaultDequeuePolicyCore
-    , defaultDequeuePolicyRelay
-    , defaultDequeuePolicyEdgeBehindNat
-    , defaultDequeuePolicyEdgeP2P
-    , defaultFailurePolicy
-    ) where
+       ( defaultEnqueuePolicyCore
+       , defaultEnqueuePolicyRelay
+       , defaultEnqueuePolicyEdgeBehindNat
+       , defaultEnqueuePolicyEdgeP2P
+       , defaultEnqueuePolicyAuxx
+       , defaultDequeuePolicyCore
+       , defaultDequeuePolicyRelay
+       , defaultDequeuePolicyEdgeBehindNat
+       , defaultDequeuePolicyAuxx
+       , defaultDequeuePolicyEdgeP2P
+       , defaultFailurePolicy
+       , defaultFailurePolicyAuxx
+       ) where
+
 
 import           Universum
-import           Network.Broadcast.OutboundQueue.Types
+
 import           Network.Broadcast.OutboundQueue
+import           Network.Broadcast.OutboundQueue.Types
 
 -- | Default enqueue policy for core nodes
 defaultEnqueuePolicyCore :: EnqueuePolicy nid
@@ -105,6 +110,36 @@ defaultEnqueuePolicyEdgeBehindNat = go
         -- not relevant
       ]
 
+-- | Default enqueue policy for the Auxx CLI tool.
+defaultEnqueuePolicyAuxx :: EnqueuePolicy nid
+defaultEnqueuePolicyAuxx = go
+  where
+    -- Enqueue policy for edge nodes
+    go :: EnqueuePolicy nid
+    go (MsgTransaction OriginSender) = [
+        EnqueueAll NodeRelay (MaxAhead 2) PLow
+      ]
+    go (MsgTransaction (OriginForward _)) = [
+        -- don't forward transactions that weren't created at this node
+      ]
+    go (MsgAnnounceBlockHeader _) = [
+        -- not forwarded
+      ]
+    go (MsgRequestBlockHeaders Nothing) = [
+        EnqueueAll NodeRelay (MaxAhead 1) PHigh
+      ]
+    go (MsgRequestBlockHeaders (Just _)) = [
+        EnqueueOne [NodeRelay] (MaxAhead 2) PHigh
+      ]
+    go (MsgRequestBlocks _) = [
+        -- Edge nodes can only talk to relay nodes
+        EnqueueOne [NodeRelay] (MaxAhead 2) PHigh
+      ]
+    go (MsgMPC _) = [
+        EnqueueAll NodeCore (MaxAhead 2) PMedium
+      , EnqueueAll NodeRelay (MaxAhead 2) PMedium
+      ]
+
 -- | Default enqueue policy for edge nodes using P2P
 defaultEnqueuePolicyEdgeP2P :: EnqueuePolicy nid
 defaultEnqueuePolicyEdgeP2P = go
@@ -155,6 +190,15 @@ defaultDequeuePolicyEdgeBehindNat = go
     go NodeRelay = Dequeue (MaxMsgPerSec 1) (MaxInFlight 2)
     go NodeEdge  = error "defaultDequeuePolicy: edge to edge not applicable"
 
+-- | Dequeueing policy for the Auxx CLI tool.
+defaultDequeuePolicyAuxx :: DequeuePolicy
+defaultDequeuePolicyAuxx = go
+  where
+    go :: DequeuePolicy
+    go NodeCore  = Dequeue (MaxMsgPerSec 1) (MaxInFlight 2)
+    go NodeRelay = Dequeue (MaxMsgPerSec 1) (MaxInFlight 2)
+    go NodeEdge  = Dequeue (MaxMsgPerSec 1) (MaxInFlight 2)
+
 -- | Dequeueing policy for P2P edge nodes
 defaultDequeuePolicyEdgeP2P :: DequeuePolicy
 defaultDequeuePolicyEdgeP2P = go
@@ -170,3 +214,7 @@ defaultDequeuePolicyEdgeP2P = go
 defaultFailurePolicy :: NodeType -- ^ Our node type
                      -> FailurePolicy nid
 defaultFailurePolicy _ourType _theirType _msgType _err = ReconsiderAfter 200
+
+-- | Failure policy for the Auxx CLI tool.
+defaultFailurePolicyAuxx :: FailurePolicy nid
+defaultFailurePolicyAuxx _ _ _ = ReconsiderAfter 0

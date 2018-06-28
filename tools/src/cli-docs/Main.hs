@@ -4,20 +4,19 @@ module Main ( module Main ) where
 
 import           Universum
 
-import           Control.Monad         (forM)
-import           Data.List             (intersperse)
-import           Data.Text             (Text)
-import           Data.Version          (showVersion)
-import           NeatInterpolation     (text)
-import           Options.Applicative   (Parser, execParser, footer, fullDesc, header,
-                                        help, helper, info, infoOption, long, metavar,
-                                        progDesc, strOption)
-import           System.Directory      (doesDirectoryExist, listDirectory)
-import           System.Environment    (getProgName)
+import           Control.Monad (forM)
+import           Data.List (intersperse)
+import           Data.Text (Text)
+import           Data.Version (showVersion)
+import           NeatInterpolation (text)
+import           Options.Applicative (Parser, execParser, footer, fullDesc, header, help, helper,
+                                      info, infoOption, long, metavar, progDesc, strOption)
+import           System.Directory (doesDirectoryExist, listDirectory)
+import           System.Environment (getProgName)
 import           System.FilePath.Posix ((<.>), (</>))
-import           System.Process        (readProcess)
+import           System.Process (readProcess)
 
-import           Paths_cardano_sl      (version)
+import           Paths_cardano_sl (version)
 
 type Help     = Text
 type Markdown = Text
@@ -40,7 +39,7 @@ getCLIDocsOptions pathToMarkdownFile = execParser programInfo
     programInfo = info (helper <*> versionOption <*> optionsParser) $
         fullDesc <> progDesc "Generate Markdown chapter for cardanodocs.com."
                  <> header "Tool to generate CLI-docs for Cardano SL executable files."
-                 <> footer ("Assumed that this program will run on Travis CI. " <>
+                 <> footer ("Assumed that this program will run on CI. " <>
                             "Produced file '" <> pathToMarkdownFile <> "' will be " <>
                             "renamed in a chapter and pushed in cardanodocs.com repository.")
 

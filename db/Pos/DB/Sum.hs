@@ -16,20 +16,18 @@ module Pos.DB.Sum
 
 import           Universum
 
-import           Control.Monad.Morph          (hoist)
-import           Control.Monad.Trans.Control  (MonadBaseControl)
 import           Control.Monad.Trans.Resource (MonadResource)
-import           Data.Conduit                 (Source)
-import           Ether.Internal               (HasLens (..))
+import           Data.Conduit (ConduitT, transPipe)
 
-import qualified Database.RocksDB             as Rocks
-import           Pos.Binary.Class             (Bi)
-import           Pos.Core.Configuration       (HasConfiguration)
-import           Pos.DB.Class                 (DBIteratorClass (..), DBTag, IterType)
-import           Pos.DB.Pure                  (DBPureVar)
-import qualified Pos.DB.Pure                  as DB
-import           Pos.DB.Rocks                 (NodeDBs)
-import qualified Pos.DB.Rocks                 as DB
+import qualified Database.RocksDB as Rocks
+import           Pos.Binary.Class (Bi)
+import           Pos.Core.Configuration (HasCoreConfiguration)
+import           Pos.DB.Class (DBIteratorClass (..), DBTag, IterType)
+import           Pos.DB.Pure (DBPureVar)
+import qualified Pos.DB.Pure as DB
+import           Pos.DB.Rocks (NodeDBs)
+import qualified Pos.DB.Rocks as DB
+import           Pos.Util.Util (HasLens (..))
 
 data DBSum = RealDB NodeDBs | PureDB DBPureVar
 
@@ -37,9 +35,7 @@ type MonadDBSum ctx m =
     ( MonadReader ctx m
     , HasLens DBSum ctx DBSum
     , MonadMask m
-    , MonadBaseControl IO m
     , MonadIO m
-    , HasConfiguration
     )
 
 eitherDB
@@ -61,14 +57,15 @@ dbIterSourceSumDefault
        , DBIteratorClass i
        , Bi (IterKey i)
        , Bi (IterValue i)
+       , HasCoreConfiguration
        )
-    => DBTag -> Proxy i -> Source m (IterType i)
+    => DBTag -> Proxy i -> ConduitT () (IterType i) m ()
 dbIterSourceSumDefault tag proxy = view (lensOf @DBSum) >>= \case
-    RealDB dbs -> hoist (flip runReaderT dbs) (DB.dbIterSourceDefault tag proxy)
-    PureDB pdb -> hoist (flip runReaderT pdb) (DB.dbIterSourcePureDefault tag proxy)
+    RealDB dbs -> transPipe (flip runReaderT dbs) (DB.dbIterSourceDefault tag proxy)
+    PureDB pdb -> transPipe (flip runReaderT pdb) (DB.dbIterSourcePureDefault tag proxy)
 
 dbPutSumDefault
-    :: MonadDBSum ctx m
+    :: (MonadDBSum ctx m, HasCoreConfiguration)
     => DBTag -> ByteString -> ByteString -> m ()
 dbPutSumDefault tag k v = eitherDB (DB.dbPutDefault tag k v) (DB.dbPutPureDefault tag k v)
 

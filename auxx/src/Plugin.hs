@@ -5,119 +5,150 @@
 
 module Plugin
        ( auxxPlugin
+       , rawExec
        ) where
 
 import           Universum
 
-import qualified Data.Text                  as T
 #if !(defined(mingw32_HOST_OS))
-import           System.Exit                (ExitCode (ExitSuccess))
-import           System.Posix.Process       (exitImmediately)
+import           System.Exit (ExitCode (ExitSuccess))
+import           System.Posix.Process (exitImmediately)
 #endif
-import           Formatting                 (int, sformat, stext, (%))
-import           Mockable                   (delay)
-import           Node.Conversation          (ConversationActions (..))
-import           Node.Message.Class         (Message (..))
-import           Serokell.Util              (sec)
-import           System.IO                  (hFlush, stdout)
-import           System.Wlog                (WithLogger, logDebug, logInfo)
+import           Control.Monad.Except (ExceptT (..), withExceptT)
+import           Data.Constraint (Dict (..))
+import           Formatting (float, int, sformat, (%))
+import           Mockable (Delay, Mockable, delay)
+import           Serokell.Util (sec)
+import           System.IO (hFlush, stdout)
+import           System.Wlog (CanLog, HasLoggerName, logInfo)
 
-import           Pos.Communication          (Conversation (..), OutSpecs (..),
-                                             SendActions (..), Worker, WorkerSpec,
-                                             delegationRelays, relayPropagateOut,
-                                             txRelays, usRelays, worker)
-import           Pos.Launcher.Configuration (HasConfigurations)
-import           Pos.Ssc.GodTossing         (SscGodTossing)
-import           Pos.Txp                    (genesisUtxo, unGenesisUtxo)
-import           Pos.WorkMode               (RealMode, RealModeContext)
+import           Pos.Crypto (AHash (..), fullPublicKeyF, hashHexF)
+import           Pos.Diffusion.Types (Diffusion)
+import           Pos.Txp (genesisUtxo, unGenesisUtxo)
+import           Pos.Util.CompileInfo (HasCompileInfo)
 
-import           AuxxOptions                (AuxxAction (..), AuxxOptions (..))
-import           Command                    (Command (..), parseCommand, runCmd)
-import           Mode                       (AuxxMode)
+import           AuxxOptions (AuxxOptions (..))
+import           Command (createCommandProcs)
+import qualified Lang
+import           Mode (MonadAuxxMode)
+import           Repl (PrintAction, WithCommandAction (..))
 
 ----------------------------------------------------------------------------
 -- Plugin implementation
 ----------------------------------------------------------------------------
 
+{-# ANN module ("HLint: ignore Reduce duplication" :: Text) #-}
+
 auxxPlugin ::
-       HasConfigurations
+       (HasCompileInfo, MonadAuxxMode m, Mockable Delay m)
     => AuxxOptions
-    -> (WorkerSpec AuxxMode, OutSpecs)
-auxxPlugin AuxxOptions {..} =
-    case aoAction of
-        Repl    -> worker' runCmdOuts $ runWalletRepl
-        Cmd cmd -> worker' runCmdOuts $ runWalletCmd cmd
-  where
-    worker' specs w =
-        worker specs $ \sa -> do
-            logInfo $ sformat ("Length of genesis utxo: " %int)
-                              (length $ unGenesisUtxo genesisUtxo)
-            w (addLogging sa)
+    -> Either WithCommandAction Text
+    -> Diffusion m
+    -> m ()
+auxxPlugin auxxOptions repl = \diffusion -> do
+    logInfo $ sformat ("Length of genesis utxo: " %int)
+                      (length $ unGenesisUtxo genesisUtxo)
+    rawExec (Just Dict) auxxOptions (Just diffusion) repl
 
-evalCmd ::
-       HasConfigurations
-    => SendActions AuxxMode
-    -> Command
-    -> AuxxMode ()
-evalCmd _ Quit = pure ()
-evalCmd sa cmd = runCmd sa cmd >> evalCommands sa
+rawExec ::
+       ( HasCompileInfo
+       , MonadIO m
+       , MonadCatch m
+       , CanLog m
+       , HasLoggerName m
+       , Mockable Delay m
+       )
+    => Maybe (Dict (MonadAuxxMode m))
+    -> AuxxOptions
+    -> Maybe (Diffusion m)
+    -> Either WithCommandAction Text
+    -> m ()
+rawExec mHasAuxxMode AuxxOptions{..} mDiffusion = \case
+    Left WithCommandAction{..} -> do
+        printAction "... the auxx plugin is ready"
+        forever $ withCommand $ runCmd mHasAuxxMode mDiffusion printAction
+    Right cmd -> runWalletCmd mHasAuxxMode mDiffusion cmd
 
-evalCommands ::
-       HasConfigurations => SendActions AuxxMode -> AuxxMode ()
-evalCommands sa = do
-    putStr @Text "> "
-    liftIO $ hFlush stdout
-    line <- getLine
-    let cmd = parseCommand line
-    case cmd of
-        Left err   -> putStrLn err >> evalCommands sa
-        Right cmd_ -> evalCmd sa cmd_
-
-runWalletRepl :: HasConfigurations => Worker AuxxMode
-runWalletRepl sa = do
-    putText "Welcome to Wallet CLI Node"
-    evalCmd sa Help
-
-runWalletCmd :: HasConfigurations => Text -> Worker AuxxMode
-runWalletCmd str sa = do
-    let strs = T.splitOn "," str
-    for_ strs $ \scmd -> do
-        let mcmd = parseCommand scmd
-        case mcmd of
-            Left err   -> putStrLn err
-            Right cmd' -> runCmd sa cmd'
-    putText "Command execution finished"
-    putText " " -- for exit by SIGPIPE
+runWalletCmd ::
+       ( HasCompileInfo
+       , MonadIO m
+       , MonadCatch m
+       , CanLog m
+       , HasLoggerName m
+       , Mockable Delay m
+       )
+    => Maybe (Dict (MonadAuxxMode m))
+    -> Maybe (Diffusion m)
+    -> Text
+    -> m ()
+runWalletCmd mHasAuxxMode mDiffusion line = do
+    runCmd mHasAuxxMode mDiffusion printAction line
+    printAction "Command execution finished"
+    printAction " " -- for exit by SIGPIPE
     liftIO $ hFlush stdout
 #if !(defined(mingw32_HOST_OS))
     delay $ sec 3
     liftIO $ exitImmediately ExitSuccess
 #endif
+  where
+    printAction = putText
 
-----------------------------------------------------------------------------
--- Something hacky
-----------------------------------------------------------------------------
+runCmd ::
+       ( HasCompileInfo
+       , MonadIO m
+       , MonadCatch m
+       , CanLog m
+       , HasLoggerName m
+       , Mockable Delay m
+       )
+    => Maybe (Dict (MonadAuxxMode m))
+    -> Maybe (Diffusion m)
+    -> PrintAction m
+    -> Text
+    -> m ()
+runCmd mHasAuxxMode mDiffusion printAction line = do
+    let commandProcs = createCommandProcs mHasAuxxMode printAction mDiffusion
+        parse = withExceptT Lang.ppParseError . ExceptT . return . Lang.parse
+        resolveCommandProcs =
+            withExceptT Lang.ppResolveErrors . ExceptT . return .
+            Lang.resolveCommandProcs commandProcs
+        evaluate = withExceptT Lang.ppEvalError . ExceptT . Lang.evaluate
+        pipeline = parse >=> resolveCommandProcs >=> evaluate
+    runExceptT (pipeline line) >>= \case
+        Left errDoc -> printAction (Lang.renderAuxxDoc errDoc)
+        Right value -> withValueText printAction value
 
--- This solution is hacky, but will work for now
-runCmdOuts :: HasConfigurations => OutSpecs
-runCmdOuts =
-    relayPropagateOut $
-    mconcat
-        [ usRelays @(RealModeContext SscGodTossing) @(RealMode SscGodTossing)
-        , delegationRelays
-              @SscGodTossing
-              @(RealModeContext SscGodTossing)
-              @(RealMode SscGodTossing)
-        , txRelays
-              @SscGodTossing
-              @(RealModeContext SscGodTossing)
-              @(RealMode SscGodTossing)
-        ]
+withValueText :: Monad m => (Text -> m ()) -> Lang.Value -> m ()
+withValueText cont = \case
+    Lang.ValueUnit -> return ()
+    Lang.ValueNumber n -> cont (sformat float n)
+    Lang.ValueString s -> cont (toText s)
+    Lang.ValueBool b -> cont (pretty b)
+    Lang.ValueAddress a -> cont (pretty a)
+    Lang.ValuePublicKey pk -> cont (sformat fullPublicKeyF pk)
+    Lang.ValueTxOut txOut -> cont (pretty txOut)
+    Lang.ValueStakeholderId sId -> cont (sformat hashHexF sId)
+    Lang.ValueHash h -> cont (sformat hashHexF (getAHash h))
+    Lang.ValueBlockVersion v -> cont (pretty v)
+    Lang.ValueSoftwareVersion v -> cont (pretty v)
+    Lang.ValueBlockVersionModifier bvm -> cont (pretty bvm)
+    Lang.ValueBlockVersionData bvd -> cont (pretty bvd)
+    Lang.ValueProposeUpdateSystem pus -> cont (show pus)
+    Lang.ValueAddrDistrPart adp -> cont (show adp)
+    Lang.ValueAddrStakeDistribution asd -> cont (pretty asd)
+    Lang.ValueFilePath s -> cont (toText s)
+    Lang.ValueList vs -> for_ vs $
+        withValueText (cont . mappend "  ")
 
 ----------------------------------------------------------------------------
 -- Extra logging
 ----------------------------------------------------------------------------
 
+-- This addLogging was misplaced to begin with.
+-- A debug-mode diffusion layer could be chosen, which logs absolutely all
+-- network activity. But surely for auxx logging, the logging should go around
+-- the high-level auxx commands, no?
+{-
 addLogging :: forall m. WithLogger m => SendActions m -> SendActions m
 addLogging SendActions{..} = SendActions{
       enqueueMsg = error "unused"
@@ -142,3 +173,4 @@ addLogging SendActions{..} = SendActions{
                  return mRcv
       , sendRaw = sendRaw
       }
+-}

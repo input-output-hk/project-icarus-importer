@@ -6,7 +6,7 @@ import Data.Foldable (for_)
 import Data.Lens ((^.))
 import Data.String (take)
 import Explorer.I18n.Lang (Language, langCode, translate)
-import Explorer.I18n.Lenses (footer, fooCardanoLaunch, fooCardanoOpenSource, fooCardanoHub
+import Explorer.I18n.Lenses (footer, fooCardanoOpenSource, fooCardanoHub
   , fooCardanoChat, fooCardanoForum, fooDisclaimerPt1, fooDisclaimerPt2, fooCardanoFoundation
   , fooEmail, fooGithub, fooIohkSupportP, fooCardanoDocumentation, fooCardanoTestnet
   , fooCardanoSource, fooCardanoFoundationYoutube, fooCardanoFoundationTwitter
@@ -134,10 +134,7 @@ type NavItem =
 
 navItemsLeft :: Language -> Array NavItem
 navItemsLeft lang =
-    [ { label: translate (I18nL.footer <<< I18nL.fooCardanoLaunch) lang
-      , link: "https://cardanolaunch.com"
-      }
-    , { label: translate (I18nL.footer <<< I18nL.fooCardanoDocumentation) lang
+    [ { label: translate (I18nL.footer <<< I18nL.fooCardanoDocumentation) lang
       , link: "//cardanodocs.com"
       }
     , { label: translate (I18nL.footer <<< I18nL.fooCardanoRoadmap) lang

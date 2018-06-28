@@ -9,17 +9,16 @@ module Pos.Update.Poll.Class
 
 import           Universum
 
-import           Control.Monad.Trans   (MonadTrans)
-import           System.Wlog           (WithLogger)
+import           Control.Monad.Trans (MonadTrans)
+import           System.Wlog (WithLogger)
 
-import           Pos.Core              (ApplicationName, BlockVersion, ChainDifficulty,
-                                        Coin, EpochIndex, NumSoftwareVersion, SlotId,
-                                        SoftwareVersion, StakeholderId, HasConfiguration)
-import           Pos.Slotting.Types    (SlottingData)
-import           Pos.Update.Core       (BlockVersionData, UpId)
+import           Pos.Core (ApplicationName, BlockVersion, BlockVersionData, ChainDifficulty, Coin,
+                           EpochIndex, NumSoftwareVersion, SlotId,
+                           SoftwareVersion, StakeholderId)
+import           Pos.Core.Update (UpId)
+import           Pos.Slotting.Types (SlottingData)
 import           Pos.Update.Poll.Types (BlockVersionState, ConfirmedProposalState,
-                                        DecidedProposalState, ProposalState,
-                                        UndecidedProposalState)
+                                        DecidedProposalState, ProposalState, UndecidedProposalState)
 
 ----------------------------------------------------------------------------
 -- Read-only
@@ -27,7 +26,7 @@ import           Pos.Update.Poll.Types (BlockVersionState, ConfirmedProposalStat
 
 -- | Type class which provides function necessary for read-only
 -- verification of US data.
-class (HasConfiguration, Monad m, WithLogger m) => MonadPollRead m where
+class (Monad m, WithLogger m) => MonadPollRead m where
     getBVState :: BlockVersion -> m (Maybe BlockVersionState)
     -- ^ Retrieve state of given block version.
     getProposedBVs :: m [BlockVersion]
@@ -72,7 +71,7 @@ class (HasConfiguration, Monad m, WithLogger m) => MonadPollRead m where
     getAdoptedBVData = snd <$> getAdoptedBVFull
 
 instance {-# OVERLAPPABLE #-}
-    (HasConfiguration, MonadPollRead m, MonadTrans t, Monad (t m), WithLogger (t m)) =>
+    (MonadPollRead m, MonadTrans t, Monad (t m), WithLogger (t m)) =>
         MonadPollRead (t m)
   where
     getBVState = lift . getBVState
@@ -123,7 +122,7 @@ class MonadPollRead m => MonadPoll m where
     -- ^ Set proposers.
 
 instance {-# OVERLAPPABLE #-}
-    (HasConfiguration, MonadPoll m, MonadTrans t, Monad (t m), WithLogger (t m)) =>
+    (MonadPoll m, MonadTrans t, Monad (t m), WithLogger (t m)) =>
         MonadPoll (t m)
   where
     putBVState pv = lift . putBVState pv

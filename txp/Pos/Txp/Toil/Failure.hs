@@ -1,3 +1,4 @@
+{-# LANGUAGE DataKinds      #-}
 {-# LANGUAGE DeriveAnyClass #-}
 
 -- | Toil failures.
@@ -5,21 +6,24 @@
 module Pos.Txp.Toil.Failure
        ( ToilVerFailure (..)
        , WitnessVerFailure (..)
+       , TxOutVerFailure (..)
        ) where
 
 import           Universum
 
 import qualified Data.Text.Buildable
-import           Formatting                 (bprint, build, int, shown, stext, (%))
+import           Formatting (bprint, build, int, ords, shown, stext, (%))
+import           GHC.TypeLits (TypeError)
 import           Serokell.Data.Memory.Units (Byte, memory)
-import           Serokell.Util              (listJson)
+import           Serokell.Util (listJson)
 
-import           Pos.Core                   (Address, HeaderHash, ScriptVersion,
-                                             TxFeePolicy, addressDetailedF)
-import           Pos.Data.Attributes        (UnparsedFields)
-import           Pos.Script                 (PlutusError)
-import           Pos.Txp.Core               (TxIn, TxInWitness, TxOut (..))
-import           Pos.Txp.Toil.Types         (TxFee)
+import           Pos.Core (Address, HeaderHash, ScriptVersion, TxFeePolicy, addressF,
+                           addressDetailedF)
+import           Pos.Core.Txp (TxIn, TxInWitness, TxOut (..))
+import           Pos.Data.Attributes (UnparsedFields)
+import           Pos.Script (PlutusError)
+import           Pos.Txp.Toil.Types (TxFee)
+import           Pos.Util (DisallowException)
 
 ----------------------------------------------------------------------------
 -- ToilVerFailure
@@ -28,49 +32,38 @@ import           Pos.Txp.Toil.Types         (TxFee)
 -- | Result of transaction processing
 data ToilVerFailure
     = ToilKnown -- ^ Transaction is already in the storage (cache)
-    | ToilTipsMismatch { ttmOldTip :: !HeaderHash
-                       , ttmNewTip :: !HeaderHash}
+    -- | ToilTipsMismatch oldTip newTip
+    | ToilTipsMismatch !HeaderHash !HeaderHash
     | ToilSlotUnknown
     | ToilOverwhelmed !Int -- ^ Local transaction storage is full --
                             -- can't accept more txs. Current limit is attached.
     | ToilNotUnspent !TxIn -- ^ Tx input is not a known unspent input.
-    | ToilOutGTIn { tInputSum  :: !Integer
-                  , tOutputSum :: !Integer}
+    -- | ToilOutGreaterThanIn inputSum outputSum
+    | ToilOutGreaterThanIn !Integer !Integer
     | ToilInconsistentTxAux !Text
-    | ToilInvalidOutputs !Text  -- [CSL-814] TODO: make it more informative
+    | ToilInvalidOutput !Word32 !TxOutVerFailure
     | ToilUnknownInput !Word32 !TxIn
-
     -- | The witness can't be used to justify spending an output – either
     --     * it has a wrong type, e.g. PKWitness for a script address, or
     --     * it has the right type but doesn't match the address, e.g. the
     --       hash of key in PKWitness is not equal to the address.
-    | ToilWitnessDoesntMatch { twdmInputIndex  :: !Word32
-                             , twdmInput       :: !TxIn
-                             , twdmSpentOutput :: !TxOut
-                             , twdmWitness     :: !TxInWitness }
-
+    | ToilWitnessDoesntMatch !Word32 !TxIn !TxOut !TxInWitness
     -- | The witness could in theory justify spending an output, but it
     -- simply isn't valid (the signature doesn't pass validation, the
     -- validator–redeemer pair produces 'False' when executed, etc).
-    | ToilInvalidWitness { tiwInputIndex :: !Word32
-                         , tiwWitness    :: !TxInWitness
-                         , tiwReason     :: !WitnessVerFailure }
-
-    | ToilTooLargeTx { ttltSize  :: !Byte
-                     , ttltLimit :: !Byte}
-    | ToilInvalidMinFee { timfPolicy :: !TxFeePolicy
-                        , timfReason :: !Text
-                        , timfSize   :: !Byte }
-    | ToilInsufficientFee { tifPolicy :: !TxFeePolicy
-                          , tifFee    :: !TxFee
-                          , tifMinFee :: !TxFee
-                          , tifSize   :: !Byte }
+    | ToilInvalidWitness !Word32 !TxInWitness !WitnessVerFailure
+    -- | ToilTooLargeTx acutalSize limit
+    | ToilTooLargeTx !Byte !Byte
+    | ToilInvalidMinFee !TxFeePolicy !Text !Byte
+    -- | ToilInsufficientFee policy actualFee minFee size
+    | ToilInsufficientFee !TxFeePolicy !TxFee !TxFee !Byte
     | ToilUnknownAttributes !UnparsedFields
     | ToilNonBootstrapDistr !(NonEmpty Address)
     | ToilRepeatedInput
     deriving (Show, Eq)
 
-instance Exception ToilVerFailure
+instance TypeError (DisallowException ToilVerFailure) =>
+         Exception ToilVerFailure
 
 instance Buildable ToilVerFailure where
     build ToilKnown =
@@ -85,13 +78,15 @@ instance Buildable ToilVerFailure where
         bprint ("max size of the mem pool is reached which is "%shown) limit
     build (ToilNotUnspent txId) =
         bprint ("input is not a known unspent input: "%build) txId
-    build (ToilOutGTIn {..}) =
+    build (ToilOutGreaterThanIn tInputSum tOutputSum) =
         bprint ("sum of outputs is greater than sum of inputs ("%int%" < "%int%")")
         tInputSum tOutputSum
     build (ToilInconsistentTxAux msg) =
         bprint ("TxAux is inconsistent: "%stext) msg
-    build (ToilInvalidOutputs msg) =
-        bprint ("outputs are invalid: "%stext) msg
+    build (ToilInvalidOutput n reason) =
+        bprint (ords%" output is invalid:\n'"%
+                " reason: "%build)
+            n reason
     build (ToilWitnessDoesntMatch i txIn txOut@TxOut {..} witness) =
         bprint ("input #"%int%"'s witness doesn't match address "%
                 "of corresponding output:\n"%
@@ -105,16 +100,16 @@ instance Buildable ToilVerFailure where
                 "  witness: "%build%"\n"%
                 "  reason: "%build)
             i witness reason
-    build (ToilTooLargeTx {..}) =
+    build (ToilTooLargeTx ttltSize ttltLimit) =
         bprint ("transaction's size exceeds limit "%
                 "("%memory%" > "%memory%")") ttltSize ttltLimit
-    build (ToilInvalidMinFee {..}) =
+    build (ToilInvalidMinFee timfPolicy timfReason timfSize) =
         bprint (build%" generates invalid minimal fee on a "%
                 "transaction of size "%memory%", reason: "%stext)
             timfPolicy
             timfSize
             timfReason
-    build (ToilInsufficientFee {..}) =
+    build (ToilInsufficientFee tifPolicy tifFee tifMinFee tifSize) =
         bprint ("transaction of size "%memory%" does not adhere to "%
                 build%"; it has fee "%build%" but needs "%build)
             tifSize
@@ -127,7 +122,7 @@ instance Buildable ToilVerFailure where
         bprint ("we are in bootstrap era, but some addresses have distribution"%
                 " which is not 'BootstrapEraDistr': "%listJson) addresses
     build ToilRepeatedInput =
-        "transaction tries to spent an unspent input more than once"
+        "transaction tries to spend an unspent input more than once"
     build (ToilUnknownInput inpId txIn) =
        bprint ("vtcVerifyAllIsKnown is True, but the input #"%int%" "%build%" is unknown") inpId txIn
 
@@ -162,3 +157,27 @@ instance Buildable WitnessVerFailure where
         bprint ("error when executing scripts: "%build) err
     build (WitnessUnknownType t) =
         bprint ("unknown witness type: "%build) t
+
+----------------------------------------------------------------------------
+-- TxOutVerFailure
+----------------------------------------------------------------------------
+
+-- | Result of checking transaction output.
+data TxOutVerFailure
+    -- | Not all attributes for the output are known
+    = TxOutUnknownAttributes Address
+    -- | Can't send to an address with unknown type
+    | TxOutUnknownAddressType Address
+    -- | Can't send to a redeem address
+    | TxOutRedeemAddressProhibited Address
+    deriving (Show, Eq, Generic, NFData)
+
+instance Buildable TxOutVerFailure where
+    build (TxOutUnknownAttributes addr) =
+        bprint ("address "%addressF%" has unknown attributes") addr
+    build (TxOutUnknownAddressType addr) =
+        bprint ("sends money to an addresss with unknown type ("
+                %addressF%"), this is prohibited") addr
+    build (TxOutRedeemAddressProhibited addr) =
+        bprint ("sends money to a redeem address ("
+                %addressF%"), this is prohibited") addr
