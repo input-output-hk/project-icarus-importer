@@ -1,3 +1,8 @@
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE OverloadedStrings #-}
+
 module Test.Pos.Wallet.Web.Tracking.SyncSpec
        ( spec
        ) where
@@ -6,8 +11,9 @@ import           Universum
 
 import           Data.Default (def)
 import qualified Data.HashSet as HS
-import           Data.List ((\\))
-import           Test.Hspec (Spec, describe)
+import           Data.List (intersect, (\\))
+import           Pos.Client.KeyStorage (getSecretKeysPlain)
+import           Test.Hspec (Spec, describe, xdescribe)
 import           Test.Hspec.QuickCheck (modifyMaxSuccess, prop)
 import           Test.QuickCheck (Arbitrary (..), Property, choose, oneof, sublistOf, suchThat,
                                   vectorOf, (===))
@@ -15,53 +21,67 @@ import           Test.QuickCheck.Monadic (pick)
 
 import           Pos.Arbitrary.Wallet.Web.ClientTypes ()
 import           Pos.Block.Logic (rollbackBlocks)
-import           Pos.Core (BlockCount (..), blkSecurityParam)
+import           Pos.Core (Address, BlockCount (..), blkSecurityParam)
 import           Pos.Crypto (emptyPassphrase)
 import           Pos.Launcher (HasConfigurations)
 import           Pos.Util.Chrono (nonEmptyOldestFirst, toNewestFirst)
 import           Pos.Util.CompileInfo (HasCompileInfo, withCompileInfo)
-import           Pos.Util.QuickCheck.Property (assertProperty)
-import           Pos.Wallet.Web.ClientTypes (Addr, CId, CWAddressMeta (..))
-import qualified Pos.Wallet.Web.State.State as WS
+
+import qualified Pos.Wallet.Web.State as WS
 import           Pos.Wallet.Web.State.Storage (WalletStorage (..))
-import           Pos.Wallet.Web.Tracking.Sync (evalChange)
+import           Pos.Wallet.Web.Tracking.Decrypt (eskToWalletDecrCredentials)
+import           Pos.Wallet.Web.Tracking.Sync (evalChange, syncWalletWithBlockchain)
+import           Pos.Wallet.Web.Tracking.Types (newSyncRequest)
+
+-- import           Pos.Wallet.Web.ClientTypes ()
+-- import qualified Pos.Wallet.Web.State.State as WS
+-- import           Pos.Wallet.Web.State.Storage (WalletStorage (..))
+-- import           Pos.Wallet.Web.Tracking.Sync (evalChange)
+
+
 import           Test.Pos.Block.Logic.Util (EnableTxPayload (..), InplaceDB (..))
 import           Test.Pos.Configuration (withDefConfigurations)
-
+import           Test.Pos.Util.QuickCheck.Property (assertProperty)
 import           Test.Pos.Wallet.Web.Mode (walletPropertySpec)
 import           Test.Pos.Wallet.Web.Util (importSomeWallets, wpGenBlocks)
 
 spec :: Spec
-spec = withCompileInfo def $ withDefConfigurations $ do
+spec = withCompileInfo def $ withDefConfigurations $ \_ -> do
     describe "Pos.Wallet.Web.Tracking.BListener" $ modifyMaxSuccess (const 10) $ do
         describe "Two applications and rollbacks" twoApplyTwoRollbacksSpec
-    describe "Pos.Wallet.Web.Tracking.evalChange" $ do
+    xdescribe "Pos.Wallet.Web.Tracking.evalChange (pending, CSL-2473)" $ do
         prop evalChangeDiffAccountsDesc evalChangeDiffAccounts
         prop evalChangeSameAccountsDesc evalChangeSameAccounts
   where
     evalChangeDiffAccountsDesc =
       "An outgoing transaction to another account."
     evalChangeSameAccountsDesc =
-      "Outgoing transcation from account to the same account."
+      "Outgoing transaction from account to the same account."
 
 twoApplyTwoRollbacksSpec :: (HasCompileInfo, HasConfigurations) => Spec
 twoApplyTwoRollbacksSpec = walletPropertySpec twoApplyTwoRollbacksDesc $ do
     let k = fromIntegral blkSecurityParam :: Word64
+    -- During these tests we need to manually switch back to the old synchronous
+    -- way of restoring.
     void $ importSomeWallets (pure emptyPassphrase)
-    genesisWalletDB <- lift WS.getWalletStorage
+    sks <- lift getSecretKeysPlain
+    lift $ forM_ sks $ \s -> syncWalletWithBlockchain (newSyncRequest (eskToWalletDecrCredentials s))
+
+    -- Testing starts here
+    genesisWalletDB <- lift WS.askWalletSnapshot
     applyBlocksCnt1 <- pick $ choose (1, k `div` 2)
     applyBlocksCnt2 <- pick $ choose (1, k `div` 2)
     blunds1 <- wpGenBlocks (Just $ BlockCount applyBlocksCnt1) (EnableTxPayload True) (InplaceDB True)
-    after1ApplyDB <- lift WS.getWalletStorage
+    after1ApplyDB <- lift WS.askWalletSnapshot
     blunds2 <- wpGenBlocks (Just $ BlockCount applyBlocksCnt2) (EnableTxPayload True) (InplaceDB True)
-    after2ApplyDB <- lift WS.getWalletStorage
+    after2ApplyDB <- lift WS.askWalletSnapshot
     let toNE = fromMaybe (error "sequence of blocks are empty") . nonEmptyOldestFirst
     let to1Rollback = toNewestFirst $ toNE blunds2
     let to2Rollback = toNewestFirst $ toNE blunds1
     lift $ rollbackBlocks to1Rollback
-    after1RollbackDB <- lift WS.getWalletStorage
+    after1RollbackDB <- lift WS.askWalletSnapshot
     lift $ rollbackBlocks to2Rollback
-    after2RollbackDB <- lift WS.getWalletStorage
+    after2RollbackDB <- lift WS.askWalletSnapshot
     assertProperty (after1RollbackDB == after1ApplyDB)
         "wallet-db after first apply doesn't equal to wallet-db after first rollback"
     assertProperty (after2RollbackDB == genesisWalletDB)
@@ -86,10 +106,10 @@ twoApplyTwoRollbacksSpec = walletPropertySpec twoApplyTwoRollbacksDesc $ do
 ----------------------------------------------------------------------------
 
 data InpOutChangeUsedAddresses = InpOutUsedAddresses
-    { inpAddrs    :: [CWAddressMeta]
-    , outAddrs    :: [CWAddressMeta]
-    , changeAddrs :: HashSet (CId Addr)
-    , usedAddrs   :: HashSet (CId Addr)
+    { inpAddrs    :: [WS.WAddressMeta]
+    , outAddrs    :: [WS.WAddressMeta]
+    , changeAddrs :: HashSet Address
+    , usedAddrs   :: HashSet Address
     } deriving Show
 
 newtype AddressesFromDiffAccounts = AddressesFromDiffAccounts InpOutChangeUsedAddresses
@@ -98,18 +118,23 @@ newtype AddressesFromDiffAccounts = AddressesFromDiffAccounts InpOutChangeUsedAd
 instance Arbitrary AddressesFromDiffAccounts where
     arbitrary = do
         (wId1, accIdx1) <- arbitrary
-        let genAddrs1 n = map (uncurry $ CWAddressMeta wId1 accIdx1) <$> vectorOf n arbitrary
+        let genAddrs1 n = map (uncurry $ WS.WAddressMeta wId1 accIdx1) <$> vectorOf n arbitrary
         inpAddrs <- choose (1, 5) >>= genAddrs1
-        changeAddrsL <- choose (1, 3) >>= genAddrs1
+        changeAddrsL <- (choose (1, 3) >>= genAddrs1)
+          `suchThat` (\x -> null $ x `intersect` inpAddrs)
         let outAddrs = changeAddrsL
-        let changeAddrs = HS.fromList $ map cwamId changeAddrsL
-        let usedAddrs = HS.fromList $ map cwamId inpAddrs
+        let changeAddrs = HS.fromList $ map (view WS.wamAddress) changeAddrsL
+        let usedAddrs = HS.fromList $ map (view WS.wamAddress) inpAddrs
         pure $ AddressesFromDiffAccounts $ InpOutUsedAddresses {..}
 
 evalChangeDiffAccounts :: AddressesFromDiffAccounts -> Property
 evalChangeDiffAccounts (AddressesFromDiffAccounts InpOutUsedAddresses {..}) =
    changeAddrs === HS.fromList (evalChange usedAddrs inpAddrs outAddrs False)
 
+-- | newtype defined so that its Arbitrary instance can set the stage for
+-- 'evalChangeSameAccounts'. The 'changeAddrs' field will always be set so
+-- that it should equal
+-- 'HS.fromList (evalChange usedAddrs inpAddrs outAddrs True)'.
 newtype AddressesFromSameAccounts = AddressesFromSameAccounts InpOutChangeUsedAddresses
     deriving Show
 
@@ -117,21 +142,41 @@ instance Arbitrary AddressesFromSameAccounts where
     arbitrary = do
         wId <- arbitrary
         accIdx <- arbitrary
-        let genAddrs n = map (uncurry $ CWAddressMeta wId accIdx) <$> vectorOf n arbitrary
-        inpAddrs <- choose (1, 5) >>= genAddrs
-        outAddrs <- choose (1, 5) >>= genAddrs
-        usedBase <- (inpAddrs ++) <$> (choose (1, 10) >>= flip vectorOf arbitrary)
+        -- generate n WAddressMeta terms each with the same wallet and account
+        -- identifier ('wId' and 'accIdx' above) subject to a predicate.
+        -- That predicate allows us to ensure that the output address
+        -- ('outAddrs') are disjiont under 'WAddressMeta' equality from the
+        -- input addresses, which is essential for the test.
+        let genAddrs p n = vectorOf n $
+                (uncurry (WS.WAddressMeta wId accIdx) <$> arbitrary)
+                `suchThat` p
+        inpAddrs <- choose (1, 5) >>= genAddrs (const True)
+        outAddrs <- choose (1, 5) >>= genAddrs (not . flip elem inpAddrs)
+        -- Throw on a bunch of arbitrary extra used addresses, but make sure
+        -- they are not 'WAddressMeta'-equal to any existing ones!
+        usedBase <- (inpAddrs ++) <$> (do
+            n <- choose (1, 10)
+            let allAddrs = inpAddrs ++ outAddrs
+                condition = not . flip elem allAddrs
+            vectorOf n $ arbitrary `suchThat` condition)
         (changeAddrs, extraUsed) <- oneof [
             -- Case when all outputs addresses are fresh and
-            -- weren't mentioned in the blockchain
+            -- weren't mentioned in the blockchain.
+            -- Change addresses should be empty.
             pure (mempty, [])
+            -- Otherwise, there's at least one non-change address in the
+            -- outputs. Every address that we don't put into the second
+            -- component (which goes into the set of all used) should appear as
+            -- a change address.
             , do
-                if length outAddrs == 1 then pure (mempty, [])
+                if length outAddrs == 1
+                then pure (mempty, [])
                 else do
+                    -- Problem case is when ext is all of 'outAddrs'.
                     ext <- sublistOf outAddrs `suchThat` (not . null)
-                    pure (HS.fromList $ map cwamId (outAddrs \\ ext), ext)
+                    pure (HS.fromList $ map (view WS.wamAddress) (outAddrs \\ ext), ext)
             ]
-        let usedAddrs = HS.fromList $ map cwamId $ usedBase ++ extraUsed
+        let usedAddrs = HS.fromList $ map (view WS.wamAddress) $ usedBase ++ extraUsed
         pure $ AddressesFromSameAccounts $ InpOutUsedAddresses {..}
 
 evalChangeSameAccounts :: AddressesFromSameAccounts -> Property

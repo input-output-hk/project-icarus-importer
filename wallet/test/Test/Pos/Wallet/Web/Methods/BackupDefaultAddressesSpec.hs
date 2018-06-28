@@ -1,3 +1,6 @@
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE OverloadedStrings #-}
+
 module Test.Pos.Wallet.Web.Methods.BackupDefaultAddressesSpec
        ( spec
        ) where
@@ -7,19 +10,20 @@ import           Universum
 import           Data.Default (def)
 import           Pos.Launcher (HasConfigurations)
 import           Pos.Util.CompileInfo (HasCompileInfo, withCompileInfo)
-import           Pos.Util.QuickCheck.Property (assertProperty)
+
 import           Pos.Wallet.Web.ClientTypes (CWallet (..))
-import           Pos.Wallet.Web.Methods.Backup (restoreWalletFromBackup)
+import           Pos.Wallet.Web.Methods.Restore (restoreWalletFromBackup)
 import           Test.Hspec (Spec, describe)
 import           Test.Hspec.QuickCheck (modifyMaxSuccess)
 import           Test.Pos.Configuration (withDefConfigurations)
+import           Test.Pos.Util.QuickCheck.Property (assertProperty)
 import           Test.Pos.Wallet.Web.Mode (walletPropertySpec)
 import           Test.QuickCheck (Arbitrary (..))
 import           Test.QuickCheck.Monadic (pick)
 
 spec :: Spec
 spec = withCompileInfo def $
-       withDefConfigurations $
+       withDefConfigurations $ \_ ->
        describe "restoreAddressFromWalletBackup" $ modifyMaxSuccess (const 10) $ do
            restoreWalletAddressFromBackupSpec
 

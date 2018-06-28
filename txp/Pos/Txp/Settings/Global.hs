@@ -17,8 +17,9 @@ module Pos.Txp.Settings.Global
 import           Universum
 
 import           System.Wlog (WithLogger)
+import           UnliftIO (MonadUnliftIO)
 
-import           Pos.Core (ComponentBlock, HasConfiguration)
+import           Pos.Core (ComponentBlock)
 import           Pos.Core.Txp (TxPayload, TxpUndo)
 import           Pos.DB (MonadDBRead, MonadGState, SomeBatchOp)
 import           Pos.Slotting (MonadSlots)
@@ -29,7 +30,6 @@ type TxpCommonMode m =
     ( WithLogger m
     , MonadDBRead m
     , MonadGState m
-    , HasConfiguration
     )
 
 type TxpGlobalVerifyMode m =
@@ -59,6 +59,10 @@ data TxpGlobalSettings = TxpGlobalSettings
       tgsApplyBlocks :: forall ctx m . TxpGlobalApplyMode ctx m =>
                         OldestFirst NE TxpBlund -> m SomeBatchOp
     , -- | Rollback chain of blocks.
-      tgsRollbackBlocks :: forall m . TxpGlobalRollbackMode m =>
+      tgsRollbackBlocks :: forall m . (TxpGlobalRollbackMode m, MonadIO m) =>
                            NewestFirst NE TxpBlund -> m SomeBatchOp
+    , -- | Modify the block applying execution
+      tgsApplyBlockModifier :: forall m . (MonadUnliftIO m, MonadIO m) => m () -> m ()
+    , -- | Modify the block rollbacking execution
+      tgsRollbackBlockModifier :: forall m . (MonadUnliftIO m, MonadIO m) => m () -> m ()
     }

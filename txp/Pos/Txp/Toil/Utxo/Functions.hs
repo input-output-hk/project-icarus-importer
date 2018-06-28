@@ -4,6 +4,7 @@ module Pos.Txp.Toil.Utxo.Functions
        ( VTxContext (..)
        , VerifyTxUtxoRes (..)
        , verifyTxUtxo
+       , verifyTxUtxoFromLookup
        , applyTxToUtxo
        , rollbackTxUtxo
        ) where
@@ -17,17 +18,19 @@ import           Formatting (int, sformat, (%))
 import           Serokell.Util (allDistinct, enumerate)
 
 import           Pos.Binary.Core ()
-import           Pos.Core (AddrType (..), Address (..), HasConfiguration, integerToCoin,
-                           isRedeemAddress, isUnknownAddressType, sumCoins)
+import           Pos.Core (AddrType (..), Address (..), integerToCoin, isRedeemAddress,
+                           isUnknownAddressType, sumCoins)
 import           Pos.Core.Common (checkPubKeyAddress, checkRedeemAddress, checkScriptAddress)
 import           Pos.Core.Txp (Tx (..), TxAttributes, TxAux (..), TxIn (..), TxInWitness (..),
                                TxOut (..), TxOutAux (..), TxSigData (..), TxUndo, TxWitness,
                                isTxInUnknown)
 import           Pos.Crypto (SignTag (SignRedeemTx, SignTx), WithHash (..), checkSig, hash,
                              redeemCheckSig)
+import           Pos.Crypto.Configuration (HasProtocolMagic, protocolMagic)
 import           Pos.Data.Attributes (Attributes (attrRemain), areAttributesKnown)
 import           Pos.Script (Script (..), isKnownScriptVersion, txScriptCheck)
-import           Pos.Txp.Toil.Failure (ToilVerFailure (..), TxOutVerFailure (..), WitnessVerFailure (..))
+import           Pos.Txp.Toil.Failure (ToilVerFailure (..), TxOutVerFailure (..),
+                                       WitnessVerFailure (..))
 import           Pos.Txp.Toil.Monad (UtxoM, utxoDel, utxoGet, utxoPut)
 import           Pos.Txp.Toil.Types (TxFee (..))
 import           Pos.Util (liftEither)
@@ -75,12 +78,30 @@ data VerifyTxUtxoRes = VerifyTxUtxoRes
 -- blocks when we're creating a block (because transactions for
 -- inclusion into blocks are verified with 'vtcVerifyAllIsKnown'
 -- set to 'True', so unknown script versions are rejected).
-verifyTxUtxo ::
-       HasConfiguration
+verifyTxUtxo
+    :: ( HasProtocolMagic )
     => VTxContext
     -> TxAux
     -> ExceptT ToilVerFailure UtxoM VerifyTxUtxoRes
-verifyTxUtxo ctx@VTxContext {..} ta@(TxAux UnsafeTx {..} witnesses) = do
+verifyTxUtxo = genericVerifyTxUtxo resolveInput
+
+-- Verifies that a tx is valid, by resolving inputs through a utxo lookup function
+verifyTxUtxoFromLookup
+    :: ( HasProtocolMagic, Monad m )
+    => (TxIn -> m (Maybe TxOutAux))
+    -> VTxContext
+    -> TxAux
+    -> ExceptT ToilVerFailure m VerifyTxUtxoRes
+verifyTxUtxoFromLookup uxtoLookup = genericVerifyTxUtxo $ resolveInputFromLookup uxtoLookup
+
+-- Given a resolve input function, verifies that a tx is valid
+genericVerifyTxUtxo
+    :: ( HasProtocolMagic, Monad m )
+    => (TxIn -> ExceptT ToilVerFailure m (TxIn, TxOutAux))
+    -> VTxContext
+    -> TxAux
+    -> ExceptT ToilVerFailure m VerifyTxUtxoRes
+genericVerifyTxUtxo resolveInputFn ctx@VTxContext {..} ta@(TxAux UnsafeTx {..} witnesses) = do
     let unknownTxInMB = find (isTxInUnknown . snd) $ zip [0..] (toList _txInputs)
     case (vtcVerifyAllIsKnown, unknownTxInMB) of
         (True, Just (inpId, txIn)) -> throwError $
@@ -90,7 +111,7 @@ verifyTxUtxo ctx@VTxContext {..} ta@(TxAux UnsafeTx {..} witnesses) = do
             minimalReasonableChecks
             resolvedInputs :: NonEmpty (Maybe (TxIn, TxOutAux)) <-
                 mapM
-                    (lift . fmap rightToMaybe . runExceptT . resolveInput)
+                    (lift . fmap rightToMaybe . runExceptT . resolveInputFn)
                     _txInputs
             pure VerifyTxUtxoRes
                  { vturUndo = map (fmap snd) resolvedInputs
@@ -99,7 +120,7 @@ verifyTxUtxo ctx@VTxContext {..} ta@(TxAux UnsafeTx {..} witnesses) = do
         _               -> do
             -- Case when all inputs are known
             minimalReasonableChecks
-            resolvedInputs <- mapM resolveInput _txInputs
+            resolvedInputs <- mapM resolveInputFn _txInputs
             liftEither $ do
                 txFee <- verifySums resolvedInputs _txOutputs
                 verifyKnownInputs ctx resolvedInputs ta
@@ -109,7 +130,7 @@ verifyTxUtxo ctx@VTxContext {..} ta@(TxAux UnsafeTx {..} witnesses) = do
                     , vturFee = Just txFee
                     }
   where
-    minimalReasonableChecks :: ExceptT ToilVerFailure UtxoM ()
+    minimalReasonableChecks :: Monad m => ExceptT ToilVerFailure m ()
     minimalReasonableChecks = liftEither $ do
         verifyConsistency _txInputs witnesses
         verifyOutputs ctx ta
@@ -118,6 +139,15 @@ resolveInput :: TxIn -> ExceptT ToilVerFailure UtxoM (TxIn, TxOutAux)
 resolveInput txIn =
     (txIn, ) <$> (note (ToilNotUnspent txIn) =<< lift (utxoGet txIn))
 
+-- Resolve input from utxo lookup function
+resolveInputFromLookup
+    :: Monad m
+    => (TxIn -> m (Maybe TxOutAux))
+    -> TxIn
+    -> ExceptT ToilVerFailure m (TxIn, TxOutAux)
+resolveInputFromLookup utxoLookup txIn =
+    (txIn, ) <$> (note (ToilNotUnspent txIn) =<< lift (utxoLookup txIn))
+
 verifySums ::
        NonEmpty (TxIn, TxOutAux)
     -> NonEmpty TxOut
@@ -125,7 +155,7 @@ verifySums ::
 verifySums resolvedInputs outputs =
   case mTxFee of
       Nothing -> throwError $
-          ToilOutGreaterThanIn {tInputSum = inpSum, tOutputSum = outSum}
+          ToilOutGreaterThanIn inpSum outSum
       Just txFee ->
           return txFee
   where
@@ -161,7 +191,7 @@ verifyOutputs VTxContext {..} (TxAux UnsafeTx {..} _) =
 -- Verify inputs of a transaction after they have been resolved
 -- (implies that they are known).
 verifyKnownInputs ::
-       (HasConfiguration)
+       (HasProtocolMagic)
     => VTxContext
     -> NonEmpty (TxIn, TxOutAux)
     -> TxAux
@@ -180,7 +210,7 @@ verifyKnownInputs VTxContext {..} resolvedInputs TxAux {..} = do
     allInputsDifferent = allDistinct (toList (map fst resolvedInputs))
 
     checkInput
-        :: (HasConfiguration)
+        :: (HasProtocolMagic)
         => Word32           -- ^ Input index
         -> (TxIn, TxOutAux) -- ^ Input and corresponding output data
         -> TxInWitness
@@ -200,13 +230,13 @@ verifyKnownInputs VTxContext {..} resolvedInputs TxAux {..} = do
             _                 -> False
 
     -- the first argument here includes local context, can be used for scripts
-    checkWitness :: HasConfiguration => TxOutAux -> TxInWitness -> Either WitnessVerFailure ()
+    checkWitness :: HasProtocolMagic => TxOutAux -> TxInWitness -> Either WitnessVerFailure ()
     checkWitness _txOutAux witness = case witness of
         PkWitness{..} ->
-            unless (checkSig SignTx twKey txSigData twSig) $
+            unless (checkSig protocolMagic SignTx twKey txSigData twSig) $
                 throwError WitnessWrongSignature
         RedeemWitness{..} ->
-            unless (redeemCheckSig SignRedeemTx twRedeemKey txSigData twRedeemSig) $
+            unless (redeemCheckSig protocolMagic SignRedeemTx twRedeemKey txSigData twRedeemSig) $
                 throwError WitnessWrongSignature
         ScriptWitness{..} -> do
             let valVer = scrVersion twValidator

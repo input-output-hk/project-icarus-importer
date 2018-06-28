@@ -9,15 +9,16 @@ import           Universum
 
 import           Pos.Arbitrary.Txp.Unsafe ()
 import           Pos.Core (HasConfiguration)
-import           Pos.Crypto (SecretKey, SignTag (SignTx), sign)
+import           Pos.Crypto (SecretKey, SignTag (SignTx), sign, protocolMagic)
 import           Pos.Ssc ()
 import           Pos.Txp (TxId, TxSig, TxSigData (..))
-import           Pos.Util (arbitraryUnsafe)
+
+import           Test.Pos.Util.QuickCheck.Arbitrary (arbitraryUnsafe)
 
 import           Bench.Configuration (giveCoreConf)
 
 signTx :: HasConfiguration => (SecretKey, TxId) -> TxSig
-signTx (sk, thash) = sign SignTx sk txSigData
+signTx (sk, thash) = sign protocolMagic SignTx sk txSigData
   where
     txSigData = TxSigData
         { txSigTxHash = thash

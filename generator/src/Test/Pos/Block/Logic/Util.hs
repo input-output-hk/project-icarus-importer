@@ -24,9 +24,8 @@ import           Test.QuickCheck.Monadic (PropertyM, pick)
 
 import           Pos.AllSecrets (AllSecrets, HasAllSecrets (..), allSecrets)
 import           Pos.Block.Types (Blund)
-import           Pos.Communication.Limits (HasAdoptedBlockVersionData)
-import           Pos.Core (BlockCount, GenesisData (..), HasConfiguration, HasGenesisData,
-                           SlotId (..), epochIndexL, genesisData)
+import           Pos.Core (BlockCount, GenesisData (..), HasGenesisData,
+                           SlotId (..), epochIndexL, genesisData, HasProtocolMagic, HasProtocolConstants)
 import           Pos.Core.Block (Block)
 import           Pos.Generator.Block (BlockGenMode, BlockGenParams (..), MonadBlockGenInit,
                                       genBlocks, tgpTxCountRange)
@@ -49,6 +48,7 @@ genBlockGenParams
     :: ( HasGenesisData
        , HasAllSecrets ctx
        , MonadReader ctx m
+       , HasProtocolMagic
        )
     => Maybe BlockCount
     -> EnableTxPayload
@@ -81,7 +81,6 @@ bpGenBlocks
        , Default (MempoolExt m)
        , MonadTxpLocal (BlockGenMode (MempoolExt m) m)
        , HasAllSecrets ctx
-       , HasAdoptedBlockVersionData (BlockGenMode (MempoolExt m) m)
        )
     => Maybe BlockCount
     -> EnableTxPayload
@@ -102,7 +101,6 @@ bpGenBlock
        , HasAllSecrets ctx
        , MonadTxpLocal (BlockGenMode (MempoolExt m) m)
        , Default (MempoolExt m)
-       , HasAdoptedBlockVersionData (BlockGenMode (MempoolExt m) m)
        )
     => EnableTxPayload -> InplaceDB -> PropertyM m Blund
 -- 'unsafeHead' is safe because we create exactly 1 block
@@ -125,7 +123,7 @@ withCurrentSlot slot = local (set btcSlotIdL $ Just slot)
 -- future. This function pretends that current slot is after the last
 -- slot of the given blocks.
 satisfySlotCheck
-    :: (HasConfiguration, MonadReader BlockTestContext m)
+    :: ( HasProtocolConstants, MonadReader BlockTestContext m)
     => OldestFirst NE Block
     -> m a
     -> m a

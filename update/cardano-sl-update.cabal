@@ -1,5 +1,5 @@
 name:                cardano-sl-update
-version:             1.1.0
+version:             1.1.1
 synopsis:            Cardano SL - update
 description:         Cardano SL - update
 license:             MIT
@@ -90,11 +90,13 @@ library
                      , cardano-sl-binary
                      , cardano-sl-core
                      , cardano-sl-crypto
+                     , cardano-sl-crypto-test
                      , cardano-sl-db
                      , cardano-sl-infra
                      , cardano-sl-lrc
                      , cardano-sl-networking
                      , cardano-sl-util
+                     , cardano-sl-util-test
                      , conduit
                      , containers
                      , data-default

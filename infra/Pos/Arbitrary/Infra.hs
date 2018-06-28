@@ -13,7 +13,7 @@ import           Pos.Arbitrary.Core ()
 import           Pos.Communication.Types.Protocol (HandlerSpec (..), VerInfo (..))
 import           Pos.Communication.Types.Relay (DataMsg (..), InvMsg (..), MempoolMsg (..),
                                                 ReqMsg (..))
-import           Pos.Core.Configuration (HasConfiguration)
+import           Pos.Crypto (HasProtocolMagic)
 import           Pos.Core.Delegation (ProxySKHeavy)
 import           Pos.DHT (DHTData (..), DHTKey (..))
 
@@ -41,6 +41,6 @@ instance Arbitrary VerInfo where
     arbitrary = genericArbitrary
     shrink = genericShrink
 
-instance HasConfiguration => Arbitrary (DataMsg ProxySKHeavy) where
+instance HasProtocolMagic => Arbitrary (DataMsg ProxySKHeavy) where
     arbitrary = genericArbitrary
     shrink = genericShrink

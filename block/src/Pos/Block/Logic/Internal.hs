@@ -37,9 +37,10 @@ import           Pos.Block.BListener (MonadBListener)
 import           Pos.Block.Slog (BypassSecurityCheck (..), MonadSlogApply, MonadSlogBase,
                                  ShouldCallBListener, slogApplyBlocks, slogRollbackBlocks)
 import           Pos.Block.Types (Blund, Undo (undoDlg, undoTx, undoUS))
-import           Pos.Core (ComponentBlock (..), HasConfiguration, IsGenesisHeader, epochIndexL,
-                           gbHeader, headerHash, mainBlockDlgPayload, mainBlockSscPayload,
-                           mainBlockTxPayload, mainBlockUpdatePayload)
+import           Pos.Core (ComponentBlock (..), IsGenesisHeader, epochIndexL, HasGeneratedSecrets,
+                           gbHeader, headerHash, mainBlockDlgPayload, mainBlockSscPayload, HasGenesisData,
+                           mainBlockTxPayload, mainBlockUpdatePayload, HasGenesisBlockVersionData,
+                           HasGenesisData, HasProtocolConstants)
 import           Pos.Core.Block (Block, GenesisBlock, MainBlock)
 import           Pos.DB (MonadDB, MonadDBRead, MonadGState, SomeBatchOp (..))
 import qualified Pos.DB.GState.Common as GS (writeBatchGState)
@@ -123,8 +124,12 @@ type MonadMempoolNormalization ctx m
       )
 
 -- | Normalize mempool.
-normalizeMempool
-    :: forall ctx m . (MonadMempoolNormalization ctx m)
+normalizeMempool :: (
+      MonadMempoolNormalization ctx m
+    , HasGenesisBlockVersionData
+    , HasGenesisData
+    , HasProtocolConstants
+    )
     => m ()
 normalizeMempool = do
     -- We normalize all mempools except the delegation one.
@@ -140,7 +145,7 @@ normalizeMempool = do
 --
 -- Invariant: all blocks have the same epoch.
 applyBlocksUnsafe
-    :: forall ctx m . (MonadBlockApply ctx m)
+    :: forall ctx m . (MonadBlockApply ctx m, HasGeneratedSecrets, HasGenesisData, HasGenesisBlockVersionData, HasProtocolConstants)
     => ShouldCallBListener
     -> OldestFirst NE Blund
     -> Maybe PollModifier
@@ -171,57 +176,59 @@ applyBlocksUnsafe scb blunds pModifier = do
         spanSafe ((==) `on` view (_1 . epochIndexL)) $ getOldestFirst blunds
 
 applyBlocksDbUnsafeDo
-    :: forall ctx m . (MonadBlockApply ctx m)
+    :: forall ctx m . (MonadBlockApply ctx m, HasGeneratedSecrets, HasGenesisData, HasGenesisBlockVersionData, HasProtocolConstants)
     => ShouldCallBListener
     -> OldestFirst NE Blund
     -> Maybe PollModifier
     -> m ()
 applyBlocksDbUnsafeDo scb blunds pModifier = do
-    let blocks = fmap fst blunds
-    -- Note: it's important to do 'slogApplyBlocks' first, because it
-    -- puts blocks in DB.
-    slogBatch <- slogApplyBlocks scb blunds
     TxpGlobalSettings {..} <- view (lensOf @TxpGlobalSettings)
-    usBatch <- SomeBatchOp <$> usApplyBlocks (map toUpdateBlock blocks) pModifier
-    delegateBatch <- SomeBatchOp <$> dlgApplyBlocks (map toDlgBlund blunds)
-    txpBatch <- tgsApplyBlocks $ map toTxpBlund blunds
-    sscBatch <- SomeBatchOp <$>
-        -- TODO: pass not only 'Nothing'
-        sscApplyBlocks (map toSscBlock blocks) Nothing
-    GS.writeBatchGState
-        [ delegateBatch
-        , usBatch
-        , txpBatch
-        , sscBatch
-        , slogBatch
-        ]
+    tgsApplyBlockModifier $ do
+        let blocks = fmap fst blunds
+        -- Note: it's important to do 'slogApplyBlocks' first, because it
+        -- puts blocks in DB.
+        slogBatch <- slogApplyBlocks scb blunds
+        usBatch <- SomeBatchOp <$> usApplyBlocks (map toUpdateBlock blocks) pModifier
+        delegateBatch <- SomeBatchOp <$> dlgApplyBlocks (map toDlgBlund blunds)
+        txpBatch <- tgsApplyBlocks $ map toTxpBlund blunds
+        sscBatch <- SomeBatchOp <$>
+            -- TODO: pass not only 'Nothing'
+            sscApplyBlocks (map toSscBlock blocks) Nothing
+        GS.writeBatchGState
+            [ delegateBatch
+            , usBatch
+            , txpBatch
+            , sscBatch
+            , slogBatch
+            ]
     sanityCheckDB
 
 -- | Rollback sequence of blocks, head-newest order expected with head being
 -- current tip. It's also assumed that lock on block db is taken already.
 rollbackBlocksUnsafe
-    :: forall ctx m. (MonadBlockApply ctx m)
+    :: forall ctx m. (MonadBlockApply ctx m, HasGeneratedSecrets, HasGenesisData, HasProtocolConstants, HasGenesisBlockVersionData)
     => BypassSecurityCheck -- ^ is rollback for more than k blocks allowed?
     -> ShouldCallBListener
     -> NewestFirst NE Blund
     -> m ()
 rollbackBlocksUnsafe bsc scb toRollback = do
-    slogRoll <- slogRollbackBlocks bsc scb toRollback
-    dlgRoll <- SomeBatchOp <$> dlgRollbackBlocks (map toDlgBlund toRollback)
-    usRoll <- SomeBatchOp <$> usRollbackBlocks
-                  (toRollback & each._2 %~ undoUS
-                              & each._1 %~ toUpdateBlock)
     TxpGlobalSettings {..} <- view (lensOf @TxpGlobalSettings)
-    txRoll <- tgsRollbackBlocks $ map toTxpBlund toRollback
-    sscBatch <- SomeBatchOp <$> sscRollbackBlocks
-        (map (toSscBlock . fst) toRollback)
-    GS.writeBatchGState
-        [ dlgRoll
-        , usRoll
-        , txRoll
-        , sscBatch
-        , slogRoll
-        ]
+    tgsRollbackBlockModifier $ do
+        slogRoll <- slogRollbackBlocks bsc scb toRollback
+        dlgRoll <- SomeBatchOp <$> dlgRollbackBlocks (map toDlgBlund toRollback)
+        usRoll <- SomeBatchOp <$> usRollbackBlocks
+                      (toRollback & each._2 %~ undoUS
+                                  & each._1 %~ toUpdateBlock)
+        txRoll <- tgsRollbackBlocks $ map toTxpBlund toRollback
+        sscBatch <- SomeBatchOp <$> sscRollbackBlocks
+            (map (toSscBlock . fst) toRollback)
+        GS.writeBatchGState
+            [ dlgRoll
+            , usRoll
+            , txRoll
+            , sscBatch
+            , slogRoll
+            ]
     -- After blocks are rolled back it makes sense to recreate the
     -- delegation mempool.
     -- We don't normalize other mempools, because they are normalized
@@ -231,40 +238,28 @@ rollbackBlocksUnsafe bsc scb toRollback = do
     sanityCheckDB
 
 
-toComponentBlock :: HasConfiguration => (MainBlock -> payload) -> Block -> ComponentBlock payload
+toComponentBlock :: (MainBlock -> payload) -> Block -> ComponentBlock payload
 toComponentBlock fnc block = case block of
     Left genBlock   -> ComponentBlockGenesis (convertGenesis genBlock)
     Right mainBlock -> ComponentBlockMain (Some $ mainBlock ^. gbHeader) (fnc mainBlock)
 
-toTxpBlock
-    :: HasConfiguration
-    => Block -> TxpBlock
+toTxpBlock :: Block -> TxpBlock
 toTxpBlock = toComponentBlock (view mainBlockTxPayload)
 
-toUpdateBlock
-    :: HasConfiguration
-    => Block -> UpdateBlock
+toUpdateBlock :: Block -> UpdateBlock
 toUpdateBlock = toComponentBlock (view mainBlockUpdatePayload)
 
-toTxpBlund
-    :: HasConfiguration
-    => Blund -> TxpBlund
+toTxpBlund :: Blund -> TxpBlund
 toTxpBlund = bimap toTxpBlock undoTx
 
-toSscBlock
-    :: HasConfiguration
-    => Block -> SscBlock
+toSscBlock :: Block -> SscBlock
 toSscBlock = toComponentBlock (view mainBlockSscPayload)
 
-toDlgBlund
-    :: HasConfiguration
-    => Blund -> DlgBlund
+toDlgBlund :: Blund -> DlgBlund
 toDlgBlund = bimap toDlgBlock undoDlg
   where
-    toDlgBlock
-        :: HasConfiguration
-        => Block -> DlgBlock
+    toDlgBlock :: Block -> DlgBlock
     toDlgBlock = toComponentBlock (view mainBlockDlgPayload)
 
-convertGenesis :: HasConfiguration => GenesisBlock -> Some IsGenesisHeader
+convertGenesis :: GenesisBlock -> Some IsGenesisHeader
 convertGenesis = Some . view gbHeader

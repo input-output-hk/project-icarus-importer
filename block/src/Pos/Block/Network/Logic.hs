@@ -8,9 +8,6 @@ module Pos.Block.Network.Logic
        (
          BlockNetLogicException (..)
        , triggerRecovery
-       , requestTipOuts
-       , requestTip
-
        , handleBlocks
 
        , handleUnsolicitedHeader
@@ -20,29 +17,30 @@ import           Universum
 
 import           Control.Concurrent.STM (isFullTBQueue, readTVar, writeTBQueue, writeTVar)
 import           Control.Exception.Safe (Exception (..))
+import           Control.Exception (IOException)
 import qualified Data.List.NonEmpty as NE
+import qualified Data.Map.Strict as M
 import qualified Data.Text.Buildable as B
 import           Formatting (bprint, build, sformat, shown, stext, (%))
+import           Mockable (forConcurrently)
 import           Serokell.Util.Text (listJson)
 import qualified System.Metrics.Gauge as Metrics
 import           System.Wlog (logDebug, logInfo, logWarning)
 
 import           Pos.Binary.Txp ()
-import           Pos.Block.BlockWorkMode (BlockInstancesConstraint, BlockWorkMode)
+import           Pos.Block.BlockWorkMode (BlockWorkMode)
 import           Pos.Block.Configuration (criticalForkThreshold)
 import           Pos.Block.Error (ApplyBlocksException)
 import           Pos.Block.Logic (ClassifyHeaderRes (..), classifyNewHeader, lcaWithMainChain,
                                   verifyAndApplyBlocks)
 import qualified Pos.Block.Logic as L
-import           Pos.Block.Network.Types (MsgGetHeaders (..), MsgHeaders (..))
 import           Pos.Block.RetrievalQueue (BlockRetrievalQueue, BlockRetrievalQueueTag,
                                            BlockRetrievalTask (..))
 import           Pos.Block.Types (Blund, LastKnownHeaderTag)
-import           Pos.Communication.Limits.Types (recvLimited)
-import           Pos.Communication.Protocol (ConversationActions (..), NodeId, OutSpecs, convH,
-                                             toOutSpecs)
+import           Pos.Communication.Protocol (NodeId)
 import           Pos.Core (HasHeaderHash (..), HeaderHash, gbHeader, headerHashG, isMoreDifficult,
-                           prevBlockL)
+                           prevBlockL, HasGeneratedSecrets, HasGenesisHash, HasProtocolConstants,
+                           HasGenesisBlockVersionData, HasGenesisData)
 import           Pos.Core.Block (Block, BlockHeader, blockHeader)
 import           Pos.Crypto (shortHashF)
 import qualified Pos.DB.Block.Load as DB
@@ -57,7 +55,7 @@ import           Pos.Util (buildListBounds, multilineBounds, _neLast)
 import           Pos.Util.AssertMode (inAssertMode)
 import           Pos.Util.Chrono (NE, NewestFirst (..), OldestFirst (..), _NewestFirst,
                                   _OldestFirst)
-import           Pos.Util.JsonLog (jlAdoptedBlock)
+import           Pos.Util.JsonLog.Events (MemPoolModifyReason (..), jlAdoptedBlock)
 import           Pos.Util.TimeWarp (CanJsonLog (..))
 import           Pos.Util.Util (lensOf)
 
@@ -65,6 +63,9 @@ import           Pos.Util.Util (lensOf)
 -- Exceptions
 ----------------------------------------------------------------------------
 
+-- FIXME this same thing is defined in full diffusion layer.
+-- Must finish the proper factoring. There should be no 'Block.Network'
+-- in cardano-sl-block; it should just use the Diffusion and Logic interfaces.
 data BlockNetLogicException
     = DialogUnexpected Text
       -- ^ Node's response in any network/block related logic was
@@ -100,36 +101,28 @@ triggerRecovery
     => Diffusion m -> m ()
 triggerRecovery diffusion = unlessM recoveryInProgress $ do
     logDebug "Recovery triggered, requesting tips from neighbors"
-    -- I know, it's not unsolicited. TODO rename.
-    void (Diffusion.requestTip diffusion $ handleUnsolicitedHeader) `catch`
+    -- The 'catch' here is for an exception when trying to enqueue the request.
+    -- In 'requestTipsAndProcess', IO exceptions are caught, for each
+    -- individual request per-peer. Those are not re-thrown.
+    void requestTipsAndProcess `catch`
         \(e :: SomeException) -> do
            logDebug ("Error happened in triggerRecovery: " <> show e)
            throwM e
     logDebug "Finished requesting tips for recovery"
-
-requestTipOuts :: BlockInstancesConstraint m => Proxy m -> OutSpecs
-requestTipOuts _ =
-    toOutSpecs [ convH (Proxy :: Proxy MsgGetHeaders)
-                       (Proxy :: Proxy MsgHeaders) ]
-
--- | Is used if we're recovering after offline and want to know what's
--- current blockchain state. Sends "what's your current tip" request
--- to everybody we know.
-requestTip
-    :: BlockWorkMode ctx m
-    => NodeId
-    -> ConversationActions MsgGetHeaders MsgHeaders m
-    -> m ()
-requestTip nodeId conv = do
-    logDebug "Requesting tip..."
-    send conv (MsgGetHeaders [] Nothing)
-    whenJustM (recvLimited conv) handleTip
   where
-    handleTip (MsgHeaders (NewestFirst (tip:|[]))) = do
-        logDebug $ sformat ("Got tip "%shortHashF%", processing") (headerHash tip)
-        handleUnsolicitedHeader tip nodeId
-    handleTip t =
-        logWarning $ sformat ("requestTip: got unexpected response: "%shown) t
+    requestTipsAndProcess = do
+        requestsMap <- Diffusion.requestTip diffusion
+        forConcurrently (M.toList requestsMap) $ \it@(nodeId, _) -> waitAndProcessOne it `catch`
+            -- Catch and squelch IOExceptions so that one failed request to one
+            -- particlar peer does not stop the others.
+            \(e :: IOException) ->
+                logDebug $ sformat ("Error requesting tip from "%shown%": "%shown) nodeId e
+    waitAndProcessOne (nodeId, mbh) = do
+        -- 'mbh' is an 'm' term that returns when the header has been
+        -- downloaded.
+        bh <- mbh 
+        -- I know, it's not unsolicited. TODO rename.
+        handleUnsolicitedHeader bh nodeId
 
 ----------------------------------------------------------------------------
 -- Headers processing
@@ -224,7 +217,13 @@ updateLastKnownHeader lastKnownH header = do
 
 -- | Carefully apply blocks that came from the network.
 handleBlocks
-    :: forall ctx m. BlockWorkMode ctx m
+    :: forall ctx m . ( BlockWorkMode ctx m
+       , HasGeneratedSecrets
+       , HasGenesisData
+       , HasGenesisHash
+       , HasProtocolConstants
+       , HasGenesisBlockVersionData
+       )
     => NodeId
     -> OldestFirst NE Block
     -> Diffusion m
@@ -253,14 +252,20 @@ handleBlocks nodeId blocks diffusion = do
 
 applyWithoutRollback
     :: forall ctx m.
-       BlockWorkMode ctx m
+       ( BlockWorkMode ctx m
+       , HasGeneratedSecrets
+       , HasGenesisHash
+       , HasGenesisData
+       , HasProtocolConstants
+       , HasGenesisBlockVersionData
+       )
     => Diffusion m
     -> OldestFirst NE Block
     -> m ()
 applyWithoutRollback diffusion blocks = do
     logInfo . sformat ("Trying to apply blocks w/o rollback. " % multilineBounds 6)
        . getOldestFirst . map (view blockHeader) $ blocks
-    modifyStateLock HighPriority "applyWithoutRollback" applyWithoutRollbackDo >>= \case
+    modifyStateLock HighPriority ApplyBlock applyWithoutRollbackDo >>= \case
         Left (pretty -> err) ->
             onFailedVerifyBlocks (getOldestFirst blocks) err
         Right newTip -> do
@@ -292,7 +297,13 @@ applyWithoutRollback diffusion blocks = do
         pure (newTip, res)
 
 applyWithRollback
-    :: BlockWorkMode ctx m
+    :: ( BlockWorkMode ctx m
+       , HasGeneratedSecrets
+       , HasGenesisData
+       , HasGenesisHash
+       , HasProtocolConstants
+       , HasGenesisBlockVersionData
+       )
     => NodeId
     -> Diffusion m
     -> OldestFirst NE Block
@@ -303,7 +314,7 @@ applyWithRollback nodeId diffusion toApply lca toRollback = do
     logInfo . sformat ("Trying to apply blocks w/o rollback. " % multilineBounds 6)
        . getOldestFirst . map (view blockHeader) $ toApply
     logInfo $ sformat ("Blocks to rollback "%listJson) toRollbackHashes
-    res <- modifyStateLock HighPriority "applyWithRollback" $ \curTip -> do
+    res <- modifyStateLock HighPriority ApplyBlockWithRollback $ \curTip -> do
         res <- L.applyWithRollback toRollback toApplyAfterLca
         pure (either (const curTip) identity res, res)
     case res of

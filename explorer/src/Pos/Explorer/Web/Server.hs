@@ -64,7 +64,8 @@ import           Pos.Core.Block (Block, MainBlock, mainBlockSlot, mainBlockTxPay
 import           Pos.Core.Txp (Tx (..), TxAux, TxId, TxOutAux (..), taTx, txOutValue, txpTxs,
                                _txOutputs)
 import           Pos.Slotting (MonadSlots (..), getSlotStart)
-import           Pos.Txp (MonadTxpMem, TxMap, getLocalTxs, getMemPool, mpLocalTxs, topsortTxs)
+import           Pos.Txp (MonadTxpMem, TxMap, getLocalTxs, getMemPool, mpLocalTxs, topsortTxs,
+                          withTxpLocalData)
 import           Pos.Util (divRoundUp, maybeThrow)
 import           Pos.Util.Chrono (NewestFirst (..))
 import           Pos.Web (serveImpl)
@@ -102,7 +103,7 @@ explorerServeImpl
     => m Application
     -> Word16
     -> m ()
-explorerServeImpl app port = serveImpl loggingApp "*" port Nothing Nothing
+explorerServeImpl app port = serveImpl loggingApp "*" port Nothing Nothing Nothing
   where
     loggingApp = logStdoutDev <$> app
 
@@ -336,6 +337,14 @@ getAddressSummary cAddr = do
 
     balance <- mkCCoin . fromMaybe minBound <$> getAddrBalance addr
     txIds <- getNewestFirst <$> getAddrHistory addr
+
+    let nTxs = length txIds
+
+    -- FIXME [CBR-119] Waiting for design discussion
+    when (nTxs > 1000) $
+        throwM $ Internal $ "Response too large: no more than 1000 transactions"
+            <> " can be returned at once. This issue is known and being worked on"
+
     transactions <- forM txIds $ \id -> do
         extra <- getTxExtraOrFail id
         tx <- getTxMain id extra
@@ -779,7 +788,7 @@ fetchTxFromMempoolOrFail txId = do
         :: (MonadIO m, MonadTxpMem ext ctx m)
         => m TxMap
     localMemPoolTxs = do
-      memPool <- getMemPool
+      memPool <- withTxpLocalData getMemPool
       pure $ memPool ^. mpLocalTxs
 
 getMempoolTxs :: ExplorerMode ctx m => m [TxInternal]
@@ -792,7 +801,7 @@ getMempoolTxs = do
         forM mextra $ \extra -> pure $ TxInternal extra (taTx txAux)
   where
     tlocalTxs :: (MonadIO m, MonadTxpMem ext ctx m) => m [(TxId, TxAux)]
-    tlocalTxs = getLocalTxs
+    tlocalTxs = withTxpLocalData getLocalTxs
 
     mkWhTx :: (TxId, TxAux) -> WithHash Tx
     mkWhTx (txid, txAux) = WithHash (taTx txAux) txid

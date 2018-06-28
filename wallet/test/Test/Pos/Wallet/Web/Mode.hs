@@ -1,6 +1,14 @@
 {-# LANGUAGE Rank2Types      #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE TypeFamilies    #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE TypeSynonymInstances #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE OverloadedStrings #-}
 {-# OPTIONS -fno-warn-unused-top-binds #-} -- for lenses
 
 -- | Module which provides `MonadWalletWebMode` instance for tests
@@ -64,17 +72,20 @@ import           Pos.Lrc (LrcContext)
 import           Pos.Network.Types (HasNodeType (..), NodeType (..))
 import           Pos.Reporting (HasReportingContext (..))
 import           Pos.Shutdown (HasShutdownContext (..), ShutdownContext (..))
-import           Pos.Slotting (HasSlottingVar (..), MonadSlots (..), MonadSlotsData)
+import           Pos.Slotting (HasSlottingVar (..), MonadSlots (..), MonadSlotsData,
+                               SimpleSlottingStateVar, mkSimpleSlottingStateVar)
 import           Pos.Ssc.Configuration (HasSscConfiguration)
 import           Pos.Ssc.Mem (SscMemTag)
 import           Pos.Ssc.Types (SscState)
 import           Pos.StateLock (StateLock, StateLockMetrics (..), newStateLock)
 import           Pos.Txp (GenericTxpLocalData, MempoolExt, MonadTxpLocal (..), TxpGlobalSettings,
-                          TxpHolderTag, txNormalize, txProcessTransactionNoLock, txpTip)
+                          TxpHolderTag, recordTxpMetrics, txNormalize, txProcessTransactionNoLock,
+                          txpMemPool, txpTip)
 import           Pos.Update.Context (UpdateContext)
 import           Pos.Util (postfixLFields)
 import           Pos.Util.CompileInfo (HasCompileInfo)
-import           Pos.Util.JsonLog (HasJsonLogConfig (..), JsonLogConfig (..), jsonLogDefault)
+import           Pos.Util.JsonLog.Events (HasJsonLogConfig (..), JsonLogConfig (..),
+                                          MemPoolModifyReason, jsonLogDefault)
 import           Pos.Util.LoggerName (HasLoggerName' (..), askLoggerNameDefault,
                                       modifyLoggerNameDefault)
 import           Pos.Util.TimeWarp (CanJsonLog (..))
@@ -84,15 +95,16 @@ import           Pos.Wallet.Redirect (applyLastUpdateWebWallet, blockchainSlotDu
                                       connectedPeersWebWallet, localChainDifficultyWebWallet,
                                       networkChainDifficultyWebWallet, txpNormalizeWebWallet,
                                       txpProcessTxWebWallet, waitForUpdateWebWallet)
+import qualified System.Metrics as Metrics
 
 import           Pos.Wallet.WalletMode (MonadBlockchainInfo (..), MonadUpdates (..),
                                         WalletMempoolExt)
 import           Pos.Wallet.Web.ClientTypes (AccountId)
-import           Pos.Wallet.Web.Methods (AddrCIdHashes (..))
 import           Pos.Wallet.Web.Mode (getBalanceDefault, getNewAddressWebWallet, getOwnUtxosDefault)
-import           Pos.Wallet.Web.State (MonadWalletDB, WalletState, openMemState)
+import           Pos.Wallet.Web.State (WalletDB, WalletDbReader, openMemState)
 import           Pos.Wallet.Web.Tracking.BListener (onApplyBlocksWebWallet,
                                                     onRollbackBlocksWebWallet)
+import           Pos.Wallet.Web.Tracking.Types (SyncQueue)
 
 import           Test.Pos.Block.Logic.Emulation (Emulation (..), runEmulation)
 import           Test.Pos.Block.Logic.Mode (BlockTestContext (..), BlockTestContextTag,
@@ -136,7 +148,7 @@ instance Show WalletTestParams where
 
 data WalletTestContext = WalletTestContext
     { wtcBlockTestContext :: !BlockTestContext
-    , wtcWalletState      :: !WalletState
+    , wtcWalletState      :: !WalletDB
     , wtcUserSecret       :: !(TVar UserSecret)
     -- ^ Secret keys which are used to send transactions
     , wtcRecoveryHeader   :: !RecoveryHeader
@@ -145,14 +157,18 @@ data WalletTestContext = WalletTestContext
     , wtcStateLock        :: !StateLock
     -- ^ A lock which manages access to shared resources.
     -- Stored hash is a hash of last applied block.
+    , wtcStateLockMetrics :: !(StateLockMetrics MemPoolModifyReason)
+    -- ^ A set of callbacks for 'StateLock'.
     , wtcShutdownContext  :: !ShutdownContext
     -- ^ Stub
     , wtcConnectedPeers   :: !ConnectedPeers
     -- ^ Stub
     , wtcSentTxs          :: !(TVar [TxAux])
     -- ^ Sent transactions via MonadWalletSendActions
-    , wtcHashes           :: !AddrCIdHashes
-    -- ^ Address hashes ref
+    , wtcSyncQueue        :: !SyncQueue
+    -- ^ STM queue for wallet sync requests.
+    , wtcSlottingStateVar :: SimpleSlottingStateVar
+    -- ^ A mutable cell with SlotId
     }
 
 makeLensesWith postfixLFields ''WalletTestContext
@@ -184,11 +200,14 @@ initWalletTestContext WalletTestParams {..} callback =
             -- some kind of kostil to get tip
             tip <- readTVarIO $ txpTip $ btcTxpMem wtcBlockTestContext
             wtcStateLock <- newStateLock tip
+            store <- liftIO $ Metrics.newStore
+            wtcStateLockMetrics <- liftIO $ recordTxpMetrics store (txpMemPool $ btcTxpMem wtcBlockTestContext)
             wtcShutdownContext <- ShutdownContext <$> STM.newTVarIO False
             wtcConnectedPeers <- ConnectedPeers <$> STM.newTVarIO mempty
             wtcLastKnownHeader <- STM.newTVarIO Nothing
             wtcSentTxs <- STM.newTVarIO mempty
-            wtcHashes <- AddrCIdHashes <$> newIORef mempty
+            wtcSyncQueue <- STM.newTQueueIO
+            wtcSlottingStateVar <- mkSimpleSlottingStateVar
             pure WalletTestContext {..}
         callback wtc
 
@@ -238,11 +257,12 @@ walletPropertySpec description wp = prop description (walletPropertyToProperty a
 ----------------------------------------------------------------------------
 -- Instances derived from BlockTestContext
 ----------------------------------------------------------------------------
-instance HasLens AddrCIdHashes WalletTestContext AddrCIdHashes where
-    lensOf = wtcHashes_L
 
 instance HasLens BlockTestContextTag WalletTestContext BlockTestContext where
     lensOf = wtcBlockTestContext_L
+
+instance HasLens SyncQueue WalletTestContext SyncQueue where
+    lensOf = wtcSyncQueue_L
 
 instance HasAllSecrets WalletTestContext where
     allSecrets = wtcBlockTestContext_L . allSecrets
@@ -300,6 +320,9 @@ instance HasLoggerName' WalletTestContext where
 instance HasLens TxpHolderTag WalletTestContext (GenericTxpLocalData WalletMempoolExt) where
     lensOf = wtcBlockTestContext_L . btcTxpMemL
 
+instance HasLens SimpleSlottingStateVar WalletTestContext SimpleSlottingStateVar where
+    lensOf = wtcSlottingStateVar_L
+
 instance {-# OVERLAPPING #-} HasLoggerName WalletTestMode where
     askLoggerName = askLoggerNameDefault
     modifyLoggerName = modifyLoggerNameDefault
@@ -329,7 +352,7 @@ instance MonadKnownPeers WalletTestMode where
 -- Wallet instances
 ----------------------------------------------------------------------------
 
-instance HasLens WalletState WalletTestContext WalletState where
+instance HasLens WalletDB WalletTestContext WalletDB where
     lensOf = wtcWalletState_L
 
 -- For MonadUpdates
@@ -356,16 +379,10 @@ instance HasNodeType WalletTestContext where
     getNodeType _ = NodeCore -- doesn't really matter, it's for reporting
 
 -- TODO may be used for callback on tx processing in future.
-instance HasLens StateLockMetrics WalletTestContext StateLockMetrics where
-    lensOf = lens (const emptyStateMetrics) const
-      where
-        emptyStateMetrics = StateLockMetrics
-            { slmWait = const $ pure ()
-            , slmAcquire = const $ const $ pure ()
-            , slmRelease = const $ const $ pure ()
-            }
+instance HasLens (StateLockMetrics MemPoolModifyReason) WalletTestContext (StateLockMetrics MemPoolModifyReason) where
+    lensOf = wtcStateLockMetrics_L
 
-instance HasConfigurations => MonadWalletDB WalletTestContext WalletTestMode
+instance WalletDbReader WalletTestContext WalletTestMode
 
 -- TODO remove HasCompileInfo here
 -- when getNewAddressWebWallet won't require MonadWalletWebMode

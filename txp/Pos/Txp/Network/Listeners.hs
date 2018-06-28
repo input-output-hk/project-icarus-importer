@@ -19,12 +19,12 @@ import           System.Wlog (WithLogger, logInfo)
 import           Universum
 
 import           Pos.Binary.Txp ()
-import           Pos.Communication.Limits.Types (MessageLimited)
 import qualified Pos.Communication.Relay as Relay
 import           Pos.Core.Txp (TxAux (..), TxId)
 import           Pos.Crypto (hash)
-import           Pos.Txp.MemState (MempoolExt, MonadTxpLocal, MonadTxpMem, txpProcessTx, JLTxR (..))
+import           Pos.Txp.MemState (MempoolExt, MonadTxpLocal, MonadTxpMem, txpProcessTx)
 import           Pos.Txp.Network.Types (TxMsgContents (..))
+import           Pos.Util.JsonLog.Events (JLTxR (..))
 
 -- Real tx processing
 -- CHECK: @handleTxDo
@@ -69,5 +69,4 @@ type TxpMode ctx m =
          , Relay.ReqMsg    (Tagged TxMsgContents TxId)
          , Relay.MempoolMsg TxMsgContents
          ]
-    , MessageLimited (Relay.DataMsg TxMsgContents) m
     )

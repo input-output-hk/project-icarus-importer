@@ -26,12 +26,14 @@ import           Pos.Core (AddressHash, HasConfiguration, SharedSeed (..), Stake
 import           Pos.Core.Ssc (Commitment (..), CommitmentsMap, Opening (..), getCommShares,
                                getCommitmentsMap, mkCommitmentsMap)
 import           Pos.Crypto (DecShare, PublicKey, SecretKey, SignTag (SignCommitment), Threshold,
-                             VssKeyPair, VssPublicKey, decryptShare, sign, toPublic, toVssPublicKey)
+                             VssKeyPair, VssPublicKey, decryptShare, protocolMagic, sign, toPublic,
+                             toVssPublicKey)
 import           Pos.Ssc (SscSeedError (..), calculateSeed, genCommitmentAndOpening,
                           secretToSharedSeed, vssThreshold)
-import           Pos.Util (nonrepeating, sublistN)
 
 import           Test.Pos.Configuration (withDefConfiguration)
+import           Test.Pos.Util.QuickCheck.Arbitrary (nonrepeating, sublistN)
+
 
 getPubAddr :: SecretKey -> AddressHash PublicKey
 getPubAddr = addressHash . toPublic
@@ -218,7 +220,7 @@ mkCommitmentsMap' keys comms =
     mkCommitmentsMap $ do
         (sk, comm) <- zip keys comms
         let epochIdx = 0  -- we don't care here
-        let sig = sign SignCommitment sk (epochIdx, comm)
+        let sig = sign protocolMagic SignCommitment sk (epochIdx, comm)
         return (toPublic sk, comm, sig)
 
 mkVssMap :: [SecretKey]

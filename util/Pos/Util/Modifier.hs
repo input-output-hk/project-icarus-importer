@@ -3,10 +3,11 @@
 -- | Wrapper for the modifier pattern which is used throughout the code.
 
 module Pos.Util.Modifier
-       ( MapModifier
+       ( MapModifier (..)
        , lookupM
        , lookup
        , filter
+       , filterWithKey
        , keysM
        , keys
        , valuesM
@@ -41,8 +42,6 @@ import qualified Data.Map as M
 import qualified Data.Text.Buildable
 import           Formatting (bprint, (%))
 import           Serokell.Util (listJson, pairF)
-import           Test.QuickCheck (Arbitrary)
-import           Test.QuickCheck.Instances ()
 
 import           Pos.Util.Util (getKeys)
 
@@ -54,9 +53,6 @@ newtype MapModifier k v = MapModifier
 
 instance Functor (MapModifier k) where
     fmap f (MapModifier m) = MapModifier (f <<$>> m)
-
-deriving instance (Eq k, Hashable k, Arbitrary k, Arbitrary v) =>
-    Arbitrary (MapModifier k v)
 
 instance (Eq k, Hashable k) =>
          Monoid (MapModifier k v) where
@@ -91,6 +87,9 @@ lookup getter k = runIdentity . lookupM (Identity . getter) k
 
 filter :: (Eq k, Hashable k) => (Maybe v -> Bool) -> MapModifier k v -> MapModifier k v
 filter fil = MapModifier . HM.filter fil . getMapModifier
+
+filterWithKey :: (Eq k, Hashable k) => (k -> Maybe v -> Bool) -> MapModifier k v -> MapModifier k v
+filterWithKey fil = MapModifier . HM.filterWithKey fil . getMapModifier
 
 -- | Get keys of something map-like in Functor context taking
 -- 'MapModifier' into account.

@@ -18,7 +18,7 @@ import           Control.Monad.Except (runExcept)
 import qualified Data.Map as M
 import           Data.Time.Units (Second)
 import           Mockable (Concurrently, Delay, Mockable, concurrently, delay)
-import           Servant.Server (err405, errReasonPhrase)
+import           Servant.Server (err403, err405, errReasonPhrase)
 import           System.Wlog (logDebug)
 
 import           Pos.Client.KeyStorage (getSecretKeys)
@@ -28,10 +28,11 @@ import           Pos.Client.Txp.History (TxHistoryEntry (..))
 import           Pos.Client.Txp.Network (prepareMTx)
 import           Pos.Client.Txp.Util (InputSelectionPolicy (..), computeTxFee, runTxCreator)
 import           Pos.Configuration (walletTxCreationDisabled)
-import           Pos.Core (Coin, TxAux (..), TxOut (..), getCurrentTimestamp, Address)
+import           Pos.Core (Address, Coin, HasConfiguration, TxAux (..), TxOut (..),
+                           getCurrentTimestamp)
 import           Pos.Core.Txp (_txOutputs)
-import           Pos.Crypto (PassPhrase, ShouldCheckPassphrase (..), checkPassMatches, hash,
-                             withSafeSignerUnsafe, SafeSigner)
+import           Pos.Crypto (PassPhrase, SafeSigner, ShouldCheckPassphrase (..), checkPassMatches,
+                             hash, withSafeSignerUnsafe)
 import           Pos.DB (MonadGState)
 import           Pos.Txp (TxFee (..), Utxo)
 import           Pos.Util (eitherToThrow, maybeThrow)
@@ -40,18 +41,18 @@ import           Pos.Wallet.Aeson.ClientTypes ()
 import           Pos.Wallet.Aeson.WalletBackup ()
 import           Pos.Wallet.Web.Account (getSKByAddressPure, getSKById)
 import           Pos.Wallet.Web.ClientTypes (AccountId (..), Addr, CCoin, CId, CTx (..),
-                                             CWAddressMeta (..), NewBatchPayment (..), Wal,
-                                             addrMetaToAccount)
+                                             NewBatchPayment (..), Wal)
 import           Pos.Wallet.Web.Error (WalletError (..))
 import           Pos.Wallet.Web.Methods.History (addHistoryTxMeta, constructCTx,
                                                  getCurChainDifficulty)
-import           Pos.Wallet.Web.Methods.Misc (convertCIdTOAddrs)
 import           Pos.Wallet.Web.Methods.Txp (MonadWalletTxFull, coinDistrToOutputs,
                                              getPendingAddresses, rewrapTxError,
                                              submitAndSaveNewPtx)
 import           Pos.Wallet.Web.Pending (mkPendingTx)
 import           Pos.Wallet.Web.State (AddressInfo (..), AddressLookupMode (Ever, Existing),
-                                       MonadWalletDBRead)
+                                       HasWAddressMeta (..), WAddressMeta (..), WalletDbReader,
+                                       WalletSnapshot, askWalletDB, askWalletSnapshot,
+                                       getWalletSnapshot, isWalletRestoring, wamAccount)
 import           Pos.Wallet.Web.Util (decodeCTypeOrFail, getAccountAddrsOrThrow,
                                       getWalletAccountIds, getWalletAddrsDetector)
 
@@ -69,7 +70,7 @@ newPayment submitTx passphrase srcAccount dstAddress coin policy =
     -- 1. In order not to overflow relay.
     -- 2. To let other things (e. g. block processing) happen if
     -- `newPayment`s are done continuously.
-    notFasterThan (6 :: Second) $
+    notFasterThan (6 :: Second) $ do
       sendMoney
           submitTx
           passphrase
@@ -85,7 +86,7 @@ newPaymentBatch
     -> m CTx
 newPaymentBatch submitTx passphrase NewBatchPayment {..} = do
     src <- decodeCTypeOrFail npbFrom
-    notFasterThan (6 :: Second) $
+    notFasterThan (6 :: Second) $ do
       sendMoney
           submitTx
           passphrase
@@ -96,9 +97,11 @@ newPaymentBatch submitTx passphrase NewBatchPayment {..} = do
 type MonadFees ctx m =
     ( MonadCatch m
     , MonadGState m
-    , MonadWalletDBRead ctx m
+    , WalletDbReader ctx m
     , MonadAddresses m
     , MonadBalances m
+    , MonadIO m
+    , HasConfiguration
     )
 
 getTxFee
@@ -109,8 +112,9 @@ getTxFee
      -> InputSelectionPolicy
      -> m CCoin
 getTxFee srcAccount dstAccount coin policy = do
-    pendingAddrs <- getPendingAddresses policy
-    utxo <- getMoneySourceUtxo (AccountMoneySource srcAccount)
+    ws <- askWalletSnapshot
+    let pendingAddrs = getPendingAddresses ws policy
+    utxo <- getMoneySourceUtxo ws (AccountMoneySource srcAccount)
     outputs <- coinDistrToOutputs $ one (dstAccount, coin)
     TxFee fee <- rewrapTxError "Cannot compute transaction fee" $
         eitherToThrow =<< runTxCreator policy (computeTxFee pendingAddrs utxo outputs)
@@ -119,42 +123,43 @@ getTxFee srcAccount dstAccount coin policy = do
 data MoneySource
     = WalletMoneySource (CId Wal)
     | AccountMoneySource AccountId
-    | AddressMoneySource CWAddressMeta
+    | AddressMoneySource WAddressMeta
     deriving (Show, Eq)
 
-getMoneySourceAddresses
-    :: (MonadThrow m, MonadWalletDBRead ctx m)
-    => MoneySource -> m [CWAddressMeta]
-getMoneySourceAddresses (AddressMoneySource addrId) = return $ one addrId
-getMoneySourceAddresses (AccountMoneySource accId) =
-    map adiCWAddressMeta <$> getAccountAddrsOrThrow Existing accId
-getMoneySourceAddresses (WalletMoneySource wid) =
-    getWalletAccountIds wid >>=
-    concatMapM (getMoneySourceAddresses . AccountMoneySource)
+getMoneySourceAddresses :: MonadThrow m
+                        => WalletSnapshot
+                        -> MoneySource
+                        -> m [WAddressMeta]
+getMoneySourceAddresses _ (AddressMoneySource addrId) = return $ one addrId
+getMoneySourceAddresses ws (AccountMoneySource accId) =
+    map adiWAddressMeta <$> getAccountAddrsOrThrow ws Existing accId
+getMoneySourceAddresses ws (WalletMoneySource wid) =
+    concatMapM (getMoneySourceAddresses ws . AccountMoneySource)
+               (getWalletAccountIds ws wid)
 
-getSomeMoneySourceAccount
-    :: (MonadThrow m, MonadWalletDBRead ctx m)
-    => MoneySource -> m AccountId
-getSomeMoneySourceAccount (AddressMoneySource addrId) =
-    return $ addrMetaToAccount addrId
-getSomeMoneySourceAccount (AccountMoneySource accId) = return accId
-getSomeMoneySourceAccount (WalletMoneySource wid) = do
-    wAddr <- (head <$> getWalletAccountIds wid) >>= maybeThrow noWallets
-    getSomeMoneySourceAccount (AccountMoneySource wAddr)
+getSomeMoneySourceAccount :: MonadThrow m
+                          => WalletSnapshot -> MoneySource -> m AccountId
+getSomeMoneySourceAccount _ (AddressMoneySource addrId) =
+    return $ addrId ^. wamAccount
+getSomeMoneySourceAccount _ (AccountMoneySource accId) = return accId
+getSomeMoneySourceAccount ws (WalletMoneySource wid) = do
+    wAddr <- maybeThrow noWallets (head (getWalletAccountIds ws wid))
+    getSomeMoneySourceAccount ws (AccountMoneySource wAddr)
   where
     noWallets = InternalError "Wallet has no accounts"
 
 getMoneySourceWallet :: MoneySource -> CId Wal
-getMoneySourceWallet (AddressMoneySource addrId) = cwamWId addrId
+getMoneySourceWallet (AddressMoneySource addrId) = addrId ^. wamWalletId
 getMoneySourceWallet (AccountMoneySource accId)  = aiWId accId
 getMoneySourceWallet (WalletMoneySource wid)     = wid
 
-getMoneySourceUtxo
-    :: (MonadThrow m, MonadWalletDBRead ctx m, MonadBalances m)
-    => MoneySource -> m Utxo
-getMoneySourceUtxo =
-    getMoneySourceAddresses >=>
-    mapM (decodeCTypeOrFail . cwamId) >=>
+getMoneySourceUtxo :: (MonadThrow m, MonadBalances m)
+                   => WalletSnapshot
+                   -> MoneySource
+                   -> m Utxo
+getMoneySourceUtxo ws =
+    getMoneySourceAddresses ws >=>
+    mapM (return . view wamAddress) >=>
     getOwnUtxos
 
 sendMoney
@@ -166,19 +171,26 @@ sendMoney
     -> InputSelectionPolicy
     -> m CTx
 sendMoney submitTx passphrase moneySource dstDistr policy = do
+    db <- askWalletDB
+    ws <- getWalletSnapshot db
     when walletTxCreationDisabled $
         throwM err405
         { errReasonPhrase = "Transaction creation is disabled by configuration!"
         }
     let srcWallet = getMoneySourceWallet moneySource
+    when (isWalletRestoring ws srcWallet) $
+        throwM err403
+        { errReasonPhrase = "Transaction creation is disabled when the wallet is restoring."
+        }
     rootSk <- getSKById srcWallet
     checkPassMatches passphrase rootSk `whenNothing`
         throwM (RequestError "Passphrase doesn't match")
-    addrMetas' <- getMoneySourceAddresses moneySource
+
+    addrMetas' <- getMoneySourceAddresses ws moneySource
     addrMetas <- nonEmpty addrMetas' `whenNothing`
         throwM (RequestError "Given money source has no addresses!")
 
-    srcAddrs <- convertCIdTOAddrs $ map cwamId addrMetas
+    let srcAddrs = map (view wamAddress) addrMetas
 
     logDebug "sendMoney: processed addrs"
 
@@ -193,9 +205,9 @@ sendMoney submitTx passphrase moneySource dstDistr policy = do
               getSKByAddressPure allSecrets (ShouldCheckPassphrase False) passphrase addrMeta
           withSafeSignerUnsafe sk (pure passphrase) pure
 
-    relatedAccount <- getSomeMoneySourceAccount moneySource
+    relatedAccount <- getSomeMoneySourceAccount ws moneySource
     outputs <- coinDistrToOutputs dstDistr
-    pendingAddrs <- getPendingAddresses policy
+    let pendingAddrs = getPendingAddresses ws policy
     th <- rewrapTxError "Cannot send transaction" $ do
         (txAux, inpTxOuts') <-
             prepareMTx getSigner pendingAddrs policy srcAddrs outputs (relatedAccount, passphrase)
@@ -207,18 +219,19 @@ sendMoney submitTx passphrase moneySource dstDistr policy = do
             dstAddrs  = map txOutAddress . toList $
                         _txOutputs tx
             th = THEntry txHash tx Nothing inpTxOuts dstAddrs ts
-        ptx <- mkPendingTx srcWallet txHash txAux th
+        ptx <- mkPendingTx ws srcWallet txHash txAux th
 
-        th <$ submitAndSaveNewPtx submitTx ptx
+        th <$ submitAndSaveNewPtx db submitTx ptx
 
     -- We add TxHistoryEntry's meta created by us in advance
     -- to make TxHistoryEntry in CTx consistent with entry in history.
-    _ <- addHistoryTxMeta srcWallet th
+    _ <- addHistoryTxMeta db srcWallet th
     diff <- getCurChainDifficulty
-    srcWalletAddrsDetector <- getWalletAddrsDetector Ever srcWallet
+    ws' <- getWalletSnapshot db
+    let srcWalletAddrsDetector = getWalletAddrsDetector ws' Ever srcWallet
 
     logDebug "sendMoney: constructing response"
-    fst <$> constructCTx srcWallet srcWalletAddrsDetector diff th
+    fst <$> constructCTx ws' srcWallet srcWalletAddrsDetector diff th
 
 ----------------------------------------------------------------------------
 -- Utilities

@@ -19,7 +19,7 @@ import           Pos.Client.KeyStorage (addSecretKey, getSecretKeysPlain)
 import           Pos.Client.Txp.Balances (getBalance)
 import           Pos.Core (AddrStakeDistribution (..), Address, HeavyDlgIndex (..),
                            SoftwareVersion (..), StakeholderId, addressHash, mkMultiKeyDistr,
-                           unsafeGetCoin)
+                           protocolMagic, unsafeGetCoin)
 import           Pos.Core.Common (AddrAttributes (..), AddrSpendingData (..), makeAddress)
 import           Pos.Core.Configuration (genesisSecretKeys)
 import           Pos.Core.Txp (TxOut (..))
@@ -208,7 +208,7 @@ createCommandProcs hasAuxxMode printAction mDiffusion = rights . fix $ \commands
     { cpName = name
     , cpArgumentPrepare = identity
     , cpArgumentConsumer = do
-        stagpDuration <- getArg tyInt "dur"
+        stagpTxsPerThread <- getArg tyInt "txsPerThread"
         stagpConc <- getArg tyInt "conc"
         stagpDelay <- getArg tyInt "delay"
         stagpTpsSentFile <- getArg tyFilePath "file"
@@ -370,7 +370,7 @@ createCommandProcs hasAuxxMode printAction mDiffusion = rights . fix $ \commands
         withSafeSigner issuerSk (pure emptyPassphrase) $ \case
             Nothing -> logError "Invalid passphrase"
             Just ss -> do
-                let psk = safeCreatePsk ss delegatePk (HeavyDlgIndex curEpoch)
+                let psk = safeCreatePsk protocolMagic ss delegatePk (HeavyDlgIndex curEpoch)
                 if dry
                 then do
                     printAction $

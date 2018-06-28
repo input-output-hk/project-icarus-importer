@@ -8,13 +8,14 @@ import           Universum
 
 import           Test.QuickCheck (Arbitrary (..))
 
-import           Pos.Arbitrary.Crypto ()
 import           Pos.Arbitrary.Update.Core ()
 import           Pos.Binary.Class (biSize)
-import           Pos.Core.Configuration (HasConfiguration)
+import           Pos.Core.Configuration (HasProtocolMagic)
 import qualified Pos.Update.MemState as Upd
 
-instance HasConfiguration => Arbitrary Upd.MemPool where
+import           Test.Pos.Crypto.Arbitrary ()
+
+instance HasProtocolMagic => Arbitrary Upd.MemPool where
     arbitrary = do
         proposals <- arbitrary
         votes <- arbitrary

@@ -17,7 +17,8 @@ with (import (fixedNixpkgs + "/pkgs/top-level/release-lib.nix") {
 
 let
   iohkPkgs = import ./. { gitrev = cardano.rev; };
-  stagingWalletdockerImage = (import fixedNixpkgs { config = {}; }).runCommand "${iohkPkgs.dockerImages.stagingWallet.name}-hydra" {} ''
+  pkgs = import fixedNixpkgs { config = {}; };
+  stagingWalletdockerImage = pkgs.runCommand "${iohkPkgs.dockerImages.stagingWallet.name}-hydra" {} ''
     mkdir -pv $out/nix-support/
     cat <<EOF > $out/nix-support/hydra-build-products
     file dockerimage ${iohkPkgs.dockerImages.stagingWallet}
@@ -31,14 +32,25 @@ let
     cardano-sl-wallet = supportedSystems;
     cardano-sl-wallet-new = supportedSystems;
     cardano-sl-explorer-static = [ "x86_64-linux" ];
+    cardano-sl-blockchain-importer-static = [ "x86_64-linux" ];
     cardano-report-server-static = [ "x86_64-linux" ];
     stack2nix = supportedSystems;
     purescript = supportedSystems;
-    connectScripts.mainnetWallet   = [ "x86_64-linux" "x86_64-darwin" ];
-    connectScripts.mainnetExplorer = [ "x86_64-linux" "x86_64-darwin" ];
-    connectScripts.stagingWallet   = [ "x86_64-linux" "x86_64-darwin" ];
-    connectScripts.stagingExplorer = [ "x86_64-linux" "x86_64-darwin" ];
+    connectScripts.mainnetWallet             = [ "x86_64-linux" "x86_64-darwin" ];
+    connectScripts.mainnetExplorer           = [ "x86_64-linux" "x86_64-darwin" ];
+    connectScripts.mainnetBlockchainImporter = [ "x86_64-linux" "x86_64-darwin" ];
+    connectScripts.stagingWallet             = [ "x86_64-linux" "x86_64-darwin" ];
+    connectScripts.stagingExplorer           = [ "x86_64-linux" "x86_64-darwin" ];
+    connectScripts.stagingBlockchainImporter = [ "x86_64-linux" "x86_64-darwin" ];
+    daedalus-bridge = supportedSystems;
   };
+  nixosTests = import ./nixos-tests;
+  walletIntegrationTests = iohkPkgs.buildWalletIntegrationTests;
 in (mapTestOn platforms) // {
-  inherit stagingWalletdockerImage;
+  inherit stagingWalletdockerImage walletIntegrationTests;
+  nixpkgs = let
+    wrapped = pkgs.runCommand "nixpkgs" {} ''
+      ln -sv ${fixedNixpkgs} $out
+    '';
+  in if 0 <= builtins.compareVersions builtins.nixVersion "1.12" then wrapped else fixedNixpkgs;
 }

@@ -20,7 +20,6 @@ import           Pos.Block.RetrievalQueue (BlockRetrievalQueue, BlockRetrievalQu
 import           Pos.Block.Slog (HasSlogContext)
 import           Pos.Block.Types (LastKnownHeader, LastKnownHeaderTag, RecoveryHeader,
                                   RecoveryHeaderTag)
-import           Pos.Communication.Limits.Types (MessageLimited)
 import           Pos.Communication.Protocol (Message)
 import           Pos.Core.Context (HasPrimaryKey)
 import           Pos.Lrc (LrcModeFull)
@@ -30,6 +29,7 @@ import           Pos.Shutdown.Class (HasShutdownContext)
 import           Pos.StateLock (StateLock, StateLockMetrics)
 import           Pos.Txp (GenericTxpLocalData, MempoolExt, MonadTxpLocal, TxpHolderTag)
 import           Pos.Update.Context (UpdateContext)
+import           Pos.Util.JsonLog.Events (MemPoolModifyReason)
 import           Pos.Util.TimeWarp (CanJsonLog)
 import           Pos.Util.Util (HasLens, HasLens')
 
@@ -37,7 +37,7 @@ import           Pos.Util.Util (HasLens, HasLens')
 -- @Pos.Communication.Message@ and @Pos.Communication.Limits@, which
 -- are unavailable at this point, hence we defer providing them
 -- to the calling site.
-type BlockInstancesConstraint m =
+type BlockInstancesConstraint =
     ( Each '[Bi]
         [ MsgGetHeaders
         , MsgHeaders
@@ -48,15 +48,11 @@ type BlockInstancesConstraint m =
         , MsgHeaders
         , MsgGetBlocks
         , MsgBlock ]
-    , MessageLimited MsgGetHeaders m
-    , MessageLimited MsgHeaders m
-    , MessageLimited MsgGetBlocks m
-    , MessageLimited MsgBlock m
     )
 
 -- | A subset of @WorkMode@.
 type BlockWorkMode ctx m =
-    ( BlockInstancesConstraint m
+    ( BlockInstancesConstraint
 
     , Default (MempoolExt m)
     , Mockables m [Delay, SharedAtomic]
@@ -75,7 +71,7 @@ type BlockWorkMode ctx m =
     , HasLens TxpHolderTag ctx (GenericTxpLocalData (MempoolExt m))
     , HasLens' ctx SecurityParams
     , HasLens' ctx StateLock
-    , HasLens' ctx StateLockMetrics
+    , HasLens' ctx (StateLockMetrics MemPoolModifyReason)
     , HasLens' ctx UpdateContext
 
     , CanJsonLog m

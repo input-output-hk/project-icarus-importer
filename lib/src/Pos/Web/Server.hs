@@ -13,15 +13,17 @@ module Pos.Web.Server
 
 import           Universum
 
+import qualified Control.Concurrent.Async as Async
 import qualified Control.Exception.Safe as E
 import           Control.Monad.Except (MonadError (throwError))
 import qualified Control.Monad.Reader as Mtl
 import           Data.Aeson.TH (defaultOptions, deriveToJSON)
 import           Data.Default (Default)
-import           Mockable (Async, Mockable, Production (runProduction), withAsync)
+import           Mockable (Production (runProduction))
 import           Network.Wai (Application)
-import           Network.Wai.Handler.Warp (Settings, defaultSettings, runSettings, setHost, setPort)
-import           Network.Wai.Handler.WarpTLS (TLSSettings, runTLS, tlsSettingsChain)
+import           Network.Wai.Handler.Warp (Settings, defaultSettings, setHost, setPort, getHost, runSettingsSocket)
+import           Network.Wai.Handler.WarpTLS (TLSSettings, tlsSettingsChain, runTLSSocket)
+import           Data.Streaming.Network      (bindRandomPortTCP, bindPortTCP)
 import           Servant.API ((:<|>) ((:<|>)), FromHttpApiData)
 import           Servant.Server (Handler, HasServer, ServantErr (errBody), Server, ServerT, err404,
                                  err503, hoistServer, serve)
@@ -38,10 +40,11 @@ import qualified Pos.Lrc.DB as LrcDB
 import           Pos.Reporting.Health.Types (HealthStatus (..))
 import           Pos.Ssc (scParticipateSsc)
 import           Pos.Txp (TxOut (..), toaOut)
-import           Pos.Txp.MemState (GenericTxpLocalData, MempoolExt, askTxpMem, getLocalTxs)
+import           Pos.Txp.MemState (GenericTxpLocalData, MempoolExt, getLocalTxs, withTxpLocalData)
 import           Pos.Update.Configuration (HasUpdateConfiguration)
 import           Pos.Web.Mode (WebMode, WebModeContext (..))
 import           Pos.WorkMode.Class (WorkMode)
+import           Network.Socket (close, Socket)
 
 import           Pos.Web.Api (HealthCheckApi, NodeApi, healthCheckApi, nodeApi)
 import           Pos.Web.Types (CConfirmedProposalState (..), TlsParams (..))
@@ -57,19 +60,14 @@ type MyWorkMode ctx m =
     )
 
 withRoute53HealthCheckApplication
-    :: ( Mockable Async m
-       , MonadMask m
-       , MonadIO m
-       , HasConfiguration
-       )
-    => IO HealthStatus
+    :: IO HealthStatus
     -> String
     -> Word16
-    -> m x
-    -> m x
-withRoute53HealthCheckApplication mStatus host port act = withAsync go (const act)
+    -> IO x
+    -> IO x
+withRoute53HealthCheckApplication mStatus host port act = Async.withAsync go (const act)
   where
-    go = serveImpl (pure app) host port Nothing Nothing
+    go = serveImpl (pure app) host port Nothing Nothing Nothing
     app = route53HealthCheckApplication mStatus
 
 route53HealthCheckApplication :: IO HealthStatus -> Application
@@ -77,7 +75,7 @@ route53HealthCheckApplication mStatus =
     serve healthCheckApi (servantServerHealthCheck mStatus)
 
 serveWeb :: MyWorkMode ctx m => Word16 -> Maybe TlsParams -> m ()
-serveWeb port mTlsParams = serveImpl application "127.0.0.1" port mTlsParams Nothing
+serveWeb port mTlsParams = serveImpl application "127.0.0.1" port mTlsParams Nothing Nothing
 
 application :: MyWorkMode ctx m => m Application
 application = do
@@ -85,20 +83,44 @@ application = do
     return $ serve nodeApi server
 
 serveImpl
-    :: (HasConfiguration, MonadIO m)
+    :: (MonadIO m)
     => m Application
     -> String
     -> Word16
+    -- ^ if the port is 0, bind to a random port
     -> Maybe TlsParams
+    -- ^ if isJust, use https, isNothing, use raw http
     -> Maybe Settings
+    -> Maybe (Word16 -> IO ())
+    -- ^ if isJust, call it with the port after binding
     -> m ()
-serveImpl app host port mWalletTLSParams mSettings =
-    liftIO . maybe runSettings runTLS mTlsConfig mySettings =<< app
+serveImpl app host port mWalletTLSParams mSettings mPortCallback = do
+    app' <- app
+    let
+        acquire :: IO (Word16, Socket)
+        acquire = liftIO $ if port == 0
+            then do
+                (port', socket) <- bindRandomPortTCP (getHost mySettings)
+                pure (fromIntegral port', socket)
+            else do
+                socket <- bindPortTCP (fromIntegral port) (getHost mySettings)
+                pure (port, socket)
+        release :: (Word16, Socket) -> IO ()
+        release (_, socket) = liftIO $ close socket
+        action :: (Word16, Socket) -> IO ()
+        action (port', socket) = do
+            -- TODO: requires warp 3.2.17 setSocketCloseOnExec socket
+            launchServer app' (port', socket)
+    liftIO $ bracket acquire release action
   where
-    mySettings = setHost (fromString host) $
-                 setPort (fromIntegral port) $
-                 fromMaybe defaultSettings mSettings
-    mTlsConfig = tlsParamsToWai <$> mWalletTLSParams
+        launchServer :: Application -> (Word16, Socket) -> IO ()
+        launchServer app'' (port', socket) = do
+            fromMaybe (const (pure ())) mPortCallback port'
+            maybe runSettingsSocket runTLSSocket mTlsConfig mySettings socket app''
+        mySettings = setHost (fromString host) $
+                      setPort (fromIntegral port) $
+                      fromMaybe defaultSettings mSettings
+        mTlsConfig = tlsParamsToWai <$> mWalletTLSParams
 
 tlsParamsToWai :: TlsParams -> TLSSettings
 tlsParamsToWai TlsParams{..} = tlsSettingsChain tpCertPath [tpCaPath] tpKeyPath
@@ -132,7 +154,7 @@ withNat
 withNat apiP handlers = do
     nc <- view nodeContext
     nodeDBs <- DB.getNodeDBs
-    txpLocalData <- askTxpMem
+    txpLocalData <- withTxpLocalData return
     return $ hoistServer apiP (convertHandler nc nodeDBs txpLocalData) handlers
 
 servantServer
@@ -178,7 +200,7 @@ getUtxo :: HasConfiguration => WebMode ext [TxOut]
 getUtxo = map toaOut . toList <$> GS.getAllPotentiallyHugeUtxo
 
 getLocalTxsNum :: Default ext => WebMode ext Word
-getLocalTxsNum = fromIntegral . length <$> getLocalTxs
+getLocalTxsNum = fromIntegral . length <$> withTxpLocalData getLocalTxs
 
 -- | Get info on all confirmed proposals
 confirmedProposals

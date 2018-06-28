@@ -1,5 +1,5 @@
 name:                cardano-sl-lrc
-version:             1.1.0
+version:             1.1.1
 synopsis:            Cardano SL - Leaders and Richmen computation
 description:         Cardano SL - Leaders and Richmen computation
 license:             MIT
@@ -13,6 +13,7 @@ extra-source-files:  README.md
 cabal-version:       >=1.10
 
 library
+  hs-source-dirs:      src
   exposed-modules:     Pos.Arbitrary.Lrc
 
                        Pos.Lrc.Fts
@@ -83,3 +84,25 @@ library
 
   build-tools: cpphs >= 1.19
   ghc-options: -pgmP cpphs -optP --cpp
+
+test-suite test
+  type:                exitcode-stdio-1.0
+  hs-source-dirs:      test
+  main-is:             Test.hs
+  other-modules:       Test.Pos.Lrc.FtsSpec
+  build-depends:       base
+                     , cardano-sl-core
+                     , cardano-sl-crypto
+                     , cardano-sl-lrc
+                     , cardano-sl-util-test
+                     , containers
+                     , hspec
+                     , QuickCheck
+                     , universum
+  default-language:    Haskell2010
+  default-extensions:  BangPatterns
+                       FlexibleContexts
+                       NoImplicitPrelude
+                       OverloadedStrings
+                       UndecidableInstances
+                       ViewPatterns

@@ -1,206 +1,153 @@
-{-# LANGUAGE DataKinds           #-}
-{-# LANGUAGE ScopedTypeVariables #-}
+{-# OPTIONS_GHC -fno-warn-orphans #-}
 
 -- | Abstract definition of a wallet
 module Wallet.Abstract (
     -- * Abstract definition of a wallet
-    IsWallet(..)
+    Wallet(..)
   , Ours
   , Pending
-    -- * Inductive wallet definition
-  , Inductive(..)
-  , interpret
-    -- ** Invariants
-  , Invariant
-  , invariant
-    -- ** Testing
-  , walletInvariants
-  , walletEquivalent
+  , WalletConstr
+  , mkDefaultWallet
+  , walletBoot
+  , applyBlocks
     -- * Auxiliary operations
   , balance
   , txIns
   , txOuts
+  , updateUtxo
   , updatePending
   , utxoRestrictToOurs
   ) where
 
-import Universum
-import qualified Data.Foldable as Fold
-import qualified Data.Set      as Set
-import qualified Data.Map      as Map
+import           Universum
 
-import UTxO.DSL
-import UTxO.Crypto
+import qualified Data.Foldable as Fold
+import qualified Data.Map as Map
+import qualified Data.Set as Set
+import qualified Data.Text.Buildable
+import           Formatting (bprint)
+import           Pos.Util.Chrono
+import           Serokell.Util (mapJson)
+
+import           Util
+import           UTxO.DSL
 
 {-------------------------------------------------------------------------------
   Wallet type class
 -------------------------------------------------------------------------------}
 
 -- | Check if an address is ours
-type Ours a = a -> Maybe SomeKeyPair
+type Ours a = a -> Bool
 
 -- | Pending transactions
-type Pending h a = Set (Transaction h a)
+type Pending h a = Map (h (Transaction h a)) (Transaction h a)
 
--- | Abstract definition of a wallet
-class (Hash h a, Ord a) => IsWallet w h a where
-  pending    :: w h a -> Pending h a
-  utxo       :: w h a -> Utxo h a
-  ours       :: w h a -> Ours a
-  applyBlock :: Block h a -> w h a -> w h a
-  newPending :: Transaction h a -> w h a -> Maybe (w h a)
+-- | Abstract wallet interface
+data Wallet h a = Wallet {
+      -- MAIN API
 
-  -- Operations with default implementations
+      -- | Return the total balance of the wallet (see 'available')
+      totalBalance     :: Value
 
-  availableBalance :: IsWallet w h a => w h a -> Value
-  availableBalance = balance . available
+      -- | Return the available balance of the wallet (see 'total')
+    , availableBalance :: Value
 
-  totalBalance :: IsWallet w h a => w h a -> Value
-  totalBalance = balance . total
+      -- | Notify the wallet of a new block
+    , applyBlock       :: Block h a -> Wallet h a
 
-  available :: IsWallet w h a => w h a -> Utxo h a
-  available w = utxoRemoveInputs (txIns (pending w)) (utxo w)
+      -- | Submit a new transaction to be included in the blockchain
+    , newPending       :: Transaction h a -> Maybe (Wallet h a)
 
-  change :: IsWallet w h a => w h a -> Utxo h a
-  change w = utxoRestrictToOurs (ours w) (txOuts (pending w))
+      -- | Rollback
+    , rollback         :: Wallet h a
 
-  total :: IsWallet w h a => w h a -> Utxo h a
-  total w = available w `utxoUnion` change w
+      -- AUXILIARY API
 
--- | Variation on 'newPending' which simply ignores any transactions
--- that do not belong to us
-newPending' :: IsWallet w h a => Transaction h a -> w h a -> w h a
-newPending' tx w = fromMaybe w $ newPending tx w
+      -- | Current set of pending transactions
+    , pending          :: Pending h a
 
-{-------------------------------------------------------------------------------
-  Interlude: "functor" over different wallet types (internal use only)
--------------------------------------------------------------------------------}
+      -- | Wallet's current UTxO (ignoring pending transactions)
+    , utxo             :: Utxo h a
 
-data Wallets :: [(* -> *) -> * -> *] -> (* -> *) -> * -> * where
-  One :: IsWallet w h a
-      => w h a -> Wallets '[w] h a
+      -- | Wallet's expected UTxO (if supported)
+    , expectedUtxo     :: Utxo h a
 
-  Two :: (IsWallet w h a, IsWallet w' h a)
-      => w h a -> w' h a -> Wallets '[w,w'] h a
+      -- | Addresses that belong to the wallet
+    , ours             :: Ours a
 
-walletsMap :: (forall w. IsWallet w h a => w h a -> w h a)
-           -> Wallets ws h a -> Wallets ws h a
-walletsMap f (One w)    = One (f w)
-walletsMap f (Two w w') = Two (f w) (f w')
+      -- | Change from the pending transactions
+    , change           :: Utxo h a
 
-{-------------------------------------------------------------------------------
-  Inductive wallet definition
--------------------------------------------------------------------------------}
+      -- | Available UTxO
+      --
+      -- This is the UTxO with the inputs spent by the pending transactions
+      -- removed.
+    , available        :: Utxo h a
 
--- | Inductive definition of a wallet
+      -- | Total UTxO
+      --
+      -- This is the available UTxO where we add back the change from the
+      -- pending transactions.
+    , total            :: Utxo h a
+
+      -- | Internal state for debugging purposes
+    , dumpState        :: Text
+    }
+
+-- | Apply multiple blocks
+applyBlocks :: Wallet h a -> Chain h a -> Wallet h a
+applyBlocks w0 bs = foldl' applyBlock w0 bs
+
+-- | Type of a wallet constructor
 --
--- TODO: We should generate random 'Inductive's and then verify the
--- invariants.
-data Inductive h a =
-    WalletEmpty
-  | ApplyBlock (Block       h a) (Inductive h a)
-  | NewPending (Transaction h a) (Inductive h a)
+-- See <http://www.well-typed.com/blog/2018/03/oop-in-haskell/> for a
+-- detailed discussion of the approach we take.
+type WalletConstr h a st = (st -> Wallet h a) -> (st -> Wallet h a)
 
--- | Interpreter for 'Inductive'
+-- | Default wallet constructor
 --
--- Given (one or more) empty wallets, evaluate an 'Inductive' wallet, checking
--- the given property at each step.
-interpret :: forall ws h a.
-             Wallets ws h a                      -- ^ Empty wallet
-          -> (Wallets ws h a -> Either Text ())  -- ^ Predicate to check
-          -> Inductive h a -> Either Text (Wallets ws h a)
-interpret es p = go
+-- This does not pick any particular implementation, but provides some
+-- default implementations of some of the wallet methods in terms of the
+-- other methods.
+mkDefaultWallet
+  :: forall h a st. (Hash h a, Ord a, Buildable st)
+  => Lens' st (Pending h a)
+  -> WalletConstr h a st
+mkDefaultWallet l self st = Wallet {
+      -- Dealing with pending
+      pending    = st ^. l
+    , newPending = \tx -> do
+          -- Here we check that the inputs to the given transaction are a
+          -- subset of the available unspent transaction outputs that aren't
+          -- part of a currently pending transaction.
+          let x = trIns tx :: Set (Input h a)
+              y = utxoDomain (available this) :: Set (Input h a)
+          case x `Set.isSubsetOf` y of
+             True  -> Just $ self (st & l %~ Map.insert (hash tx) tx)
+             False -> Nothing
+      -- UTxOs
+    , available = utxoRemoveInputs (txIns (pending this)) (utxo this)
+    , change    = utxoRestrictToOurs (ours this) (txOuts (pending this))
+    , total     = available this `utxoUnion` change this
+      -- Balance
+    , availableBalance = balance $ available this
+    , totalBalance     = balance $ total     this
+      -- Debugging
+    , dumpState  = pretty st
+      -- Functions without a default
+    , utxo         = error "mkDefaultWallet: no default for utxo"
+    , expectedUtxo = error "mkDefaultWallet: no default for expectedUtxo"
+    , ours         = error "mkDefaultWallet: no default for ours"
+    , applyBlock   = error "mkDefaultWallet: no default for applyBlock"
+    , rollback     = error "mkDefaultWallet: no default for rollback"
+    }
   where
-    go :: Inductive h a -> Either Text (Wallets ws h a)
-    go WalletEmpty      = verify es
-    go (ApplyBlock b w) = go w >>= verify . walletsMap (applyBlock b)
-    go (NewPending t w) = go w >>= verify . walletsMap (newPending' t)
+    this = self st
 
-    verify :: Wallets ws h a -> Either Text (Wallets ws h a)
-    verify ws = p ws >> return ws
-
-{-------------------------------------------------------------------------------
-  Invariants
--------------------------------------------------------------------------------}
-
--- | Wallet invariant
---
--- A wallet invariant is a property that is preserved by the fundamental
--- wallet operations, as defined by the 'IsWallet' type class and the
--- definition of 'Inductive'.
---
--- In order to evaluate the inductive definition we need the empty wallet
--- to be passed as a starting point.
-type Invariant h a = Inductive h a -> Either Text ()
-
--- | Lift a property of flat wallet values to an invariant over the wallet ops
-invariant :: IsWallet w h a => Text -> w h a -> (w h a -> Bool) -> Invariant h a
-invariant err e p = void . interpret (One e) p'
-  where
-    p' (One w) = if p w then Right () else Left err
-
-{-------------------------------------------------------------------------------
-  Specific invariants
--------------------------------------------------------------------------------}
-
-walletInvariants :: IsWallet w h a => w h a -> Invariant h a
-walletInvariants e w = sequence_ [
-      pendingInUtxo          e w
-    , utxoIsOurs             e w
-    , changeNotAvailable     e w
-    , changeNotInUtxo        e w
-    , changeAvailable        e w
-    , balanceChangeAvailable e w
-    ]
-
-pendingInUtxo :: IsWallet w h a => w h a -> Invariant h a
-pendingInUtxo e = invariant "pendingInUtxo" e $ \w ->
-    txIns (pending w) `Set.isSubsetOf` utxoDomain (utxo w)
-
-utxoIsOurs :: IsWallet w h a => w h a -> Invariant h a
-utxoIsOurs e = invariant "utxoIsOurs" e $ \w ->
-    all (isJust . ours w . outAddr) (utxoRange (utxo w))
-
-changeNotAvailable :: IsWallet w h a => w h a -> Invariant h a
-changeNotAvailable e = invariant "changeNotAvailable" e $ \w ->
-    utxoDomain (change w) `disjoint` utxoDomain (available w)
-
-changeNotInUtxo :: IsWallet w h a => w h a -> Invariant h a
-changeNotInUtxo e = invariant "changeNotInUtxo" e $ \w ->
-    utxoDomain (change w) `disjoint` utxoDomain (utxo w)
-
-changeAvailable :: IsWallet w h a => w h a -> Invariant h a
-changeAvailable e = invariant "changeAvailable" e $ \w ->
-    change w `utxoUnion` available w == total w
-
-balanceChangeAvailable :: IsWallet w h a => w h a -> Invariant h a
-balanceChangeAvailable e = invariant "balanceChangeAvailable" e $ \w ->
-    balance (change w) + balance (available w) == balance (total w)
-
-{-------------------------------------------------------------------------------
-  Compare different wallet implementations
--------------------------------------------------------------------------------}
-
-walletEquivalent :: forall w w' h a. (IsWallet w h a, IsWallet w' h a)
-                 => w h a -> w' h a -> Invariant h a
-walletEquivalent e e' = void . interpret (Two e e') p
-  where
-    p :: Wallets '[w,w'] h a -> Either Text ()
-    p (Two w w') = sequence_ [
-          cmp "pending"          pending
-        , cmp "utxo"             utxo
-        , cmp "availableBalance" availableBalance
-        , cmp "totalBalance"     totalBalance
-        , cmp "available"        available
-        , cmp "change"           change
-        , cmp "total"            total
-        ]
-      where
-        cmp :: Eq b
-            => Text
-            -> (forall w''. IsWallet w'' h a => w'' h a -> b)
-            -> Either Text ()
-        cmp err f = if f w == f w' then Right () else Left err
+-- | Wallet state after the bootstrap transaction
+walletBoot :: (Ours a -> Wallet h a) -- ^ Wallet constructor
+           -> Ours a -> Transaction h a -> Wallet h a
+walletBoot mkWallet p boot = applyBlock (mkWallet p) (OldestFirst [boot])
 
 {-------------------------------------------------------------------------------
   Auxiliary operations
@@ -215,18 +162,23 @@ txIns = Set.unions . map trIns . Fold.toList
 txOuts :: (Hash h a, Foldable f) => f (Transaction h a) -> Utxo h a
 txOuts = utxoUnions . map trUtxo . Fold.toList
 
+updateUtxo :: forall h a. Hash h a
+           => Ours a -> Block h a -> Utxo h a -> Utxo h a
+updateUtxo p b = remSpent . addNew
+  where
+    addNew, remSpent :: Utxo h a -> Utxo h a
+    addNew   = utxoUnion (utxoRestrictToOurs p (txOuts b))
+    remSpent = utxoRemoveInputs (txIns b)
+
 updatePending :: forall h a. Hash h a => Block h a -> Pending h a -> Pending h a
-updatePending b = Set.filter $ \t -> disjoint (trIns t) (txIns b)
+updatePending b = Map.filter $ \t -> disjoint (trIns t) (txIns b)
 
 utxoRestrictToOurs :: Ours a -> Utxo h a -> Utxo h a
-utxoRestrictToOurs p = utxoRestrictToAddr (isJust . p)
+utxoRestrictToOurs = utxoRestrictToAddr
 
 {-------------------------------------------------------------------------------
-  Util
+  Pretty-printing
 -------------------------------------------------------------------------------}
 
--- | Check that two sets are disjoint
---
--- This is available out of the box from containters >= 0.5.11
-disjoint :: Ord a => Set a -> Set a -> Bool
-disjoint a b = Set.null (a `Set.intersection` b)
+instance (Hash h a, Buildable a) => Buildable (Pending h a) where
+  build = bprint mapJson

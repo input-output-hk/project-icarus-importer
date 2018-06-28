@@ -1,3 +1,6 @@
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE OverloadedStrings #-}
+
 module Test.Pos.Wallet.Web.Methods.LogicSpec
        ( spec
        ) where
@@ -11,15 +14,15 @@ import           Test.Hspec.QuickCheck (prop)
 import           Pos.Launcher (HasConfigurations)
 import           Pos.Util.CompileInfo (HasCompileInfo, withCompileInfo)
 import           Pos.Wallet.Web.Methods.Logic (getAccounts, getWallets)
-import           Pos.Util.QuickCheck.Property (stopProperty)
 
 import           Test.Pos.Configuration (withDefConfigurations)
+import           Test.Pos.Util.QuickCheck.Property (stopProperty)
 import           Test.Pos.Wallet.Web.Mode (WalletProperty)
 
 -- TODO remove HasCompileInfo when MonadWalletWebMode will be splitted.
 spec :: Spec
 spec = withCompileInfo def $
-       withDefConfigurations $
+       withDefConfigurations $ \_ ->
        describe "Pos.Wallet.Web.Methods" $ do
     prop emptyWalletOnStarts emptyWallet
   where

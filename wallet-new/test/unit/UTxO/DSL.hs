@@ -1,6 +1,6 @@
 {-# LANGUAGE DeriveAnyClass       #-}
-{-# LANGUAGE UndecidableInstances #-}
 {-# LANGUAGE OverloadedStrings    #-}
+{-# LANGUAGE UndecidableInstances #-}
 
 -- | Idealized specification of UTxO-style accounting
 module UTxO.DSL (
@@ -38,15 +38,20 @@ module UTxO.DSL (
   , ledgerUnspentOutputs
   , ledgerUtxo
   , ledgerIsValid
+  , ledgerAddresses
     -- * Hash
   , Hash(..)
   , GivenHash(..)
+  , IdentityAsHash
+  , givenHash
   , findHash
   , findHash'
     -- * Additional
     -- ** UTxO
   , Utxo(..)
   , utxoEmpty
+  , utxoNull
+  , utxoApply
   , utxoFromMap
   , utxoFromList
   , utxoToList
@@ -62,23 +67,29 @@ module UTxO.DSL (
   , utxoAddressForInput
     -- ** Chain
   , Block
-  , Blocks
-  , Chain(..)
+  , Chain
   , chainToLedger
+  , utxoApplyBlock
   ) where
 
-import Universum
-import Control.Exception (throw)
-import Data.List (tail)
-import Data.Map.Strict (Map)
-import Data.Set (Set)
-import Formatting (sformat, bprint, build, (%))
-import Pos.Util.Chrono
-import Serokell.Util (listJson, mapJson)
-import Prelude (Show(..))
+import           Control.Exception (throw)
+import           Control.Monad.Except (MonadError (..))
+import           Data.List (tail)
+import           Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
-import qualified Data.Set        as Set
+import           Data.Set (Set)
+import qualified Data.Set as Set
 import qualified Data.Text.Buildable
+import           Formatting (bprint, build, sformat, (%))
+import           Pos.Util.Chrono
+                   (NewestFirst(NewestFirst),
+                    OldestFirst(getOldestFirst))
+import           Prelude (Show (..))
+import           Serokell.Util (listJson, mapJson)
+import           Universum
+
+import           Util
+import           Util.Validated
 
 {-------------------------------------------------------------------------------
   Parameters
@@ -120,10 +131,9 @@ data Transaction h a = Transaction {
     -- ^ The fee charged to this transaction.
     , trHash  :: Int
     -- ^ The hash of this transaction. Must be unique in the entire chain.
+    , trExtra :: [Text]
+    -- ^ Free-form comments, used for debugging
     }
-
-deriving instance (Hash h a, Eq  a) => Eq  (Transaction h a)
-deriving instance (Hash h a, Ord a) => Ord (Transaction h a)
 
 -- | The inputs as a list
 --
@@ -136,17 +146,17 @@ trIns' = Set.toList . trIns
 -- NOTE: The notion of 'valid' is not relevant for UTxO transactions,
 -- so we omit it.
 trIsAcceptable :: (Hash h a, Buildable a)
-               => Transaction h a -> Ledger h a -> Either Text ()
+               => Transaction h a -> Ledger h a -> Validated Text ()
 trIsAcceptable t l = sequence_ [
       allInputsHaveOutputs
     , valueIsPreserved
     , inputsHaveNotBeenSpent
     ]
   where
-    allInputsHaveOutputs :: Either Text ()
+    allInputsHaveOutputs :: Validated Text ()
     allInputsHaveOutputs = forM_ (trIns t) $ \inp ->
         whenNothing_ (inpSpentOutput inp l) $
-          Left (sformat
+          throwError (sformat
             ( "In transaction "
             % build
             % ": cannot resolve input "
@@ -158,10 +168,10 @@ trIsAcceptable t l = sequence_ [
     -- TODO: Ideally, we would require here that @sumIn == sumOut@. However,
     -- as long as we have to be conservative about fees, we will not be able
     -- to achieve that in the unit tests.
-    valueIsPreserved :: Either Text ()
+    valueIsPreserved :: Validated Text ()
     valueIsPreserved =
         unless (sumIn >= sumOut) $
-          Left $ sformat
+          throwError $ sformat
             ( "In transaction "
             % build
             % ": value not preserved (in: "
@@ -181,10 +191,10 @@ trIsAcceptable t l = sequence_ [
         sumIn  = sum (map (`inpVal'` l) (trIns' t)) + trFresh t
         sumOut = sum (map outVal        (trOuts t)) + trFee   t
 
-    inputsHaveNotBeenSpent :: Either Text ()
+    inputsHaveNotBeenSpent :: Validated Text ()
     inputsHaveNotBeenSpent = forM_ (trIns t) $ \inp ->
         unless (inp `Set.member` ledgerUnspentOutputs l) $
-          Left $ sformat
+          throwError $ sformat
             ( "In transaction "
             % build
             % ": input "
@@ -204,8 +214,8 @@ trBalance a t l = received - spent
                                          AddrTreasury -> trFee t
                                          _otherwise   -> 0
     spent    = total outputsSpent    + case a of
-                                         AddrGenesis  -> trFresh t
-                                         _otherwise   -> 0
+                                         AddrGenesis -> trFresh t
+                                         _otherwise  -> 0
 
     outputsReceived, outputsSpent :: [Output a]
     outputsReceived = our $                            trOuts t
@@ -251,22 +261,38 @@ data Output a = Output {
   Inputs
 -------------------------------------------------------------------------------}
 
-data Input h a = Input {
-      inpTrans :: h (Transaction h a)
+data Input h a = Input
+    { inpTrans :: h (Transaction h a)
+      -- ^ The hash of the 'Transaction' where the 'Output' that this 'Input'
+      -- spends is found.
     , inpIndex :: Index
+      -- ^ Index to a particular 'Output' among the 'trOut' outputs in
+      -- the 'Transaction' idenfified  by 'inpTrans'. Said 'Output' is the one
+      -- that this 'Input' is spending.
     }
 
 deriving instance Hash h a => Eq  (Input h a)
 deriving instance Hash h a => Ord (Input h a)
 
+-- | Obtain the 'Transaction' to which 'Input' refers.
+--
+-- Returns 'Nothing' if the 'Transaction' is missing from the 'Ledger'.
 inpTransaction :: Hash h a => Input h a -> Ledger h a -> Maybe (Transaction h a)
 inpTransaction = findHash . inpTrans
 
+-- | Obtain the 'Output' that the given 'Input' spent.
+--
+-- Returns 'Nothing' if the 'Transaction' to which this 'Input' refers is
+-- missing from the 'Ledger'.
 inpSpentOutput :: Hash h a => Input h a -> Ledger h a -> Maybe (Output a)
 inpSpentOutput i l = do
     t <- inpTransaction i l
     trOuts t `at` fromIntegral (inpIndex i)
 
+-- | Obtain the 'Value' in the 'Output' spent by the given 'Input'.
+--
+-- Returns 'Nothing' if the 'Transaction' to which this 'Input' refers is
+-- missing from the 'Ledger'.
 inpVal :: Hash h a => Input h a -> Ledger h a -> Maybe Value
 inpVal i l = outVal <$> inpSpentOutput i l
 
@@ -348,12 +374,18 @@ ledgerUtxo :: forall h a. Hash h a => Ledger h a -> Utxo h a
 ledgerUtxo l = go (ledgerToNewestFirst l)
   where
     go :: [Transaction h a] -> Utxo h a
-    go []     = utxoEmpty
-    go (t:ts) = utxoRemoveInputs (trSpentOutputs t) (go ts) `utxoUnion` trUtxo t
+    go = foldr utxoApply utxoEmpty
 
 -- | Ledger validity
-ledgerIsValid :: (Hash h a, Buildable a) => Ledger h a -> Either Text ()
+ledgerIsValid :: (Hash h a, Buildable a) => Ledger h a -> Validated Text ()
 ledgerIsValid l = mapM_ (uncurry trIsAcceptable) (ledgerTails l)
+
+-- | Extracts the set of addresses present in the ledger.
+ledgerAddresses :: Ord a => Ledger h a -> Set a
+ledgerAddresses = Set.fromList
+    . map outAddr
+    . concatMap trOuts
+    . ledgerToNewestFirst
 
 {-------------------------------------------------------------------------------
   We parameterize over the hashing function
@@ -404,8 +436,21 @@ newtype Utxo h a = Utxo { utxoToMap :: Map (Input h a) (Output a) }
 
 deriving instance (Hash h a, Eq a) => Eq (Utxo h a)
 
+-- | Empty UTxO
 utxoEmpty :: Utxo h a
 utxoEmpty = Utxo Map.empty
+
+-- | Check if a UTxO is empty
+utxoNull :: Utxo h a -> Bool
+utxoNull = Map.null . utxoToMap
+
+-- | Apply a transaction to a UTxO
+--
+-- We have that
+--
+-- > utxoApply t utxoEmpty == trUtxo t
+utxoApply :: Hash h a => Transaction h a -> Utxo h a -> Utxo h a
+utxoApply t u = utxoRemoveInputs (trSpentOutputs t) u `utxoUnion` trUtxo t
 
 -- | Construct a 'Utxo' from a 'Map' of 'Input's. The 'Output' that each
 -- 'Input' in the map point to should represent the total value of that
@@ -468,14 +513,14 @@ utxoRemoveInputs inps (Utxo utxo) = Utxo (utxo `withoutKeys` inps)
   Additional: chain
 -------------------------------------------------------------------------------}
 
-type Block  h a = OldestFirst [] (Transaction h a)
-type Blocks h a = OldestFirst [] (Block h a)
+-- | Block of transactions
+type Block h a = OldestFirst [] (Transaction h a)
 
 -- | A chain
 --
 -- A chain is just a series of blocks, here modelled simply as the transactions
 -- they contain, since the rest of the block information can then be inferred.
-data Chain h a = Chain { chainBlocks :: Blocks h a }
+type Chain h a = OldestFirst [] (Block h a)
 
 chainToLedger :: Transaction h a -> Chain h a -> Ledger h a
 chainToLedger boot = Ledger
@@ -483,22 +528,60 @@ chainToLedger boot = Ledger
                    . reverse
                    . (boot :)
                    . concatMap toList . toList
-                   . chainBlocks
+
+-- | Compute the UTxO after a block has been applied
+--
+-- Note: we process all transactions one by one. This may not be the most
+-- efficient way to do this; this should be regarded as a specification, not
+-- a realistic implementation.
+utxoApplyBlock :: forall h a. Hash h a => Block h a -> Utxo h a -> Utxo h a
+utxoApplyBlock = go . getOldestFirst
+  where
+    go :: [Transaction h a] -> Utxo h a -> Utxo h a
+    go []     u = u
+    go (t:ts) u = go ts (utxoApply t u)
 
 {-------------------------------------------------------------------------------
   Instantiating the hash to the identity
-
-  NOTE: A lot of definitions in the DSL rely on comparing 'Input's. When using
-  'Identity' as the " hash ", comparing 'Input's implies comparing their
-  'Transactions', and hence the cost of comparing two inputs grows linearly
-  with their position in the chain.
 -------------------------------------------------------------------------------}
 
-instance (Ord a, Buildable a) => Hash Identity a where
-  hash = Identity
+-- | Instantiate the hash to identity function
+--
+-- NOTE: A lot of definitions in the DSL rely on comparing 'Input's. When using
+-- 'Identity' as the " hash ", comparing 'Input's implies comparing their
+-- 'Transactions', and hence the cost of comparing two inputs grows linearly
+-- with their position in the chain.
+newtype IdentityAsHash a = IdentityAsHash a
 
-instance (Ord a, Buildable a) => Buildable (Identity (Transaction Identity a)) where
-  build (Identity t) = bprint build t
+-- | We define 'Eq' for @IdentityAsHash (Transaction h a)@ instead of
+-- for @Transaction h a@ directly, as we normally don't want to compare
+-- transactions, but rather transaction hashes.
+instance (Hash h a, Eq a) => Eq (IdentityAsHash (Transaction h a)) where
+  IdentityAsHash tx1 == IdentityAsHash tx2 = and [
+        trHash  tx1 == trHash  tx2  -- comparing given hash usually suffices
+      , trFresh tx1 == trFresh tx2
+      , trIns   tx1 == trIns   tx2
+      , trOuts  tx1 == trOuts  tx2
+      , trFee   tx1 == trFee   tx2
+      , trExtra tx1 == trExtra tx2
+      ]
+
+-- | See comments for 'Eq' instance.
+instance (Hash h a, Ord a) => Ord (IdentityAsHash (Transaction h a)) where
+  compare (IdentityAsHash tx1) (IdentityAsHash tx2) = mconcat [
+        compare (trHash  tx1) (trHash  tx2) -- comparing given hash usually suffices
+      , compare (trFresh tx1) (trFresh tx2)
+      , compare (trIns   tx1) (trIns   tx2)
+      , compare (trOuts  tx1) (trOuts  tx2)
+      , compare (trFee   tx1) (trFee   tx2)
+      , compare (trExtra tx1) (trExtra tx2)
+      ]
+
+instance (Ord a, Buildable a) => Hash IdentityAsHash a where
+  hash = IdentityAsHash
+
+instance (Ord a, Buildable a) => Buildable (IdentityAsHash (Transaction IdentityAsHash a)) where
+  build (IdentityAsHash t) = bprint build t
 
 {-------------------------------------------------------------------------------
   Use the specified hash instead
@@ -512,6 +595,10 @@ instance Buildable (GivenHash a) where
 
 instance Hash GivenHash a where
   hash = GivenHash . trHash
+
+-- | The given hash is independent from any actual hash function
+givenHash :: Transaction h a -> GivenHash (Transaction h a)
+givenHash = GivenHash . trHash
 
 {-------------------------------------------------------------------------------
   Pretty-printing
@@ -547,24 +634,30 @@ instance (Buildable a, Hash h a) => Buildable (Transaction h a) where
       ( "Transaction"
       % "{ fresh: " % build
       % ", ins:   " % listJson
-      % ", outs:  " % listJson
+      % ", outs:  " % mapJson
       % ", fee:   " % build
       % ", hash:  " % build
+      % ", extra: " % listJson
       % "}"
       )
       trFresh
       trIns
-      trOuts
+      (Map.fromList (zip outputIndices trOuts))
       trFee
       trHash
+      trExtra
+    where
+      -- The output is easier to read when we see actual indices for outputs
+      outputIndices :: [Int]
+      outputIndices = [0..]
 
 instance (Buildable a, Hash h a) => Buildable (Chain h a) where
-  build Chain{..} = bprint
+  build blocks = bprint
       ( "Chain"
       % "{ blocks: " % listJson
       % "}"
       )
-      chainBlocks
+      blocks
 
 instance ( Buildable a, Hash h a, Foldable f) => Buildable (NewestFirst f (Transaction h a)) where
   build ts = bprint ("NewestFirst " % listJson) (toList ts)
@@ -581,17 +674,6 @@ instance (Buildable a, Hash h a) => Buildable (Utxo h a) where
 {-------------------------------------------------------------------------------
   Auxiliary
 -------------------------------------------------------------------------------}
-
-at :: [a] -> Int -> Maybe a
-at []     _ = Nothing
-at (x:_)  0 = Just x
-at (_:xs) i = at xs (i - 1)
-
-withoutKeys :: Ord k => Map k a -> Set k -> Map k a
-m `withoutKeys` s = m `Map.difference` Map.fromSet (const ()) s
-
-restrictKeys :: Ord k => Map k a -> Set k -> Map k a
-m `restrictKeys` s = m `Map.intersection` Map.fromSet (const ()) s
 
 data UtxoException = UtxoException CallStack Text
 

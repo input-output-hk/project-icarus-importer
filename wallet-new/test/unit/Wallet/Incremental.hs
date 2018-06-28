@@ -1,107 +1,117 @@
+{-# LANGUAGE TemplateHaskell #-}
+
 -- | Incremental yet pure version of the wallet
 --
 -- This is intended to be one step between the spec and the implementation.
 -- We provide it here so that we can quickcheck this, and then base the
 -- real implementation on this incremental version.
 module Wallet.Incremental (
-    Wallet
+    -- * State
+    State(..)
+  , stateUtxo
+  , statePending
+  , stateUtxoBalance
+  , initState
+    -- * Construction
+  , mkWallet
   , walletEmpty
+    -- * Implementation
+  , applyBlock'
   ) where
 
-import Universum hiding (State)
-import qualified Data.Set as Set
+import           Universum hiding (State)
 
-import UTxO.DSL
-import Wallet.Abstract
+import           Control.Lens.TH
+import qualified Data.Map as Map
+import qualified Data.Text.Buildable
+import           Formatting (bprint, build, (%))
+
+import           Util
+import           UTxO.DSL
+import           Wallet.Abstract
+import qualified Wallet.Basic as Basic
 
 {-------------------------------------------------------------------------------
-  Representation
+  State
 -------------------------------------------------------------------------------}
 
--- | Wallet state
---
 -- Invariant:
 --
 -- > stateUtxoBalance == balance stateUtxo
 data State h a = State {
-      stateUtxo        :: Utxo h a
-    , stateUtxoBalance :: Value
-    , statePending     :: Pending h a
+      _stateBasic       :: Basic.State h a
+    , _stateUtxoBalance :: Value
     }
 
--- | Wallet
-data Wallet h a = Wallet {
-      walletOurs  :: Ours a
-    , walletState :: State h a
+makeLenses ''State
+
+stateUtxo :: Lens' (State h a) (Utxo h a)
+stateUtxo = stateBasic . Basic.stateUtxo
+
+statePending :: Lens' (State h a) (Pending h a)
+statePending = stateBasic . Basic.statePending
+
+initState :: State h a
+initState = State {
+      _stateBasic       = Basic.initState
+    , _stateUtxoBalance = 0
     }
-
--- | Wallet state
-walletEmpty :: Ours a -> Wallet h a
-walletEmpty walletOurs = Wallet {..}
-  where
-    walletState = State {
-        stateUtxo        = utxoEmpty
-      , stateUtxoBalance = 0
-      , statePending     = Set.empty
-      }
-
--- | Internal helper function for updating wallet state
-updateState :: Functor f
-            => (State h a -> f (State h a))
-            -> Wallet h a -> f (Wallet h a)
-updateState f w = (\st -> w { walletState = st }) <$> f (walletState w)
 
 {-------------------------------------------------------------------------------
-  IsWallet instance
+  Construction
 -------------------------------------------------------------------------------}
 
-instance (Hash h a, Ord a) => IsWallet Wallet h a where
-  pending :: Wallet h a -> Pending h a
-  pending = statePending . walletState
+mkWallet :: (Hash h a, Ord a, Buildable st)
+         => Ours a -> Lens' st (State h a) -> WalletConstr h a st
+mkWallet ours l self st = (Basic.mkWallet ours (l . stateBasic) self st) {
+      applyBlock = \b ->
+        let utxoPlus = utxoRestrictToOurs ours (txOuts b)
+        in self (st & l %~ applyBlock' (txIns b, utxoPlus))
+    , availableBalance =
+          (st ^. l . stateUtxoBalance)
+        - balance (utxoRestrictToInputs (txIns (pending this)) (utxo this))
+    , totalBalance = availableBalance this + balance (change this)
+    }
+  where
+    this = self st
 
-  utxo :: Wallet h a -> Utxo h a
-  utxo = stateUtxo . walletState
+walletEmpty :: (Hash h a, Ord a, Buildable a) => Ours a -> Wallet h a
+walletEmpty ours = fix (mkWallet ours identity) initState
 
-  ours :: Wallet h a -> Ours a
-  ours = walletOurs
+{-------------------------------------------------------------------------------
+  Implementation
+-------------------------------------------------------------------------------}
 
-  applyBlock :: Block h a -> Wallet h a -> Wallet h a
-  applyBlock b w = runIdentity $ updateState aux w
-    where
-     aux :: State h a -> Identity (State h a)
-     aux State{..} = return State {
-           stateUtxo        = utxo'
-         , stateUtxoBalance = balance'
-         , statePending     = pending'
-         }
-       where
-         pending' = updatePending b statePending
-         utxoNew  = utxoRestrictToOurs (ours w) (txOuts b)
-         unionNew = stateUtxo `utxoUnion` utxoNew
-         utxoRem  = utxoRestrictToInputs (txIns b) unionNew
-         utxo'    = utxoRemoveInputs     (txIns b) unionNew
-         balance' = stateUtxoBalance + balance utxoNew - balance utxoRem
+applyBlock' :: Hash h a
+            => (Set (Input h a), Utxo h a)
+            -> State h a -> State h a
+applyBlock' (ins, outs) State{..} = State{
+      _stateBasic = Basic.State {
+          _statePending = pending'
+        , _stateUtxo    = utxo'
+        }
+    , _stateUtxoBalance = balance'
+    }
+  where
+    pending' = Map.filter (\t -> disjoint (trIns t) ins) _statePending
+    utxoNew  = outs
+    unionNew = _stateUtxo `utxoUnion` utxoNew
+    utxoRem  = utxoRestrictToInputs ins unionNew
+    utxo'    = utxoRemoveInputs     ins unionNew
+    balance' = _stateUtxoBalance + balance utxoNew - balance utxoRem
 
-  newPending :: Transaction h a -> Wallet h a -> Maybe (Wallet h a)
-  newPending tx w = updateState aux w
-    where
-      aux :: State h a -> Maybe (State h a)
-      aux State{..} = do
-          guard $ trIns tx `Set.isSubsetOf` utxoDomain (available w)
-          return State {
-              stateUtxo        = stateUtxo
-            , stateUtxoBalance = stateUtxoBalance
-            , statePending     = Set.insert tx statePending
-            }
+    Basic.State{..} = _stateBasic
 
-  -- We can also replace some default methods with more efficient versions
+{-------------------------------------------------------------------------------
+  Pretty-printing
+-------------------------------------------------------------------------------}
 
-  availableBalance :: Wallet h a -> Value
-  availableBalance Wallet{..} =
-        stateUtxoBalance
-      - balance (utxoRestrictToInputs (txIns statePending) stateUtxo)
-    where
-      State{..} = walletState
-
-  totalBalance :: Wallet h a -> Value
-  totalBalance w = availableBalance w + balance (change w)
+instance (Hash h a, Buildable a) => Buildable (State h a) where
+  build State{..} = bprint
+    ( "State"
+    % "{ basic:       " % build
+    % ", utxoBalance: " % build
+    % "}"
+    )
+    _stateBasic
+    _stateUtxoBalance

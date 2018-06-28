@@ -59,7 +59,7 @@ import qualified Network.Transport.TCP as TCP
 import           Node.Internal (NodeId (..))
 import qualified Prelude
 import qualified System.Metrics as Monitoring
-import           System.Wlog (LoggerNameBox, WithLogger)
+import           System.Wlog (LoggerName (..))
 
 import           Pos.Network.DnsDomains (DnsDomains (..), NodeAddr)
 import qualified Pos.Network.DnsDomains as DnsDomains
@@ -67,6 +67,7 @@ import qualified Pos.Network.Policy as Policy
 import           Pos.Reporting.Health.Types (HealthStatus (..))
 import           Pos.System.Metrics.Constants (cardanoNamespace)
 import           Pos.Util.TimeWarp (addressToNodeId)
+import           Pos.Util.Trace (wlogTrace)
 import           Pos.Util.Util (HasLens', lensOf)
 
 {-------------------------------------------------------------------------------
@@ -124,11 +125,11 @@ data StaticPeers = StaticPeers {
       --
       -- The handler will also be called on registration
       -- (with the current value).
-      staticPeersOnChange   :: (Peers NodeId -> LoggerNameBox IO ()) -> IO ()
+      staticPeersOnChange   :: (Peers NodeId -> IO ()) -> IO ()
     , -- | Monitoring worker which is supposed to be started in a
       -- separate thread. This worker processes handlers registered by
       -- 'staticPeersOnChange'.
-      staticPeersMonitoring :: LoggerNameBox IO ()
+      staticPeersMonitoring :: IO ()
     }
 
 instance Show StaticPeers where
@@ -245,12 +246,12 @@ topologyUnknownNodeType topology = OQ.UnknownNodeType $ go topology
     go TopologyBehindNAT{}   = const NodeEdge   -- should never happen
     go TopologyAuxx{}        = const NodeEdge   -- should never happen
 
-data SubscriptionWorker kademlia =
+data SubscriptionWorker =
     SubscriptionWorkerBehindNAT (DnsDomains DNS.Domain)
-  | SubscriptionWorkerKademlia kademlia NodeType Valency Fallbacks
+  | SubscriptionWorkerKademlia NodeType Valency Fallbacks
 
 -- | What kind of subscription worker do we run?
-topologySubscriptionWorker :: Topology kademlia -> Maybe (SubscriptionWorker kademlia)
+topologySubscriptionWorker :: Topology kademlia -> Maybe SubscriptionWorker
 topologySubscriptionWorker = go
   where
     go TopologyCore{}          = Nothing
@@ -261,12 +262,10 @@ topologySubscriptionWorker = go
     go TopologyBehindNAT{..}   = Just $ SubscriptionWorkerBehindNAT
                                           topologyDnsDomains
     go TopologyP2P{..}         = Just $ SubscriptionWorkerKademlia
-                                          topologyKademlia
                                           NodeRelay
                                           topologyValency
                                           topologyFallbacks
     go TopologyTraditional{..} = Just $ SubscriptionWorkerKademlia
-                                          topologyKademlia
                                           NodeCore
                                           topologyValency
                                           topologyFallbacks
@@ -348,7 +347,7 @@ topologyHealthStatusRelay mbs oq = do
         maxCapacityText = case mbs of
             OQ.BucketSizeUnlimited -> fromString "unlimited"
             OQ.BucketSizeMax x     -> fromString (show x)
-    spareCapacity <- OQ.bucketSpareCapacity oq BucketSubscriptionListener
+    spareCapacity <- liftIO $ OQ.bucketSpareCapacity oq BucketSubscriptionListener
     pure $ case spareCapacity of
         OQ.SpareCapacity sc  | sc == 0 -> HSUnhealthy (fromString "0/" <> maxCapacityText)
         OQ.SpareCapacity sc  -> HSHealthy $ fromString (show sc) <> "/" <> maxCapacityText
@@ -360,7 +359,7 @@ topologyHealthStatusNAT
     => OQ.OutboundQ msg nid bucket
     -> m HealthStatus
 topologyHealthStatusNAT oq = do
-    peers <- OQ.getAllPeers oq
+    peers <- liftIO $ OQ.getAllPeers oq
     if (Set.null (peersSet peers))
     then pure $ HSUnhealthy "not connected"
     else pure $ HSHealthy "connected"
@@ -431,12 +430,18 @@ data Bucket =
 -- For behind NAT nodes and Kademlia nodes (P2P or traditional) we start
 -- (elsewhere) specialized workers that add peers to the queue and subscribe
 -- to (some of) those peers.
-initQueue :: (MonadIO m, WithLogger m, FormatMsg msg)
+--
+-- This will use the log-warper trace for logging from the outbound queue.
+-- You can choose what name to give it.
+initQueue :: (MonadIO m, FormatMsg msg)
           => NetworkConfig kademlia
+          -> LoggerName
           -> Maybe Monitoring.Store -- ^ EKG store (if used)
           -> m (OutboundQ msg NodeId Bucket)
-initQueue NetworkConfig{..} mStore = do
-    oq <- OQ.new (maybe "self" toString ncSelfName)
+initQueue NetworkConfig{..} loggerName mStore = liftIO $ do
+    let NodeName selfName = fromMaybe (NodeName "self") ncSelfName
+        oqTrace           = wlogTrace (loggerName <> LoggerName selfName)
+    oq <- OQ.new oqTrace
                  ncEnqueuePolicy
                  ncDequeuePolicy
                  ncFailurePolicy
@@ -460,11 +465,11 @@ initQueue NetworkConfig{..} mStore = do
       TopologyTraditional{} ->
         -- Kademlia worker is responsible for adding peers
         return ()
-      TopologyCore{topologyStaticPeers = StaticPeers{..}} -> liftIO $
+      TopologyCore{topologyStaticPeers = StaticPeers{..}} ->
         staticPeersOnChange $ \peers -> do
           OQ.clearRecentFailures oq
           void $ OQ.updatePeersBucket oq BucketStatic (\_ -> peers)
-      TopologyRelay{topologyStaticPeers = StaticPeers{..}} -> liftIO $
+      TopologyRelay{topologyStaticPeers = StaticPeers{..}} ->
         staticPeersOnChange $ \peers -> do
           OQ.clearRecentFailures oq
           void $ OQ.updatePeersBucket oq BucketStatic (\_ -> peers)
@@ -511,13 +516,13 @@ type Resolver = DNS.Domain -> IO (Either DNSError [IPv4])
 --
 -- This uses the network, and so may throw exceptions in case of, for instance,
 -- and unreachable network.
-resolveDnsDomains :: NetworkConfig kademlia
+resolveDnsDomains :: Word16
                   -> [NodeAddr DNS.Domain]
                   -> IO [Either DNSError [NodeId]]
-resolveDnsDomains NetworkConfig{..} dnsDomains =
+resolveDnsDomains defaultPort dnsDomains =
     initDnsOnUse $ \resolve -> (fmap . fmap . fmap . fmap) addressToNodeId $
         DnsDomains.resolveDnsDomains resolve
-                                     ncDefaultPort
+                                     defaultPort
                                      dnsDomains
 {-# ANN resolveDnsDomains ("HLint: ignore Use <$>" :: String) #-}
 

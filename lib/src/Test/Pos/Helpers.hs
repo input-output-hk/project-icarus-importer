@@ -27,18 +27,20 @@ import           Data.Typeable (typeRep)
 import           Formatting (formatToString, int, (%))
 import           Prelude (read)
 import           Test.Hspec (Spec, describe)
-import           Test.Hspec.QuickCheck (modifyMaxSuccess, modifyMaxSize, prop)
+import           Test.Hspec.QuickCheck (modifyMaxSize, modifyMaxSuccess, prop)
 import           Test.QuickCheck (Arbitrary (arbitrary), Property, conjoin, counterexample, forAll,
                                   property, resize, suchThat, vectorOf, (.&&.), (===))
 import qualified Text.JSON.Canonical as CanonicalJSON
 
-import           Pos.Core.Genesis (SchemaError)
 import           Pos.Binary (AsBinaryClass (..), Bi (..), decodeFull, serialize, serialize',
                              unsafeDeserialize)
-import           Pos.Communication (Limit (..), MessageLimited (..))
-import           Pos.Util.QuickCheck.Arbitrary (SmallGenerator (..))
+import           Pos.Core.Genesis (SchemaError)
+
+import           Pos.Communication (Limit (..))
+
 import           Test.Pos.Cbor.Canonicity (perturbCanonicity)
 import qualified Test.Pos.Cbor.RefImpl as R
+import           Test.Pos.Util.QuickCheck.Arbitrary (SmallGenerator (..))
 
 ----------------------------------------------------------------------------
 -- From/to tests
@@ -198,9 +200,9 @@ msgLenLimitedTest' limit desc whetherTest =
         in  conjoin $ doCheck <$> [1..13 :: Int]
 
 msgLenLimitedTest
-    :: forall a. (IdTestingRequiredClasses Bi a, MessageLimited a Identity)
-    => Spec
-msgLenLimitedTest = msgLenLimitedTest' @a (runIdentity (getMsgLenLimit Proxy)) "" (const True)
+    :: forall a. (IdTestingRequiredClasses Bi a)
+    => Limit a -> Spec
+msgLenLimitedTest lim = msgLenLimitedTest' @a lim "" (const True)
 
 ----------------------------------------------------------------------------
 -- Orphans
