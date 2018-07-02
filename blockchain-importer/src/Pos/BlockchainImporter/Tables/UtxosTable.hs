@@ -6,9 +6,12 @@
 {-# LANGUAGE TemplateHaskell       #-}
 
 module Pos.BlockchainImporter.Tables.UtxosTable
-  ( applyModifierToUtxos
+  ( -- * Data types
+    UtxoRow
+    -- * Getters
   , getUtxos
-  , UtxoRow
+    -- * Manipulation
+  , applyModifierToUtxos
   ) where
 
 import           Universum
@@ -71,6 +74,7 @@ applyModifierToUtxos modifier conn = do
   void $ runDelete_ conn $
                     Delete utxosTable (\(UtxoRow sId _ _ _ _) -> in_ toDelete sId) rCount
 
+-- | Returns the utxo stored in the table
 getUtxos :: PGS.Connection -> IO [UtxoRow]
 getUtxos conn = runSelect conn utxosQuery
   where utxosQuery = proc () -> do

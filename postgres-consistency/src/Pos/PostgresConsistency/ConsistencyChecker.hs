@@ -1,37 +1,34 @@
-module Pos.PostgresConsistency.ConsistencyChecker where --FIXME: Separate into more files?
+module Pos.PostgresConsistency.ConsistencyChecker
+  (
+    externalConsistency
+  , internalConsistencyCheck
+  , externalConsistencyWithTxRange
+  , printTipHash
+  ) where
 
 import           Universum
 
 import           Data.List (tail)
-import qualified Data.Map as Map
-import qualified Database.PostgreSQL.Simple as PGS
 import           Formatting (sformat)
-import           System.Wlog (WithLogger, logInfo)
-import           UnliftIO (MonadUnliftIO)
+import           System.Wlog (logInfo)
 
-import           Pos.BlockchainImporter.Configuration (HasPostGresDB, postGreOperate)
-import qualified Pos.BlockchainImporter.Tables.BestBlockTable as BestBlkT (getBestBlock)
-import qualified Pos.BlockchainImporter.Tables.TxsTable as TxsT (TxRow, getTxByHash)
-import qualified Pos.BlockchainImporter.Tables.UtxosTable as UtxosT (UtxoRow, getUtxos)
-import           Pos.Core (HasConfiguration, HasPrevBlock (prevBlockL), HeaderHash, getBlockCount,
-                           getChainDifficulty, headerHash)
-import           Pos.Core.Block (mainBlockTxPayload)
-import           Pos.Crypto (hash, hashHexF)
-import           Pos.DB (MonadDBRead, getHeader, getMaxSeenDifficulty, getTipHeader)
-import           Pos.DB.Block (getBlock)
+import           Pos.Core (HasPrevBlock (prevBlockL), HeaderHash, headerHash)
+import           Pos.Crypto (hashHexF)
+import           Pos.DB (getHeader, getTipHeader)
 import           Pos.GState.BlockExtra (resolveForwardLink)
+import           Pos.PostgresConsistency.Properties
 import           Pos.PostgresConsistency.Utils
-import           Pos.Txp (TxAux (..), Utxo, flattenTxPayload)
-import           Pos.Txp.DB (getAllPotentiallyHugeUtxo)
 
-type ConsistencyCheckerEnv m =
-  ( HasConfiguration
-  , MonadDBRead m
-  , MonadIO m
-  , MonadUnliftIO m
-  , WithLogger m
-  , HasPostGresDB
-  )
+{-
+TODO:
+    Fix various FIXMEs
+    Check how UtxoUndo is obtained on importer
+    Use better number than 10 for tx range (maybe number of rollbacked blocks?)
+-}
+
+----------------------------------------------------------------------------
+-- Checks
+----------------------------------------------------------------------------
 
 {-
   Check consistency with the key-value db of a node up-to-date.
@@ -79,10 +76,11 @@ externalConsistencyWithTxRange pgTipHash = do
   nextNBlock <- getNextNBlkHashesFromHash 10 pgTipHash
   logInfo "Checking txs previous blocks exist"
   validPrevNBlocks <- allTxsFromManyBlksFullfilProp isJust prevNBlock
-  logInfo "Checking txs previous blocks don't exist"
+  logInfo "Checking txs next blocks don't exist"
   validNextNBlocks <- allTxsFromManyBlksFullfilProp isNothing (tail nextNBlock)
   pure $ validPrevNBlocks && validNextNBlocks
 
+--FIXME: Move somewhere else?
 -- Auxiliary function used for getting the tip hash
 printTipHash :: ConsistencyCheckerEnv m => m ()
 printTipHash = do
@@ -91,108 +89,9 @@ printTipHash = do
   print $ sformat hashHexF tipHash
 
 
--- PROPERTIES CHECKED
-
-consistentBestBlock :: ConsistencyCheckerEnv m => m Bool
-consistentBestBlock = do
-  logInfo "Checking best block consistency"
-  kvBestBlock <- getKVBestBlockNum
-  pgBestBlock <- liftIO $ postGreOperate $ BestBlkT.getBestBlock
-  let isConsistent = kvBestBlock == fromIntegral pgBestBlock
-  logInfo $ toText $ if isConsistent  then "Best block is consistent"
-                                      else "Best block is inconsistent: " ++
-                                            "kv best block " ++ show kvBestBlock ++ "," ++
-                                            "pg best block " ++ show pgBestBlock
-  pure isConsistent
-
---FIXME: Genesis utxo not in pgUtxo, how to compare? (genesisUtxo :: HasGenesisData => GenesisUtxo)
-consistentUtxo :: ConsistencyCheckerEnv m => m Bool
-consistentUtxo = do
-  logInfo "Checking utxo consistency"
-  kvUtxos <- getAllPotentiallyHugeUtxo
-  pgUtxos <- liftIO $ postGreOperate $ UtxosT.getUtxos
-  let isConsistent = containsUtxo pgUtxos kvUtxos
-  logInfo $ if isConsistent then "Utxo is consistent" else "Utxo is inconsistent"
-  pure isConsistent
-
-allTxsFromManyBlksFullfilProp ::
-     ConsistencyCheckerEnv m
-  => (Maybe TxsT.TxRow -> Bool)
-  -> [HeaderHash]
-  -> m Bool
-allTxsFromManyBlksFullfilProp txRowProp blkHashes = do
-  logInfo "Checking blk hashes consistency"
-  eachFullFillProp <- mapM (allTxsFromBlkFullFilProp txRowProp) blkHashes
-  let allFullfilProp = and eachFullFillProp
-  logInfo $ if allFullfilProp then "blk's txs fullfil property"
-                              else "blk's txs don't fullfil property"
-  pure allFullfilProp
-
-internalConsistentTxAddr :: ConsistencyCheckerEnv m => m Bool
-internalConsistentTxAddr = do
-  logInfo "Checking tx_addresses internal consistency"
-  numberInconsistencies :: [PGS.Only Int64] <- liftIO $ postGreOperate $ (flip PGS.query_) txAddrConsistencyQuery
-  let isConsistent = numberInconsistencies == [PGS.Only 0]
-  logInfo $ if isConsistent then "tx_addresses table is consistent"
-                            else "tx_addresses table is inconsistent"
-  pure isConsistent
-  where txAddrConsistencyQuery = fromString (
-          "SELECT COUNT (*)" ++
-          "  FROM" ++
-          "  tx_addresses" ++
-          "  FULL OUTER JOIN" ++
-          "  (SELECT txs.hash as tx_hash, address FROM txs, unnest(txs.inputs_address) address" ++
-          "  union all" ++
-          "  SELECT txs.hash as tx_hash, address FROM txs, unnest(txs.outputs_address) address) as calcTxAddr" ++
-          "    using (tx_hash, address)" ++
-          "  WHERE calcTxAddr.tx_hash IS NULL OR tx_addresses.tx_hash IS NULL")
-
-
--- UTILS
-
--- FIXME: Could be improved
--- FIXME: Log blk hashes that failed
-allTxsFromBlkFullFilProp ::
-     ConsistencyCheckerEnv m
-  => (Maybe TxsT.TxRow -> Bool)
-  -> HeaderHash
-  -> m Bool
-allTxsFromBlkFullFilProp txRowProp blkHash = do
-  maybeTxs <- getKVTxsByBlkHash blkHash
-  case maybeTxs of
-    Just txs -> do
-      allFullfilProp <- forM txs $ \(TxAux tx _) -> do
-        let txHash = hash tx
-        maybeTxPGS <- liftIO $ postGreOperate $ TxsT.getTxByHash txHash
-        pure $ txRowProp maybeTxPGS
-      pure $ and allFullfilProp
-    Nothing  -> pure False
-
-getKVTxsByBlkHash
-  :: ConsistencyCheckerEnv m
-  => HeaderHash -> m (Maybe [TxAux])
-getKVTxsByBlkHash blkHash = do
-  maybeBlock <- getBlock blkHash
-  case maybeBlock of
-    Just (Right blk) ->
-      pure $ Just $ flattenTxPayload $ blk ^. mainBlockTxPayload
-    Just (Left _) -> pure $ Just []
-    Nothing -> pure $ Nothing
-
-getKVBestBlockNum :: ConsistencyCheckerEnv m => m Word64
-getKVBestBlockNum = getBlockCount . getChainDifficulty <$> getMaxSeenDifficulty
-
-containsUtxo :: [UtxosT.UtxoRow] -> Utxo -> Bool
-containsUtxo pgUtxos kvUtxos = isNothing $ find (\row -> not $ hasUtxoRow row kvUtxos) pgUtxos
-
-hasUtxoRow :: UtxosT.UtxoRow -> Utxo -> Bool
-hasUtxoRow (txHash, idx, receiver, amount) kvUtxos = isJust $ do
-  pgTxIn <- toTxIn txHash idx
-  pgTxOut <- toTxOut receiver amount
-  kvOut <- Map.lookup pgTxIn kvUtxos
-  if show kvOut == (show pgTxOut :: String) then Just ()
-                                            else Nothing
-  --FIXME: Why does tx out equality doesn't work?
+----------------------------------------------------------------------------
+-- Helpers
+----------------------------------------------------------------------------
 
 getLastNBlkHashes :: ConsistencyCheckerEnv m => Int -> m [HeaderHash]
 getLastNBlkHashes numBlks = do
@@ -201,33 +100,14 @@ getLastNBlkHashes numBlks = do
   getPrevNBlkHashesFromHash numBlks tipHash
 
 getPrevNBlkHashesFromHash :: ConsistencyCheckerEnv m => Int -> HeaderHash -> m [HeaderHash]
-getPrevNBlkHashesFromHash n initialHash = if n <= 0 then pure [] else do
-  maybeInitialHeader <- getHeader initialHash
-  case maybeInitialHeader of
-    Just initialHeader -> do
+getPrevNBlkHashesFromHash n initialHash = if n <= 0 then pure [] else
+  maybeT (getHeader initialHash) (pure []) $ \initialHeader -> do
       let prevBlockHash = initialHeader ^. prevBlockL
       (initialHash:) <$> getPrevNBlkHashesFromHash (n - 1) prevBlockHash
-    Nothing ->
-      pure []
 
--- FIXME: Improve
 getNextNBlkHashesFromHash :: ConsistencyCheckerEnv m => Int -> HeaderHash -> m [HeaderHash]
-getNextNBlkHashesFromHash n initialHash = if n <= 0 then pure [] else do
-  maybeInitialHeader <- getHeader initialHash
-  case maybeInitialHeader of
-    Just initialHeader -> do
-      maybeNextHeaderHash <- resolveForwardLink initialHeader
-      case maybeNextHeaderHash of
-        Just nextHeaderHash ->
-          (initialHash:) <$> getNextNBlkHashesFromHash (n - 1) nextHeaderHash
-        Nothing -> pure [initialHash]
-    Nothing ->
-      pure []
-
-{-
-TODO:
-    Fix various FIXMEs
-    Check how UtxoUndo is obtained on importer
-    Improve code
-    Removed unused code
--}
+getNextNBlkHashesFromHash n initialHash = if n <= 0 then pure [] else
+  maybeT (getHeader initialHash) (pure []) $ \initialHeader ->
+      maybeT (resolveForwardLink initialHeader) (pure [initialHash]) $ \nextHeaderHash -> do
+          hashesFromNext <- getNextNBlkHashesFromHash (n - 1) nextHeaderHash
+          pure $ initialHash : hashesFromNext

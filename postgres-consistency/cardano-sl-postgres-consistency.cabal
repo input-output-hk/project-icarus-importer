@@ -16,7 +16,7 @@ library
   exposed-modules:      Pos.PostgresConsistency.ConsistencyChecker
                         Pos.PostgresConsistency.Utils
 
-  other-modules:
+  other-modules:        Pos.PostgresConsistency.Properties
 
   build-depends:        QuickCheck
                       , aeson

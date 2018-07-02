@@ -39,12 +39,13 @@ import           PostgresConsistencyNodeOptions (PostgresChecks (..), PostgresCo
                                                  getPostgresConsistencyNodeOptions)
 
 loggerName :: LoggerName
-loggerName = "node"
+loggerName = "consistency-checker"
 
 ----------------------------------------------------------------------------
 -- Main action
 ----------------------------------------------------------------------------
 
+--FIXME: Removed necessary parameters
 main :: IO ()
 main = do
     args <- getPostgresConsistencyNodeOptions
@@ -98,18 +99,24 @@ action (PostgresConsistencyNodeArgs (cArgs@CommonNodeArgs{..}) PostgresConsisten
          (HasConfigurations, HasCompileInfo, HasPostGresDB)
       => PostgresChecks
       -> BlockchainImporterProd ()
-    callSelectedCheck checkSelected = case checkSelected of
-      ExternalConsistency blkHashFile -> do
+    callSelectedCheck (ExternalConsistency blkHashFile) = do
+        logInfo "Running external consistency check"
         blksToCheck <- liftIO $ getBlkHashes blkHashFile
         checkRes <- externalConsistency blksToCheck
         logCheckResult checkRes
-      InternalConsistency -> do
+    callSelectedCheck InternalConsistency = do
+        logInfo "Running internal consistency check"
         checkRes <- internalConsistencyCheck
         logCheckResult checkRes
-      ExternalTxRangeConsistency tipHash -> do
-        checkRes <- externalConsistencyWithTxRange $ fromJust $ decodeBlkHash $ toText tipHash
-        logCheckResult checkRes
-      GetTipHash -> printTipHash
+    callSelectedCheck (ExternalTxRangeConsistency stringTipHash) =
+        case decodeBlkHash $ toText stringTipHash of
+          Just tipHash -> do
+            logInfo "Running external tx range consistency check"
+            checkRes <- externalConsistencyWithTxRange tipHash
+            logCheckResult checkRes
+          Nothing ->
+            logInfo "Not running external tx range consistency check: invalid tip hash"
+    callSelectedCheck GetTipHash = printTipHash
 
     logCheckResult :: Bool -> BlockchainImporterProd ()
     logCheckResult result =

@@ -6,9 +6,10 @@
 {-# LANGUAGE TemplateHaskell       #-}
 
 module Pos.BlockchainImporter.Tables.BestBlockTable
-  ( -- * Data manipulation
-    updateBestBlock
-  , getBestBlock
+  ( -- * Getters
+    getBestBlock
+    -- * Manipulation
+  , updateBestBlock
   ) where
 
 import           Universum
@@ -31,6 +32,7 @@ bestBlockTable :: Table BestBlockRowPGW BestBlockRowPGR
 bestBlockTable = Table "bestblock" (pBestBlock  BestBlockRow
                                                 { bbBlockNum = required "best_block_num" })
 
+-- | Updates the best block number stored
 updateBestBlock :: Word64 -> PGS.Connection -> IO ()
 updateBestBlock newBestBlock conn = do
   n <- runUpdate_ conn $
@@ -39,6 +41,7 @@ updateBestBlock newBestBlock conn = do
                                     Insert bestBlockTable [colBlockNum] rCount Nothing
     where colBlockNum = BestBlockRow $ pgInt8 $ fromIntegral newBestBlock
 
+-- | Returns the best block number
 getBestBlock :: PGS.Connection -> IO Int64
 getBestBlock conn = do
   bestBlockMatched <- runSelect conn bestBlockQuery

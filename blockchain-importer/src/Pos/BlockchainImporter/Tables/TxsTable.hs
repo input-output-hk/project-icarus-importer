@@ -6,11 +6,13 @@
 {-# LANGUAGE TemplateHaskell       #-}
 
 module Pos.BlockchainImporter.Tables.TxsTable
-  ( -- * Data manipulation
-    insertTx
-  , deleteTx
+  ( -- * Data types
+    TxRow
+    -- * Getters
   , getTxByHash
-  , TxRow
+    -- * Manipulation
+  , insertTx
+  , deleteTx
   ) where
 
 import           Universum
@@ -103,6 +105,7 @@ deleteTx tx conn = void $ runDelete_  conn $
   where
     txHash = pgString $ hashToString (hash tx)
 
+-- | Returns a tx by hash
 getTxByHash :: TxId -> PGS.Connection -> IO (Maybe TxRow)
 getTxByHash txHash conn = do
   txsMatched <- runSelect conn txByHashQuery

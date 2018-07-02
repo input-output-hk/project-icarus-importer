@@ -26,3 +26,9 @@ toTxOut receiver amount = do
   decReceiver <- decodeAddress receiver
   pure $ TxOutAux $ TxOut decReceiver (Coin $ fromIntegral amount)
 
+maybeT :: Monad m => m (Maybe a) -> m b -> (a -> m b) -> m b
+maybeT maybeM nothingValue justFn = do
+  maybeA <- maybeM
+  case maybeA of
+    Nothing -> nothingValue
+    Just a  -> justFn a
