@@ -86,6 +86,7 @@ socket-io.log
 postgres-consistency-node.log.*
 postgres-consistency-node.log
 postgres-consistency.log
+postgres-consistency/scripts/node_modules
 
 # importify
 .importify
