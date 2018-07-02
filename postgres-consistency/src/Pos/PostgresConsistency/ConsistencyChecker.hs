@@ -24,9 +24,6 @@ import           Pos.PostgresConsistency.Utils
 import           Pos.Txp (TxAux (..), Utxo, flattenTxPayload)
 import           Pos.Txp.DB (getAllPotentiallyHugeUtxo)
 
---FIXME: Remove
-import           Data.Maybe (fromJust)
-
 type ConsistencyCheckerEnv m =
   ( HasConfiguration
   , MonadDBRead m
