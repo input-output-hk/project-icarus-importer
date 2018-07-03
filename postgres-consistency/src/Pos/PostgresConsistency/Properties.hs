@@ -101,7 +101,6 @@ internalConsistentTxAddr = do
 -- Helpers
 ----------------------------------------------------------------------------
 
--- FIXME: Could be improved?
 -- FIXME: Log blk hashes that failed
 allTxsFromBlkFullFilProp ::
      ConsistencyCheckerEnv m

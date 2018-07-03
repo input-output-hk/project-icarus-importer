@@ -40,13 +40,14 @@ externalConsistency blkHashes = do
   Objective: Test internal consistency of the importer, mainly when stopping
              it during the chain importing process.
     - Checks that utxo from importer are stored in postgresdb
-    - Checks that txs in importer from (bestblock-10, bestblock] are stored in postgresdb
+    - Checks that txs in importer from (bestblock-blkRangeSize, bestblock]
+      are stored in postgresdb
     - Check txs_addresses table consistency (with txs table)
     - Check best block consistency with tip block in node
  -}
 internalConsistencyCheck :: ConsistencyCheckerEnv m => m Bool
 internalConsistencyCheck = do
-  lastNBlocks <- getLastNBlkHashes 10
+  lastNBlocks <- getLastNBlkHashes blkRangeSize
   validLast10BlksTxs <- allTxsFromManyBlksFullfilProp isJust lastNBlocks
   validUtxos <- consistentUtxo
   validTxAddr <- internalConsistentTxAddr
@@ -57,13 +58,13 @@ internalConsistencyCheck = do
   Check consistency of the latest blocks with the key-value db of an up-to-date node
   Objective: Test consistency of the previous and future txs (from the point of the importer),
              with the one's stored in a Cardano node
-    - Checks that tx in node from (block-10, block] are stored in postgresdb
-    - Checks that tx in node from (block, block+10) are not stored in postgresdb
+    - Checks that tx in node from (block-blkRangeSize, block] are stored in postgresdb
+    - Checks that tx in node from (block, block+blkRangeSize) are not stored in postgresdb
 -}
 externalConsistencyWithTxRange :: ConsistencyCheckerEnv m => HeaderHash -> m Bool
 externalConsistencyWithTxRange pgTipHash = do
-  prevNBlock <- getPrevNBlkHashesFromHash 10 pgTipHash
-  nextNBlock <- getNextNBlkHashesFromHash 10 pgTipHash
+  prevNBlock <- getPrevNBlkHashesFromHash blkRangeSize pgTipHash
+  nextNBlock <- getNextNBlkHashesFromHash blkRangeSize pgTipHash
   logInfo "Checking txs previous blocks exist"
   validPrevNBlocks <- allTxsFromManyBlksFullfilProp isJust prevNBlock
   logInfo "Checking txs next blocks don't exist"
@@ -93,3 +94,7 @@ getNextNBlkHashesFromHash n initialHash = if n <= 0 then pure [] else
       maybeT (resolveForwardLink initialHeader) (pure [initialHash]) $ \nextHeaderHash -> do
           hashesFromNext <- getNextNBlkHashesFromHash (n - 1) nextHeaderHash
           pure $ initialHash : hashesFromNext
+
+-- FIXME: 2160 should be obtained from the protocol constants
+blkRangeSize :: Int
+blkRangeSize = 2160 + 10
