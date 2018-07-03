@@ -3,17 +3,14 @@ module Pos.PostgresConsistency.ConsistencyChecker
     externalConsistency
   , internalConsistencyCheck
   , externalConsistencyWithTxRange
-  , printTipHash
   ) where
 
 import           Universum
 
 import           Data.List (tail)
-import           Formatting (sformat)
 import           System.Wlog (logInfo)
 
 import           Pos.Core (HasPrevBlock (prevBlockL), HeaderHash, headerHash)
-import           Pos.Crypto (hashHexF)
 import           Pos.DB (getHeader, getTipHeader)
 import           Pos.GState.BlockExtra (resolveForwardLink)
 import           Pos.PostgresConsistency.Properties
@@ -80,14 +77,6 @@ externalConsistencyWithTxRange pgTipHash = do
   logInfo "Checking txs next blocks don't exist"
   validNextNBlocks <- allTxsFromManyBlksFullfilProp isNothing (tail nextNBlock)
   pure $ validPrevNBlocks && validNextNBlocks
-
---FIXME: Move somewhere else?
--- Auxiliary function used for getting the tip hash
-printTipHash :: ConsistencyCheckerEnv m => m ()
-printTipHash = do
-  tipHeader <- getTipHeader
-  let tipHash = headerHash tipHeader
-  print $ sformat hashHexF tipHash
 
 
 ----------------------------------------------------------------------------

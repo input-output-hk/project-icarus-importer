@@ -13,6 +13,7 @@ import           Universum
 
 import           Data.Maybe (fromJust)
 import qualified Database.PostgreSQL.Simple as PGS
+import           Formatting (sformat, (%))
 import           Mockable (Production, runProduction)
 import           System.Wlog (LoggerName, logInfo)
 
@@ -24,7 +25,9 @@ import           Pos.BlockchainImporter.Txp (BlockchainImporterExtraModifier,
 import           Pos.BlockchainImporter.Web (BlockchainImporterProd, runBlockchainImporterProd)
 import           Pos.Client.CLI (CommonNodeArgs (..), NodeArgs (..), getNodeParams)
 import qualified Pos.Client.CLI as CLI
-import           Pos.Core (HeaderHash)
+import           Pos.Core (HeaderHash, headerHash)
+import           Pos.Crypto (hashHexF)
+import           Pos.DB (getTipHeader)
 import           Pos.DB.DB (initNodeDBs)
 import           Pos.Launcher (ConfigurationOptions (..), HasConfigurations, NodeParams (..),
                                NodeResources (..), bracketNodeResources, elimRealMode,
@@ -116,7 +119,10 @@ action (PostgresConsistencyNodeArgs (cArgs@CommonNodeArgs{..}) PostgresConsisten
             logCheckResult checkRes
           Nothing ->
             logInfo "Not running external tx range consistency check: invalid tip hash"
-    callSelectedCheck GetTipHash = printTipHash
+    callSelectedCheck GetTipHash = do
+      tipHeader <- getTipHeader
+      let tipHash = headerHash tipHeader
+      logInfo $ sformat ("Tip hash: "%hashHexF) tipHash
 
     logCheckResult :: Bool -> BlockchainImporterProd ()
     logCheckResult result =

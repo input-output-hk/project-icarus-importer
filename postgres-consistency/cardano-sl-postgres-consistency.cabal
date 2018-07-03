@@ -137,6 +137,7 @@ executable cardano-postgres-consistency
                      , cardano-sl
                      , cardano-sl-core
                      , cardano-sl-crypto
+                     , cardano-sl-db
                      , cardano-sl-infra
                      , cardano-sl-postgres-consistency
                      , cardano-sl-networking

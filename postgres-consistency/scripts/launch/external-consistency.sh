@@ -7,10 +7,14 @@
 # Usage:
 #   ./external-consistency.sh TOP_EPOCH NUMBER_BLOCKS KV_DB_LOCATION
 
-set -x
+# TODO
+# - Add setting up using local or staging db
+# - Add setting up using mainnet or staging
 
 scriptDir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-blkFile="${scriptDir}/../../blkHashes.txt"
+repoDir="${scriptDir}/../../.."
+blkFile="${repoDir}/postgres-consistency/blkHashes.txt"
+logsFile="${repoDir}/postgres-consistency/externalConsistency.log"
 
 # Parameters
 topEpoch="$1"
@@ -18,23 +22,36 @@ numberBlocks="$2"
 kvDBLocation="$3"
 
 
-# Get random blocks
+echo "Getting random blocks to check"
 node ${scriptDir}/../EpochSlotToBlkHash.js ${topEpoch} ${numberBlocks} > ${blkFile}
 
-# Start topology
+echo "Doing setup"
+${repoDir}/scripts/build/cardano-sl.sh postgres-consistency > /dev/null
 printf "wallet:\n relays: [[{ host: relays.awstest.iohkdev.io }]]\n valency: 1\n fallbacks: 7" > /tmp/topology-staging.yaml
 
-# Run consistency test
-# FIXME: Paths are dependant on from where this is called
+echo "Running external consistency test"
 stack exec -- cardano-postgres-consistency ext-const --blocks-file ${blkFile} \
            --topology "/tmp/topology-staging.yaml" \
-           --log-config "blockchain-importer/log-config.yaml" \
-           --logs-prefix "/home/ntallar/Documents/projects/icarus/logs-staging" \
+           --log-config "${repoDir}/blockchain-importer/log-config.yaml" \
+           --logs-prefix "${repoDir}/logs-staging" \
            --db-path ${kvDBLocation} \
-           --keyfile "secret-staging.key" --configuration-file "lib/configuration.yaml" \
+           --keyfile "${repoDir}/secret-staging.key" \
+           --configuration-file "${repoDir}/lib/configuration.yaml" \
            --configuration-key mainnet_dryrun_full \
            --postgres-name ${DB} --postgres-password ${DB_PASSWORD} \
-           --postgres-host ${DB_HOST} --postgres-port ${DB_PORT}
+           --postgres-host ${DB_HOST} --postgres-port ${DB_PORT} > ${logsFile}
+
+echo "Checking result obtained"
+consistencyResultSucceeded=$(grep "Consistency check succeeded" ${logsFile})
+consistencyResultFailed=$(grep "Consistency check failed" ${logsFile})
+if [ "${consistencyResultSucceeded}" != "" ]; then
+  echo "Consistency check succeeded"
+  rm ${logsFile}
+elif [ "${consistencyResultFailed}" != "" ]; then
+  echo "Consistency check failed. Check logs on file ${logsFile}."
+else
+  echo "Unknown error happened. Check logs on file ${logsFile}."
+fi
 
 # Clean up
 rm ${blkFile}

@@ -6,51 +6,91 @@
 # Usage:
 #   ./internal-consistency.sh IMPORTER_KV_DB_LOCATION NODE_KV_DB_LOCATION
 
-set -x
+# TODO
+# - Add logs
+# - Add setting up using local or staging db
+# - Add setting up using mainnet or staging
 
 scriptDir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+repoDir="${scriptDir}/../../.."
+logsFile="${repoDir}/postgres-consistency/internalConsistency.log"
 
 # Parameters
 kvDBLocationImporter="$1"
 kvDBLocationNode="$2"
 
+# FIXME: Use also in external consistency?
+check_succeded_on_logs () {
+  echo "Checking result obtained from $1"
+  consistencyResultSucceeded=$(grep "Consistency check succeeded" $2)
+  consistencyResultFailed=$(grep "Consistency check failed" $2)
+  if [ "${consistencyResultSucceeded}" != "" ]; then
+    echo "Consistency check $1 succeeded"
+    rm ${logsFile}
+    return 1
+  elif [ "${consistencyResultFailed}" != "" ]; then
+    echo "Consistency check failed. Check logs on file $2."
+    return 0
+  else
+    echo "Unknown error happened. Check logs on file $2."
+    return 0
+  fi
+}
 
-# Start topology
+
+echo "Doing setup"
+${repoDir}/scripts/build/cardano-sl.sh postgres-consistency > /dev/null
 printf "wallet:\n relays: [[{ host: relays.awstest.iohkdev.io }]]\n valency: 1\n fallbacks: 7" > /tmp/topology-staging.yaml
 
-# Run internal consistency test
-# FIXME: Paths are dependant on from where this is called
+echo "Running internal consistency test"
 stack exec -- cardano-postgres-consistency int-const \
            --topology "/tmp/topology-staging.yaml" \
-           --log-config "blockchain-importer/log-config.yaml" \
-           --logs-prefix "/home/ntallar/Documents/projects/icarus/logs-staging" \
+           --log-config "${repoDir}/blockchain-importer/log-config.yaml" \
+           --logs-prefix "${repoDir}/logs-staging" \
            --db-path ${kvDBLocationImporter} \
-           --keyfile "secret-staging.key" --configuration-file "lib/configuration.yaml" \
+           --keyfile "${repoDir}/secret-staging.key" \
+           --configuration-file "${repoDir}/lib/configuration.yaml" \
            --configuration-key mainnet_dryrun_full \
            --postgres-name ${DB} --postgres-password ${DB_PASSWORD} \
-           --postgres-host ${DB_HOST} --postgres-port ${DB_PORT}
+           --postgres-host ${DB_HOST} --postgres-port ${DB_PORT} > ${logsFile}
 
-# Get hash of the tip block
-# FIXME: Obtain result
-# FIXME: Paths are dependant on from where this is called
+check_succeded_on_logs "Internal consistency" ${logsFile}
+
+# If Internal consistency check failed, exit
+if [ $? = 0 ]; then
+  exit
+fi
+
+echo "Getting hash of the tip block"
 stack exec -- cardano-postgres-consistency get-tip-hash \
            --topology "/tmp/topology-staging.yaml" \
-           --log-config "blockchain-importer/log-config.yaml" \
-           --logs-prefix "/home/ntallar/Documents/projects/icarus/logs-staging" \
+           --log-config "${repoDir}/blockchain-importer/log-config.yaml" \
+           --logs-prefix "${repoDir}/logs-staging" \
            --db-path ${kvDBLocationImporter} \
-           --keyfile "secret-staging.key" --configuration-file "lib/configuration.yaml" \
+           --keyfile "${repoDir}/secret-staging.key" \
+           --configuration-file "${repoDir}/lib/configuration.yaml" \
            --configuration-key mainnet_dryrun_full \
            --postgres-name ${DB} --postgres-password ${DB_PASSWORD} \
-           --postgres-host ${DB_HOST} --postgres-port ${DB_PORT}
+           --postgres-host ${DB_HOST} --postgres-port ${DB_PORT} > ${logsFile}
 
-# Run external tx range consistency test
-# FIXME: Paths are dependant on from where this is called
-stack exec -- cardano-postgres-consistency ext-range-const --tip-hash "98c588922865ca25a174737cc74f4b326e5c8844a419ca2f08df75263fe5aad5" \
+# FIXME: Obtain result
+tipHash=$(grep -oP "Tip hash: [A-Za-z0-9]{64}$" ${logsFile})
+tipHash=${tipHash:10}
+rm ${logsFile}
+
+echo "Running external tx range consistency test"
+stack exec -- cardano-postgres-consistency ext-range-const --tip-hash "${tipHash}" \
            --topology "/tmp/topology-staging.yaml" \
-           --log-config "blockchain-importer/log-config.yaml" \
-           --logs-prefix "/home/ntallar/Documents/projects/icarus/logs-staging" \
+           --log-config "${repoDir}/blockchain-importer/log-config.yaml" \
+           --logs-prefix "${repoDir}/logs-staging" \
            --db-path ${kvDBLocationNode} \
-           --keyfile "secret-staging.key" --configuration-file "lib/configuration.yaml" \
+           --keyfile "${repoDir}/secret-staging.key" \
+           --configuration-file "${repoDir}/lib/configuration.yaml" \
            --configuration-key mainnet_dryrun_full \
            --postgres-name ${DB} --postgres-password ${DB_PASSWORD} \
-           --postgres-host ${DB_HOST} --postgres-port ${DB_PORT}
+           --postgres-host ${DB_HOST} --postgres-port ${DB_PORT} > ${logsFile}
+
+check_succeded_on_logs "External range consistency" ${logsFile}
+if [ $? = 1 ]; then
+  echo "All internal consistency checks succeded"
+fi
