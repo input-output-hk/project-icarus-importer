@@ -25,7 +25,7 @@ import           Pos.Crypto (hash)
 import           Pos.DB (MonadDBRead, getMaxSeenDifficulty)
 import           Pos.DB.Block (getBlock)
 import           Pos.PostgresConsistency.Utils
-import           Pos.Txp (TxAux (..), Utxo, flattenTxPayload)
+import           Pos.Txp (Tx, TxAux (..), Utxo, flattenTxPayload)
 import           Pos.Txp.DB (getAllPotentiallyHugeUtxo)
 
 type ConsistencyCheckerEnv m =
@@ -66,7 +66,7 @@ consistentUtxo = do
 
 allTxsFromManyBlksFullfilProp ::
      ConsistencyCheckerEnv m
-  => (Maybe TxsT.TxRow -> Bool)
+  => (Maybe TxsT.TxRow -> Tx -> Bool)
   -> [HeaderHash]
   -> m Bool
 allTxsFromManyBlksFullfilProp txRowProp blkHashes = do
@@ -104,7 +104,7 @@ internalConsistentTxAddr = do
 -- FIXME: Log blk hashes that failed
 allTxsFromBlkFullFilProp ::
      ConsistencyCheckerEnv m
-  => (Maybe TxsT.TxRow -> Bool)
+  => (Maybe TxsT.TxRow -> Tx -> Bool)
   -> HeaderHash
   -> m Bool
 allTxsFromBlkFullFilProp txRowProp blkHash = do
@@ -112,7 +112,7 @@ allTxsFromBlkFullFilProp txRowProp blkHash = do
       allFullfilProp <- forM txs $ \(TxAux tx _) -> do
         let txHash = hash tx
         maybeTxPGS <- liftIO $ postGreOperate $ TxsT.getTxByHash txHash
-        pure $ txRowProp maybeTxPGS
+        pure $ txRowProp maybeTxPGS tx
       pure $ and allFullfilProp
 
 getKVTxsByBlkHash

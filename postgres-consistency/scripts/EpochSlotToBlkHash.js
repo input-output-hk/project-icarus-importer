@@ -58,6 +58,8 @@ const epochAndSlotToBlkHash = async function (epochNumber, slotNumber) {
       console.error(`Epoch ${epochNumber} and slot ${slotNumber} have no block`);
       return null;
     }
+  }).catch((error) => {
+    console.error('Explorer request failed due to ', error);
   });
 };
 
@@ -65,6 +67,7 @@ const epochAndSlotToBlkHash = async function (epochNumber, slotNumber) {
 const getRandomBlkHashes = function (topEpoch, numGenerated) {
   const epochAndSlotGen = generateRandomEpochAndSlots(topEpoch, numGenerated);
   
+  // FIXME: Do requests in batches to not kill the explorer
   return Promise.all(epochAndSlotGen.map(([epochGen, slotGen]) =>
             epochAndSlotToBlkHash(epochGen, slotGen))).then(removeNullFromArray);
 };

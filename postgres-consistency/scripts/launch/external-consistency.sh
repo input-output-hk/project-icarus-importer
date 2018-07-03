@@ -16,23 +16,20 @@ repoDir="${scriptDir}/../../.."
 blkFile="${repoDir}/postgres-consistency/blkHashes.txt"
 logsFile="${repoDir}/postgres-consistency/externalConsistency.log"
 
+. ${scriptDir}/utils.sh
+
 # Parameters
 topEpoch="$1"
 numberBlocks="$2"
 kvDBLocation="$3"
 
-# FIXME: Use also in external consistency? Import from utils file
-logWithTimestamp () {
-  echo "[$(date --rfc-3339='ns')] $1"
-}
-
-
-logWithTimestamp "Getting random blocks to check"
-node ${scriptDir}/../EpochSlotToBlkHash.js ${topEpoch} ${numberBlocks} > ${blkFile}
-
+# FIXME: Do npm install node-fetch?
 logWithTimestamp "Doing setup"
 ${repoDir}/scripts/build/cardano-sl.sh postgres-consistency > /dev/null
 printf "wallet:\n relays: [[{ host: relays.awstest.iohkdev.io }]]\n valency: 1\n fallbacks: 7" > /tmp/topology-staging.yaml
+
+logWithTimestamp "Getting random blocks to check"
+node ${scriptDir}/../EpochSlotToBlkHash.js ${topEpoch} ${numberBlocks} > ${blkFile}
 
 logWithTimestamp "Running external consistency test"
 stack exec -- cardano-postgres-consistency ext-const --blocks-file ${blkFile} \
@@ -46,17 +43,7 @@ stack exec -- cardano-postgres-consistency ext-const --blocks-file ${blkFile} \
            --postgres-name ${DB} --postgres-password ${DB_PASSWORD} \
            --postgres-host ${DB_HOST} --postgres-port ${DB_PORT} > ${logsFile}
 
-logWithTimestamp "Checking result obtained"
-consistencyResultSucceeded=$(grep "Consistency check succeeded" ${logsFile})
-consistencyResultFailed=$(grep "Consistency check failed" ${logsFile})
-if [ "${consistencyResultSucceeded}" != "" ]; then
-  logWithTimestamp "Consistency check succeeded"
-  rm ${logsFile}
-elif [ "${consistencyResultFailed}" != "" ]; then
-  logWithTimestamp "Consistency check failed. Check logs on file ${logsFile}."
-else
-  logWithTimestamp "Unknown error happened. Check logs on file ${logsFile}."
-fi
+check_succeded_on_logs "External consistency" ${logsFile}
 
 # Clean up
 rm ${blkFile}
