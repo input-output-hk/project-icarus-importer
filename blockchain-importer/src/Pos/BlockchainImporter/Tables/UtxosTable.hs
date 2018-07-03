@@ -38,7 +38,7 @@ data UtxoRowPoly a b c d e = UtxoRow  { urUtxoId   :: a
 type UtxoRowPGW = UtxoRowPoly (Column PGText) (Column PGText) (Column PGInt4) (Column PGText) (Column PGInt8)
 type UtxoRowPGR = UtxoRowPoly (Column PGText) (Column PGText) (Column PGInt4) (Column PGText) (Column PGInt8)
 
-type UtxoRow = (Text, Int, Text, Int64) --FIXME?
+type UtxoRow = (Text, Int, Text, Int64)
 
 $(makeAdaptorAndInstance "pUtxos" ''UtxoRowPoly)
 

@@ -113,6 +113,6 @@ getTxByHash txHash conn = do
     [ txMatched ] -> return $ Just txMatched
     _             -> return Nothing
     where txByHashQuery = proc () -> do
-            TxRow hash inputsAddr inputsAmount outputsAddr outputsAmount _ _ <- (selectTable txsTable) -< ()
-            restrict -< hash .== (pgString $ hashToString txHash)
-            A.returnA -< (hash, inputsAddr, inputsAmount, outputsAddr, outputsAmount)
+            TxRow rowTxHash inputsAddr inputsAmount outputsAddr outputsAmount _ _ <- (selectTable txsTable) -< ()
+            restrict -< rowTxHash .== (pgString $ hashToString txHash)
+            A.returnA -< (rowTxHash, inputsAddr, inputsAmount, outputsAddr, outputsAmount)

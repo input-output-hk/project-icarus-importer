@@ -7,7 +7,6 @@
 #   ./internal-consistency.sh IMPORTER_KV_DB_LOCATION NODE_KV_DB_LOCATION
 
 # TODO
-# - Add logs
 # - Add setting up using local or staging db
 # - Add setting up using mainnet or staging
 
@@ -19,7 +18,7 @@ logsFile="${repoDir}/postgres-consistency/internalConsistency.log"
 kvDBLocationImporter="$1"
 kvDBLocationNode="$2"
 
-# FIXME: Use also in external consistency?
+# FIXME: Use also in external consistency? Import from utils file
 check_succeded_on_logs () {
   echo "Checking result obtained from $1"
   consistencyResultSucceeded=$(grep "Consistency check succeeded" $2)
@@ -73,7 +72,6 @@ stack exec -- cardano-postgres-consistency get-tip-hash \
            --postgres-name ${DB} --postgres-password ${DB_PASSWORD} \
            --postgres-host ${DB_HOST} --postgres-port ${DB_PORT} > ${logsFile}
 
-# FIXME: Obtain result
 tipHash=$(grep -oP "Tip hash: [A-Za-z0-9]{64}$" ${logsFile})
 tipHash=${tipHash:10}
 rm ${logsFile}

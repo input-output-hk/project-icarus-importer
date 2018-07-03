@@ -34,7 +34,7 @@ const parseResponse = function (response) {
 
 const handleErrors = function (responseJson) {
   if (responseJson.error) {
-    console.error(`[ExplorerApi.handleErrors] error[${responseJson.error.name}]`);
+    console.error(`[EpochSlotToBlkHash] error[${responseJson.error.name}]`);
     throw responseJson.error;
   } else {
     return Promise.resolve(responseJson);
@@ -69,9 +69,11 @@ const getRandomBlkHashes = function (topEpoch, numGenerated) {
             epochAndSlotToBlkHash(epochGen, slotGen))).then(removeNullFromArray);
 };
 
-// FIXME: Sometimes fails, why?
-// FIXME: Log error separately
-// FIXME: Describe usage
-//        Example: node ./postgres-consistency/scripts/EpochSlotToBlkHash.js 10 10 
+/**
+ * Usage:
+ *    node EpocSlotToBlkHash.js TOP_EPOCH BLK_TO_GENERATE
+ *
+ * Note: the generated epoch is on the range [0, TOP_EPOCH]
+ */
 getRandomBlkHashes(process.argv[2], process.argv[3]).then((blkHashes) =>
   blkHashes.map(hash => console.log(hash)));

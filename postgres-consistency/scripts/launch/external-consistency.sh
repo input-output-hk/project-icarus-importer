@@ -9,7 +9,7 @@
 
 # TODO
 # - Add setting up using local or staging db
-# - Add setting up using mainnet or staging
+# - Add setting up using mainnet or staging (requires configuring the EpochAndSlot generator)
 
 scriptDir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 repoDir="${scriptDir}/../../.."

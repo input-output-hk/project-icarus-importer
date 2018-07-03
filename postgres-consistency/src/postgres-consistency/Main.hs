@@ -48,7 +48,7 @@ loggerName = "consistency-checker"
 -- Main action
 ----------------------------------------------------------------------------
 
---FIXME: Removed necessary parameters
+--FIXME: Remove unnecessary parameters
 main :: IO ()
 main = do
     args <- getPostgresConsistencyNodeOptions
@@ -72,15 +72,15 @@ action (PostgresConsistencyNodeArgs (cArgs@CommonNodeArgs{..}) PostgresConsisten
 
             bracketNodeResources currentParams sscParams
               blockchainImporterTxpGlobalSettings initNodeDBs $ \nr ->
-                runBlockchainImporterRealMode nr
+                runPostgresConsistencyRealMode nr
   where
-    runBlockchainImporterRealMode
+    runPostgresConsistencyRealMode
         :: (HasConfigurations, HasCompileInfo, HasPostGresDB)
         => NodeResources BlockchainImporterExtraModifier
         -> Production ()
-    runBlockchainImporterRealMode nr@NodeResources{..} =
+    runPostgresConsistencyRealMode nr@NodeResources{..} =
         let extraCtx = makeExtraCtx
-            blockchainImporterModeToRealMode  = runBlockchainImporterProd extraCtx
+            blockchainImporterModeToRealMode = runBlockchainImporterProd extraCtx
             elim = elimRealMode nr
             consistencyCheckerRealMode = blockchainImporterModeToRealMode $
               callSelectedCheck checksToDo
@@ -118,7 +118,8 @@ action (PostgresConsistencyNodeArgs (cArgs@CommonNodeArgs{..}) PostgresConsisten
             checkRes <- externalConsistencyWithTxRange tipHash
             logCheckResult checkRes
           Nothing ->
-            logInfo "Not running external tx range consistency check: invalid tip hash"
+            logInfo $ toText ("Consistency check failed: Not running external tx range check " ++
+                              "due to invalid tip hash")
     callSelectedCheck GetTipHash = do
       tipHeader <- getTipHeader
       let tipHash = headerHash tipHeader

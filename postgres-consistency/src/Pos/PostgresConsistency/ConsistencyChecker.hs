@@ -16,14 +16,6 @@ import           Pos.GState.BlockExtra (resolveForwardLink)
 import           Pos.PostgresConsistency.Properties
 import           Pos.PostgresConsistency.Utils
 
-{-
-TODO:
-    Fix various FIXMEs
-    Check how UtxoUndo is obtained on importer
-    Use better number than 10 for tx range (maybe number of rollbacked blocks?)
-    How long would it take for a complete tx check?
--}
-
 ----------------------------------------------------------------------------
 -- Checks
 ----------------------------------------------------------------------------
