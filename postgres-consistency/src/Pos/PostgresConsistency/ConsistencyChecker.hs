@@ -95,6 +95,7 @@ getNextNBlkHashesFromHash n initialHash = if n <= 0 then pure [] else
           hashesFromNext <- getNextNBlkHashesFromHash (n - 1) nextHeaderHash
           pure $ initialHash : hashesFromNext
 
+-- blkRangeSize selected to be 'k' (number of blocks rollbacked on new epoch) + 10
 -- FIXME: 2160 should be obtained from the protocol constants
 blkRangeSize :: Int
 blkRangeSize = 2160 + 10

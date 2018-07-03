@@ -19,29 +19,33 @@ kvDBLocationImporter="$1"
 kvDBLocationNode="$2"
 
 # FIXME: Use also in external consistency? Import from utils file
+logWithTimestamp () {
+  echo "[$(date --rfc-3339='ns')] $1"
+}
+
+# FIXME: Use also in external consistency? Import from utils file
 check_succeded_on_logs () {
-  echo "Checking result obtained from $1"
+  logWithTimestamp "Checking result obtained from $1"
   consistencyResultSucceeded=$(grep "Consistency check succeeded" $2)
   consistencyResultFailed=$(grep "Consistency check failed" $2)
   if [ "${consistencyResultSucceeded}" != "" ]; then
-    echo "Consistency check $1 succeeded"
+    logWithTimestamp "Consistency check $1 succeeded"
     rm ${logsFile}
     return 1
   elif [ "${consistencyResultFailed}" != "" ]; then
-    echo "Consistency check failed. Check logs on file $2."
+    logWithTimestamp "Consistency check failed. Check logs on file $2."
     return 0
   else
-    echo "Unknown error happened. Check logs on file $2."
+    logWithTimestamp "Unknown error happened. Check logs on file $2."
     return 0
   fi
 }
 
-
-echo "Doing setup"
+logWithTimestamp "Doing setup"
 ${repoDir}/scripts/build/cardano-sl.sh postgres-consistency > /dev/null
 printf "wallet:\n relays: [[{ host: relays.awstest.iohkdev.io }]]\n valency: 1\n fallbacks: 7" > /tmp/topology-staging.yaml
 
-echo "Running internal consistency test"
+logWithTimestamp "Running internal consistency test"
 stack exec -- cardano-postgres-consistency int-const \
            --topology "/tmp/topology-staging.yaml" \
            --log-config "${repoDir}/blockchain-importer/log-config.yaml" \
@@ -60,7 +64,7 @@ if [ $? = 0 ]; then
   exit
 fi
 
-echo "Getting hash of the tip block"
+logWithTimestamp "Getting hash of the tip block"
 stack exec -- cardano-postgres-consistency get-tip-hash \
            --topology "/tmp/topology-staging.yaml" \
            --log-config "${repoDir}/blockchain-importer/log-config.yaml" \
@@ -76,7 +80,7 @@ tipHash=$(grep -oP "Tip hash: [A-Za-z0-9]{64}$" ${logsFile})
 tipHash=${tipHash:10}
 rm ${logsFile}
 
-echo "Running external tx range consistency test"
+logWithTimestamp "Running external tx range consistency test"
 stack exec -- cardano-postgres-consistency ext-range-const --tip-hash "${tipHash}" \
            --topology "/tmp/topology-staging.yaml" \
            --log-config "${repoDir}/blockchain-importer/log-config.yaml" \
@@ -90,5 +94,5 @@ stack exec -- cardano-postgres-consistency ext-range-const --tip-hash "${tipHash
 
 check_succeded_on_logs "External range consistency" ${logsFile}
 if [ $? = 1 ]; then
-  echo "All internal consistency checks succeded"
+  logWithTimestamp "All internal consistency checks succeded"
 fi
