@@ -29,7 +29,8 @@ data PostgresConsistencyNodeArgs = PostgresConsistencyNodeArgs
     , enaPostgresConsistencyArgs :: !PostgresConsistencyArgs
     } deriving Show
 
-data PostgresChecks = ExternalConsistency FilePath
+data PostgresChecks = ExternalConsistencyFromBlk String
+                    | RandomExternalConsistency FilePath
                     | InternalConsistency
                     | ExternalTxRangeConsistency String
                     | GetTipHash
@@ -92,28 +93,38 @@ blockchainImporterArgsParser = do
 
 postgresCheckParser :: Parser PostgresChecks
 postgresCheckParser = do
-  let enableExternalCheck = command "ext-const"
-                              (info externalCheckParser
-                              (progDesc "Check external consistency with up-to-date node db"))
-      enableInternalCheck = command "int-const"
-                              (info (pure InternalConsistency)
-                              (progDesc "Check internal consistency with importer db"))
-      enableExternalTxRangeCheck = command "ext-range-const"
-                                    (info externalRangeTxCheckParser
-                                    (progDesc "Check tx range consistency with up-to-date node db"))
-      enableGetTipHash = command "get-tip-hash"
-                          (info (pure GetTipHash)
-                          (progDesc "Print block tip hash"))
-  subparser (enableExternalCheck
-          <> enableInternalCheck
-          <> enableExternalTxRangeCheck
-          <> enableGetTipHash)
-  where externalCheckParser = do
+  let externalCheckFromBlkCmd = command "ext-const-from-blk"
+                                  (info externalCheckFromBlkParser
+                                  (progDesc "Check external consistency from a given blk with up-to-date node db"))
+      externalCheckRandomCmd = command "ext-const-random"
+                                (info externalCheckRandomParser
+                                (progDesc "Randomly check external consistency with up-to-date node db"))
+      internalCheckCmd = command "int-const"
+                          (info (pure InternalConsistency)
+                          (progDesc "Check internal consistency with importer db"))
+      externalTxRangeCheckCmd = command "ext-range-const"
+                                  (info externalRangeTxCheckParser
+                                  (progDesc "Check tx range consistency with up-to-date node db"))
+      getTipHashCmd = command "get-tip-hash"
+                        (info (pure GetTipHash)
+                        (progDesc "Print block tip hash"))
+  subparser (externalCheckFromBlkCmd
+          <> externalCheckRandomCmd
+          <> internalCheckCmd
+          <> externalTxRangeCheckCmd
+          <> getTipHashCmd)
+  where externalCheckFromBlkParser = do
+          blkToCheck <- strOption $
+            long    "starting-block" <>
+            metavar "STARTING-BLOCK" <>
+            help    "Block from where to start checking for consistency."
+          pure $ ExternalConsistencyFromBlk blkToCheck
+        externalCheckRandomParser = do
           blksToCheck <- strOption $
             long    "blocks-file" <>
             metavar "CONSISTENCY-BLK-HASHES-FILE" <>
             help    "File with block hashes to check for consistency."
-          pure $ ExternalConsistency blksToCheck
+          pure $ RandomExternalConsistency blksToCheck
         externalRangeTxCheckParser = do
           tipHash <- strOption $
             long    "tip-hash" <>

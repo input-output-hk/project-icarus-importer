@@ -3,6 +3,7 @@ module Pos.PostgresConsistency.Properties
     ConsistencyCheckerEnv
   , consistentBestBlock
   , consistentUtxo
+  , allTxsStartingFromBlk
   , allTxsFromManyBlksFullfilProp
   , internalConsistentTxAddr
   ) where
@@ -12,6 +13,7 @@ import           Universum
 
 import qualified Data.Map as Map
 import qualified Database.PostgreSQL.Simple as PGS
+import           Formatting (int, sformat, (%))
 import           System.Wlog (WithLogger, logInfo)
 import           UnliftIO (MonadUnliftIO)
 
@@ -21,9 +23,10 @@ import qualified Pos.BlockchainImporter.Tables.TxsTable as TxsT (TxRow, getTxByH
 import qualified Pos.BlockchainImporter.Tables.UtxosTable as UtxosT (UtxoRow, getUtxos)
 import           Pos.Core (HasConfiguration, HeaderHash, getBlockCount, getChainDifficulty)
 import           Pos.Core.Block (mainBlockTxPayload)
-import           Pos.Crypto (hash)
-import           Pos.DB (MonadDBRead, getMaxSeenDifficulty)
+import           Pos.Crypto (hash, hashHexF)
+import           Pos.DB (MonadDBRead, getHeader, getMaxSeenDifficulty)
 import           Pos.DB.Block (getBlock)
+import           Pos.GState.BlockExtra (resolveForwardLink)
 import           Pos.PostgresConsistency.Utils
 import           Pos.Txp (Tx, TxAux (..), Utxo, flattenTxPayload)
 import           Pos.Txp.DB (getAllPotentiallyHugeUtxo)
@@ -64,13 +67,44 @@ consistentUtxo = do
   logInfo $ if isConsistent then "Utxo is consistent" else "Utxo is inconsistent"
   pure isConsistent
 
+allTxsStartingFromBlk ::
+     ConsistencyCheckerEnv m
+  => (Maybe TxsT.TxRow -> Tx -> Bool)
+  -> HeaderHash
+  -> m Bool
+allTxsStartingFromBlk prop initialHash = do
+  logInfo "Checking consistency for all blocks starting from the given one"
+  (blkHashCheckFailed, totalChecked) <- allTxsFromBlkWithLogging 0 prop initialHash
+  logInfo $ sformat ("Finished check: "%int%" blocks are consistent") totalChecked
+  case blkHashCheckFailed of
+    Just blkHashFailed -> do
+      logInfo $ sformat ("Block "%hashHexF%" is inconsistent") blkHashFailed
+      pure False
+    Nothing -> pure True
+  where
+    allTxsFromBlkWithLogging ::
+         ConsistencyCheckerEnv m
+      => Int
+      -> (Maybe TxsT.TxRow -> Tx -> Bool)
+      -> HeaderHash
+      -> m (Maybe HeaderHash, Int)
+    allTxsFromBlkWithLogging numberChecked txRowProp blkHash = do
+      when (mod numberChecked 1000 == 0) $
+        logInfo $ sformat ("Successfully checked "%int%" blocks with last hash: "%hashHexF)
+                          numberChecked blkHash
+      maybeT (getHeader blkHash) ( pure (Nothing, numberChecked) ) $ \initialHeader -> do
+        validTxsHistory <- allTxsFromBlkFullFilProp txRowProp blkHash
+        if (not validTxsHistory) then pure (Just blkHash, numberChecked)
+        else maybeT (resolveForwardLink initialHeader) ( pure (Nothing, numberChecked) ) $
+                    allTxsFromBlkWithLogging (numberChecked + 1) txRowProp
+
 allTxsFromManyBlksFullfilProp ::
      ConsistencyCheckerEnv m
   => (Maybe TxsT.TxRow -> Tx -> Bool)
   -> [HeaderHash]
   -> m Bool
 allTxsFromManyBlksFullfilProp txRowProp blkHashes = do
-  logInfo "Checking blk hashes consistency"
+  logInfo "Checking consistency for given blk hashes"
   eachFullFillProp <- mapM (allTxsFromBlkFullFilProp txRowProp) blkHashes
   let allFullfilProp = and eachFullFillProp
   logInfo $ if allFullfilProp then "blk's txs fullfil property"

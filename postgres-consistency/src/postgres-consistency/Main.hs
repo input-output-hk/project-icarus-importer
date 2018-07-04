@@ -102,10 +102,19 @@ action (PostgresConsistencyNodeArgs (cArgs@CommonNodeArgs{..}) PostgresConsisten
          (HasConfigurations, HasCompileInfo, HasPostGresDB)
       => PostgresChecks
       -> BlockchainImporterProd ()
-    callSelectedCheck (ExternalConsistency blkHashFile) = do
-        logInfo "Running external consistency check"
+    callSelectedCheck (ExternalConsistencyFromBlk stringBlkHash) = do
+        logInfo "Running sequential external consistency check"
+        case decodeBlkHash $ toText stringBlkHash of
+          Just blkHash -> do
+            checkRes <- externalConsistencyFromBlk blkHash
+            logCheckResult checkRes
+          Nothing ->
+            logInfo $ toText ("Consistency check failed: Not running external check from blk " ++
+                              "due to invalid starting blk hash")
+    callSelectedCheck (RandomExternalConsistency blkHashFile) = do
+        logInfo "Running random external consistency check"
         blksToCheck <- liftIO $ getBlkHashes blkHashFile
-        checkRes <- externalConsistency blksToCheck
+        checkRes <- externalConsistencyRandom blksToCheck
         logCheckResult checkRes
     callSelectedCheck InternalConsistency = do
         logInfo "Running internal consistency check"

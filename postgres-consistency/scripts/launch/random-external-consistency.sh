@@ -35,7 +35,7 @@ logWithTimestamp "Getting random blocks to check"
 node ${scriptDir}/../EpochSlotToBlkHash.js ${topEpoch} ${numberBlocks} > ${blkFile}
 
 logWithTimestamp "Running external consistency test"
-stack exec -- cardano-postgres-consistency ext-const --blocks-file ${blkFile} \
+stack exec -- cardano-postgres-consistency ext-const-random --blocks-file ${blkFile} \
            --topology "${topologyFile}" \
            --log-config "${repoDir}/blockchain-importer/log-config.yaml" \
            --logs-prefix "${repoDir}/external-logs" \
