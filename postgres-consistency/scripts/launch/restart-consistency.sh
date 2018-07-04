@@ -2,60 +2,69 @@
 
 # Requires:
 #   - Having the node key-value db up-to-date
-#   - Configuring the environment values for the postgres db (i.e.: source setup-localDB.sh)
 # Usage:
-#   ./restart-consistency.sh RESTART_NUM MIN_BETWEEN_RESTART IMPORTER_KV_DB_LOCATION NODE_KV_DB_LOCATION
-
-# TODO
-# - Add setting up using local or staging db
-# - Add setting up using mainnet or staging
+#   ./restart-consistency.sh CHAIN RESTART_NUM MIN_BETWEEN_RESTART
+#                            IMPORTER_KV_DB_LOCATION NODE_KV_DB_LOCATION
 
 scriptDir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 repoDir="${scriptDir}/../../.."
 logsFile="${repoDir}/postgres-consistency/restartConsistency.log"
+topologyFile="/tmp/restart-topology.yaml"
 
 . ${scriptDir}/utils.sh
 
 # Parameters
-restartNumber="$1"
-minutesBetweenRestart="$2"
-kvDBLocationImporter="$3"
-kvDBLocationNode="$4"
+chain="$1"
+restartNumber="$2"
+minutesBetweenRestart="$3"
+kvDBLocationImporter="$4"
+kvDBLocationNode="$5"
+
+get_importer_height () {
+  height=$(curl -s -H 'Content-Type: application/json' -X GET http://localhost:8200/api/stats/blocksCount | jq .Right)
+  return ${height}
+}
+
+CONFIG_KEY=
+KEY_FILE=
+TOPOLOGY_HOST=
+setup_chain_config ${scriptDir} ${chain}
 
 logWithTimestamp "Doing setup"
 ${repoDir}/scripts/build/cardano-sl.sh blockchain-importer > /dev/null
-printf "wallet:\n relays: [[{ host: relays.awstest.iohkdev.io }]]\n valency: 1\n fallbacks: 7" > /tmp/topology-staging.yaml
+printf "wallet:\n relays: [[{ host: ${TOPOLOGY_HOST} }]]\n valency: 1\n fallbacks: 7" > ${topologyFile}
 
 for i in $(eval echo {1..$restartNumber})
   do
-    logWithTimestamp "Starting node for ${i}th time"
+    logWithTimestamp "${i}: Starting node for ${i}th time"
     stack exec -- cardano-blockchain-importer \
-      --topology "/tmp/topology-staging.yaml" \
+      --topology "${topologyFile}" \
       --log-config "${repoDir}/blockchain-importer/log-config.yaml" \
-      --logs-prefix "${repoDir}/logs-staging" \
+      --logs-prefix "${repoDir}/restart-logs" \
       --db-path "${kvDBLocationImporter}" \
-      --keyfile "${repoDir}/secret-staging.key" \
+      --keyfile "${repoDir}/${KEY_FILE}" \
       --configuration-file "${repoDir}/lib/configuration.yaml" \
-      --configuration-key mainnet_dryrun_full \
+      --configuration-key ${CONFIG_KEY} \
       --postgres-name ${DB} --postgres-password ${DB_PASSWORD} \
       --postgres-host ${DB_HOST} --postgres-port ${DB_PORT} > /dev/null &
 
-    logWithTimestamp "Waiting for blockchain-importer to import blocks"
+    get_importer_height
+    logWithTimestamp "${i}: Waiting for blockchain-importer to import blocks, starting with $? blocks"
     sleep ${minutesBetweenRestart}m
-    # FIXME: Add curl -H 'Content-Type: application/json' -X GET http://localhost:8200/api/stats/blocksCount to get number of blocks
-
-    logWithTimestamp "Stopping node"
+    
+    get_importer_height
+    logWithTimestamp "${i}: Stopping node with height $?"
     kill -9 $!
  
-    logWithTimestamp "Starting restart consistency test"
-    ${scriptDir}/internal-consistency.sh ${kvDBLocationImporter} ${kvDBLocationNode} > ${logsFile}
+    logWithTimestamp "${i}: Starting restart consistency test"
+    ${scriptDir}/internal-consistency.sh ${chain} ${kvDBLocationImporter} ${kvDBLocationNode} > ${logsFile}
     
     consistencyResultSucceeded=$(grep "All internal consistency checks succeded" ${logsFile})
     if [ "${consistencyResultSucceeded}" != "" ]; then
-      logWithTimestamp "Restart consistency check succeeded"
+      logWithTimestamp "${i}: Restart consistency check succeeded"
       rm ${logsFile}
     else
-      logWithTimestamp "Restart consistency check failed. Check logs on file ${logsFile}"
+      logWithTimestamp "${i}: Restart consistency check failed. Check logs on file ${logsFile}"
       exit
     fi
   done

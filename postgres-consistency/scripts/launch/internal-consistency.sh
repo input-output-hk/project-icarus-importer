@@ -2,37 +2,39 @@
 
 # Requires:
 #   - Having the node key-value db up-to-date
-#   - Configuring the environment values for the postgres db (i.e.: source setup-localDB.sh)
 # Usage:
-#   ./internal-consistency.sh IMPORTER_KV_DB_LOCATION NODE_KV_DB_LOCATION
-
-# TODO
-# - Add setting up using local or staging db
-# - Add setting up using mainnet or staging
+#   ./internal-consistency.sh CHAIN IMPORTER_KV_DB_LOCATION NODE_KV_DB_LOCATION
 
 scriptDir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 repoDir="${scriptDir}/../../.."
 logsFile="${repoDir}/postgres-consistency/internalConsistency.log"
+topologyFile="/tmp/internal-topology.yaml"
 
 . ${scriptDir}/utils.sh
 
 # Parameters
-kvDBLocationImporter="$1"
-kvDBLocationNode="$2"
+chain="$1"
+kvDBLocationImporter="$2"
+kvDBLocationNode="$3"
+
+CONFIG_KEY=
+KEY_FILE=
+TOPOLOGY_HOST=
+setup_chain_config ${scriptDir} ${chain}
 
 logWithTimestamp "Doing setup"
 ${repoDir}/scripts/build/cardano-sl.sh postgres-consistency > /dev/null
-printf "wallet:\n relays: [[{ host: relays.awstest.iohkdev.io }]]\n valency: 1\n fallbacks: 7" > /tmp/topology-staging.yaml
+printf "wallet:\n relays: [[{ host: ${TOPOLOGY_HOST} }]]\n valency: 1\n fallbacks: 7" > ${topologyFile}
 
 logWithTimestamp "Running internal consistency test"
 stack exec -- cardano-postgres-consistency int-const \
-           --topology "/tmp/topology-staging.yaml" \
+           --topology "${topologyFile}" \
            --log-config "${repoDir}/blockchain-importer/log-config.yaml" \
-           --logs-prefix "${repoDir}/logs-staging" \
+           --logs-prefix "${repoDir}/internal-logs" \
            --db-path ${kvDBLocationImporter} \
-           --keyfile "${repoDir}/secret-staging.key" \
+           --keyfile "${repoDir}/${KEY_FILE}" \
            --configuration-file "${repoDir}/lib/configuration.yaml" \
-           --configuration-key mainnet_dryrun_full \
+           --configuration-key ${CONFIG_KEY} \
            --postgres-name ${DB} --postgres-password ${DB_PASSWORD} \
            --postgres-host ${DB_HOST} --postgres-port ${DB_PORT} > ${logsFile}
 
@@ -45,13 +47,13 @@ fi
 
 logWithTimestamp "Getting hash of the tip block"
 stack exec -- cardano-postgres-consistency get-tip-hash \
-           --topology "/tmp/topology-staging.yaml" \
+           --topology "${topologyFile}" \
            --log-config "${repoDir}/blockchain-importer/log-config.yaml" \
-           --logs-prefix "${repoDir}/logs-staging" \
+           --logs-prefix "${repoDir}/internal-logs" \
            --db-path ${kvDBLocationImporter} \
-           --keyfile "${repoDir}/secret-staging.key" \
+           --keyfile "${repoDir}/${KEY_FILE}" \
            --configuration-file "${repoDir}/lib/configuration.yaml" \
-           --configuration-key mainnet_dryrun_full \
+           --configuration-key ${CONFIG_KEY} \
            --postgres-name ${DB} --postgres-password ${DB_PASSWORD} \
            --postgres-host ${DB_HOST} --postgres-port ${DB_PORT} > ${logsFile}
 
@@ -61,13 +63,13 @@ rm ${logsFile}
 
 logWithTimestamp "Running external tx range consistency test"
 stack exec -- cardano-postgres-consistency ext-range-const --tip-hash "${tipHash}" \
-           --topology "/tmp/topology-staging.yaml" \
+           --topology "${topologyFile}" \
            --log-config "${repoDir}/blockchain-importer/log-config.yaml" \
-           --logs-prefix "${repoDir}/logs-staging" \
+           --logs-prefix "${repoDir}/internal-logs" \
            --db-path ${kvDBLocationNode} \
-           --keyfile "${repoDir}/secret-staging.key" \
+           --keyfile "${repoDir}/${KEY_FILE}" \
            --configuration-file "${repoDir}/lib/configuration.yaml" \
-           --configuration-key mainnet_dryrun_full \
+           --configuration-key ${CONFIG_KEY} \
            --postgres-name ${DB} --postgres-password ${DB_PASSWORD} \
            --postgres-host ${DB_HOST} --postgres-port ${DB_PORT} > ${logsFile}
 
