@@ -22,7 +22,7 @@ kvDBLocationNode="$5"
 
 get_importer_height () {
   height=$(curl -s -H 'Content-Type: application/json' -X GET http://localhost:8200/api/stats/blocksCount | jq .Right)
-  return ${height}
+  echo ${height}
 }
 
 CONFIG_KEY=
@@ -48,12 +48,13 @@ for i in $(eval echo {1..$restartNumber})
       --postgres-name ${DB} --postgres-password ${DB_PASSWORD} \
       --postgres-host ${DB_HOST} --postgres-port ${DB_PORT} > /dev/null &
 
-    get_importer_height
-    logWithTimestamp "${i}: Waiting for blockchain-importer to import blocks, starting with $? blocks"
+    sleep 5s
+    blockHeight=$(get_importer_height)
+    logWithTimestamp "${i}: Waiting for blockchain-importer to import blocks, starting with ${blockHeight} blocks"
     sleep ${minutesBetweenRestart}m
     
-    get_importer_height
-    logWithTimestamp "${i}: Stopping node with height $?"
+    blockHeight=$(get_importer_height)
+    logWithTimestamp "${i}: Stopping node with height ${blockHeight}"
     kill -9 $!
  
     logWithTimestamp "${i}: Starting restart consistency test"

@@ -12,7 +12,8 @@ import           Data.List (tail)
 import           System.Wlog (logInfo)
 
 import qualified Pos.BlockchainImporter.Tables.TxsTable as TxsT (TxRow)
-import           Pos.Core (HasPrevBlock (prevBlockL), HeaderHash, headerHash)
+import           Pos.Core (BlockCount (..), HasPrevBlock (prevBlockL), HasProtocolConstants,
+                           HeaderHash, blkSecurityParam, headerHash)
 import           Pos.DB (getHeader, getTipHeader)
 import           Pos.GState.BlockExtra (resolveForwardLink)
 import           Pos.PostgresConsistency.Properties
@@ -118,9 +119,8 @@ getNextNBlkHashesFromHash n initialHash = if n <= 0 then pure [] else
           pure $ initialHash : hashesFromNext
 
 -- blkRangeSize selected to be 'k' (number of blocks rollbacked on new epoch) + 10
--- FIXME: 2160 should be obtained from the protocol constants
-blkRangeSize :: Int
-blkRangeSize = 2160 + 10
+blkRangeSize :: HasProtocolConstants => Int
+blkRangeSize = (fromIntegral $ getBlockCount $ blkSecurityParam) + 10
 
 --FIXME: Maybe use getTxOut to compare txs?
 txRowExists :: Maybe TxsT.TxRow -> Tx -> Bool

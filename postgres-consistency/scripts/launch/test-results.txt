@@ -1,0 +1,48 @@
+Consistency tests done (Important *):
+- Simple test of that postgres-consistency package works
+    Commit: 2c1b2803beb05f70a3dd1921fc2671e9bd1d5bd5
+    Details: Restarted the importer several times manually (using CTRL+C), verifying at each
+             step the internal consistency (using the script internal-consistency.sh)
+    Results: All checks were successful:
+      Stopped at  | Result
+      ----------------------------------------------------------------------
+      0           | Successful
+	    24188       | Successful
+	    41780       | Successful
+	    101150      | Successful: db had 832 utxos
+	    162719      | Successful: db had 933 utxos
+	    274863      | Successful: db had 935 utxos, took 5 minutes to complete
+	    358421      | Successful: db had 935 utxos, took 5 minutes to complete
+	    398001      | Successful: db had 935 utxos, took 3 minutes to complete
+-* Verify the internal consistency of the staging postgres db
+    Commit: 2c1b2803beb05f70a3dd1921fc2671e9bd1d5bd5
+    Details: Ran the internal-consistency.sh script with the external tx range test disabled
+    Results: All checks were successful
+- Verify the random external consistency of the staging postgres db
+    Date: 3 of July 2018
+    Commit: 2c1b2803beb05f70a3dd1921fc2671e9bd1d5bd5
+    Details: Compared the postgres db with Cardano node db obtained locally (both up-to-date).
+             Ran the test with different number of random blocks, using the now named random-external-consistency.sh
+    Results: All checks were successful:
+      # Blks  | Result
+      ----------------------------------------------------------------
+      10      | Successful, took 13 sec
+      100     | Successful, took 1 minute, 0 txs checked
+      1000    | Successful, took 1 minute, 2 txs checked
+-* Verify the sequential external consistency of the staging postgres db
+    Date: 4 of July 2018
+    Details: Compared the postgres db with Cardano node db obtained locally (both up-to-date).
+    Results: All checks were successful
+      Interval blks checked             | Result
+      ---------------------------------------------------------------------------------
+      [0-67000]        (67000 blocks)   | Successful, took 18 minutes, 836 txs checked
+                                        |   Commit: 43fd250ff97c6193d5b25ce25c34a68d7a9f5768
+      [869176-1211207] (345000 blocks)  | Successful, took 54 minutes, 1605 txs checked
+                                        | Tested from epoch 40 to latest block: 1211207 (15 epochs).
+                                        |   Commit: 176b01553335d554e73dcf28f695dd61e3c1dfba
+-* Restart various times the importer and check for internal consistency
+    Date: 5 of July 2018
+    Commit:
+    Details: Ran the restart-consistency.sh scripts, restarting the importer 10 times,
+             with 10 minutes between restart
+    Results: All checks were successful
