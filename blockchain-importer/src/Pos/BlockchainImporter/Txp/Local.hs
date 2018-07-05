@@ -13,7 +13,8 @@ import           Universum
 
 import qualified Data.HashMap.Strict as HM
 
-import           Pos.Core (BlockVersionData, EpochIndex, HasConfiguration, Timestamp)
+import           Pos.Core (BlockVersionData, EpochIndex, HasConfiguration, Timestamp,
+                           getCurrentTimestamp)
 import           Pos.Core.Txp (TxAux (..), TxId, TxUndo)
 import           Pos.Slotting (MonadSlots (getCurrentSlot), getSlotStart)
 import           Pos.StateLock (Priority (..), StateLock, StateLockMetrics, withStateLock)
@@ -27,7 +28,7 @@ import           Pos.Util.Util (HasLens')
 import           Pos.BlockchainImporter.Configuration (HasPostGresDB)
 import           Pos.BlockchainImporter.Core (TxExtra (..))
 import           Pos.BlockchainImporter.Txp.Toil (BlockchainImporterExtraModifier, ELocalToilM,
-                                                  eDeletePendingTxs, eInsertPendingTx,
+                                                  eApplyFailedTx, eApplyNewPendingTx,
                                                   eNormalizeToil, eProcessTx, eemLocalTxsExtra)
 
 type ETxpLocalWorkMode ctx m =
@@ -59,7 +60,7 @@ eTxProcessTransactionNoLock itw@(_, txAux) = getCurrentSlot >>= \case
         -- Then get when that @SlotId@ started and use that as a time for @Tx@.
         mTxTimestamp <- getSlotStart slot
         processRes <- txProcessTransactionAbstract buildEmptyContext (processTx' mTxTimestamp) itw
-        forM processRes $ eInsertPendingTx (taTx txAux)
+        forM processRes $ eApplyNewPendingTx (taTx txAux)
   where
     buildEmptyContext :: Utxo -> TxAux -> m ()
     buildEmptyContext _ _ = pure ()
@@ -71,7 +72,7 @@ eTxProcessTransactionNoLock itw@(_, txAux) = getCurrentSlot >>= \case
         -> (TxId, TxAux)
         -> ExceptT ToilVerFailure ELocalToilM TxUndo
     processTx' mTxTimestamp bvd epoch tx =
-        eProcessTx bvd epoch tx (TxExtra Nothing mTxTimestamp)
+        eProcessTx bvd epoch tx (TxExtra mTxTimestamp)
 
 -- | 1. Recompute UtxoView by current MemPool
 --   2. Remove invalid transactions from MemPool
@@ -82,7 +83,9 @@ eTxNormalize ::
 eTxNormalize = do
     extras <- MM.insertionsMap . view eemLocalTxsExtra <$> withTxpLocalData getTxpExtra
     invalidTxs <- txNormalizeAbstract buildEmptyContext (normalizeToil' extras)
-    whenJust invalidTxs eDeletePendingTxs
+    currTime <- getCurrentTimestamp
+    whenJust invalidTxs $
+             mapM_ $ \ptx -> eApplyFailedTx (taTx ptx) (Just currTime)
   where
     buildEmptyContext :: Utxo -> [TxAux] -> m ()
     buildEmptyContext _ _ = pure ()

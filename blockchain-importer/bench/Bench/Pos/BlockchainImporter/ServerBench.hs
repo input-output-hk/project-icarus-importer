@@ -17,6 +17,7 @@ import           Test.Pos.Configuration (withDefConfigurations)
 
 import           Pos.BlockchainImporter.BlockchainImporterMode (BlockchainImporterTestParams,
                                                                 runBlockchainImporterTestMode)
+import           Pos.BlockchainImporter.Configuration (withPostGresDB)
 import           Pos.BlockchainImporter.ExtraContext (ExtraContext (..), makeMockExtraCtx)
 import           Pos.BlockchainImporter.TestUtil (BlockNumber, SlotsPerEpoch,
                                                   generateValidBlockchainImporterMockableMode)
@@ -35,6 +36,8 @@ getBlocksTotalBench
     -> IO Integer
 getBlocksTotalBench (testParams, extraContext) =
     withDefConfigurations $ \_ ->
+      -- Postgres db is not mocked as it's never used
+      withPostGresDB (error "No postgres db configured") 0 $
         runBlockchainImporterTestMode testParams extraContext getBlocksTotal
 
 -- | This is used to generate the test environment. We don't do this while benchmarking
@@ -51,8 +54,10 @@ generateTestParams totalBlocksNumber slotsPerEpoch = do
     mode <- generateValidBlockchainImporterMockableMode totalBlocksNumber slotsPerEpoch
 
     -- The extra context so we can mock the functions.
+    -- Postgres db is not mocked as it's never used
     let extraContext :: ExtraContext
-        extraContext = withDefConfigurations $ const $ makeMockExtraCtx mode
+        extraContext = withPostGresDB (error "No postgres db configured") 0 $
+                          withDefConfigurations $ const $ makeMockExtraCtx mode
 
     pure (testParams, extraContext)
   where

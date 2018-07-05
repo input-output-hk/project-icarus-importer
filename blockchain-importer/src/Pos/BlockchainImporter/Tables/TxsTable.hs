@@ -1,13 +1,9 @@
-{-# LANGUAGE Arrows                #-}
-{-# LANGUAGE FlexibleContexts      #-}
-{-# LANGUAGE FlexibleInstances     #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE OverloadedStrings     #-}
-{-# LANGUAGE TemplateHaskell       #-}
+{-# LANGUAGE Arrows #-}
 
 module Pos.BlockchainImporter.Tables.TxsTable
-  ( -- * Data manipulation
-    insertTx
+  ( -- * Manipulation
+    insertConfirmedTx
+  , insertFailedTx
   , deleteTx
   ) where
 
@@ -25,33 +21,36 @@ import           Pos.BlockchainImporter.Tables.TxAddrTable (TxAddrRowPGR, TxAddr
 import qualified Pos.BlockchainImporter.Tables.TxAddrTable as TAT (insertTxAddresses)
 import           Pos.BlockchainImporter.Tables.Utils
 import           Pos.Core (timestampToUTCTimeL)
-import           Pos.Core.Txp (Tx (..), TxOut (..), TxOutAux (..))
+import           Pos.Core.Txp (Tx (..), TxId, TxOut (..), TxOutAux (..))
 import           Pos.Crypto (hash)
 
 
-data TxRowPoly h iAddrs iAmts oAddrs oAmts bn t = TxRow   { trHash          :: h
-                                                          , trInputsAddr    :: iAddrs
-                                                          , trInputsAmount  :: iAmts
-                                                          , trOutputsAddr   :: oAddrs
-                                                          , trOutputsAmount :: oAmts
-                                                          , trBlockNum      :: bn
-                                                          , trTime          :: t
-                                                          } deriving (Show)
+data TxRowPoly h iAddrs iAmts oAddrs oAmts bn t c = TxRow   { trHash          :: h
+                                                            , trInputsAddr    :: iAddrs
+                                                            , trInputsAmount  :: iAmts
+                                                            , trOutputsAddr   :: oAddrs
+                                                            , trOutputsAmount :: oAmts
+                                                            , trBlockNum      :: bn
+                                                            , trTime          :: t
+                                                            , trSucceeded     :: c
+                                                            } deriving (Show)
 
 type TxRowPGW = TxRowPoly (Column PGText)
                           (Column (PGArray PGText))
                           (Column (PGArray PGInt8))
                           (Column (PGArray PGText))
                           (Column (PGArray PGInt8))
-                          (Column PGInt8)
+                          (Column (Nullable PGInt8))
                           (Column (Nullable PGTimestamptz))
+                          (Column PGBool)
 type TxRowPGR = TxRowPoly (Column PGText)
                           (Column (PGArray PGText))
                           (Column (PGArray PGInt8))
                           (Column (PGArray PGText))
                           (Column (PGArray PGInt8))
-                          (Column PGInt8)
+                          (Column (Nullable PGInt8))
                           (Column (Nullable PGTimestamptz))
+                          (Column PGBool)
 
 $(makeAdaptorAndInstance "pTxs" ''TxRowPoly)
 
@@ -63,37 +62,46 @@ txsTable = Table "txs" (pTxs TxRow  { trHash            = required "hash"
                                     , trOutputsAmount   = required "outputs_amount"
                                     , trBlockNum        = required "block_num"
                                     , trTime            = required "time"
+                                    , trSucceeded       = required "succeeded"
                                     })
 
 txAddrTable :: Table TxAddrRowPGW TxAddrRowPGR
 txAddrTable = transactionAddrTable "tx_addresses"
 
+insertConfirmedTx :: Tx -> TxExtra -> Word64 -> PGS.Connection -> IO ()
+insertConfirmedTx tx txExtra blockHeight conn = insertTx tx txExtra (Just blockHeight) True conn
+
+insertFailedTx :: Tx -> TxExtra -> PGS.Connection -> IO ()
+insertFailedTx tx txExtra conn = insertTx tx txExtra Nothing False conn
+
 -- | Inserts a given Tx into the Tx history tables.
-insertTx :: Tx -> TxExtra -> Word64 -> PGS.Connection -> IO ()
-insertTx tx txExtra blockHeight conn = do
-  insertTxToHistory tx txExtra blockHeight conn
+insertTx :: Tx -> TxExtra -> Maybe Word64 -> Bool -> PGS.Connection -> IO ()
+insertTx tx txExtra maybeBlockHeight confirmed conn = do
+  insertTxToHistory tx txExtra maybeBlockHeight confirmed conn
   TAT.insertTxAddresses txAddrTable tx (teInputOutputs txExtra) conn
 
 -- | Inserts the basic info of a given Tx into the master Tx history table.
-insertTxToHistory :: Tx -> TxExtra -> Word64 -> PGS.Connection -> IO ()
-insertTxToHistory tx txExtra blockHeight conn = void $ runUpsert_ conn txsTable [row]
+insertTxToHistory :: Tx -> TxExtra -> Maybe Word64 -> Bool -> PGS.Connection -> IO ()
+insertTxToHistory tx TxExtra{..} blockHeight confirmed conn = void $ runUpsert_ conn txsTable [row]
   where
-    inputs  = toaOut <$> (catMaybes $ NE.toList $ teInputOutputs txExtra)
+    inputs  = toaOut <$> (catMaybes $ NE.toList $ teInputOutputs)
     outputs = NE.toList $ _txOutputs tx
     row = TxRow { trHash          = pgString $ hashToString (hash tx)
                 , trInputsAddr    = pgArray (pgString . addressToString . txOutAddress) inputs
                 , trInputsAmount  = pgArray (pgInt8 . coinToInt64 . txOutValue) inputs
                 , trOutputsAddr   = pgArray (pgString . addressToString . txOutAddress) outputs
                 , trOutputsAmount = pgArray (pgInt8 . coinToInt64 . txOutValue) outputs
-                , trBlockNum      = pgInt8 $ fromIntegral blockHeight
+                , trBlockNum      = fromMaybe (Opaleye.null) $
+                                              (toNullable . pgInt8 . fromIntegral) <$> blockHeight
                   -- FIXME: Tx time should never be None at this stage
                 , trTime          = maybeToNullable utcTime
+                , trSucceeded     = pgBool confirmed
                 }
-    utcTime = pgUTCTime . (^. timestampToUTCTimeL) <$> teReceivedTime txExtra
+    utcTime = pgUTCTime . (^. timestampToUTCTimeL) <$> teFullProcessTime
 
 -- | Deletes a Tx by Tx hash from the Tx history tables.
-deleteTx :: Tx -> PGS.Connection -> IO ()
-deleteTx tx conn = void $ runDelete_  conn $
+deleteTx :: TxId -> PGS.Connection -> IO ()
+deleteTx txId conn = void $ runDelete_  conn $
                                       Delete txsTable (\row -> trHash row .== txHash) rCount
   where
-    txHash = pgString $ hashToString (hash tx)
+    txHash = pgString $ hashToString txId

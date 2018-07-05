@@ -15,6 +15,7 @@ import           Test.QuickCheck.Monadic (assert, monadicIO, run)
 
 import           Pos.Arbitrary.Block ()
 import           Pos.BlockchainImporter.BlockchainImporterMode (runBlockchainImporterTestMode)
+import           Pos.BlockchainImporter.Configuration (HasPostGresDB, withPostGresDB)
 import           Pos.BlockchainImporter.ExtraContext (ExtraContext (..), makeExtraCtx,
                                                       makeMockExtraCtx)
 import           Pos.BlockchainImporter.TestUtil (emptyBlk,
@@ -38,7 +39,9 @@ import           Test.Pos.Configuration (withDefConfigurations)
 
 -- stack test cardano-sl-blockchain-importer --fast --test-arguments "-m Pos.BlockchainImporter.Web.Server"
 spec :: Spec
-spec = withDefConfigurations $ \_ -> do
+spec = withDefConfigurations $ \_ ->
+        -- Postgres db is not mocked as it's never used
+        withPostGresDB (error "No postgres db configured") 0 $ do
     describe "Pos.BlockchainImporter.Web.Server" $ do
         blocksTotalSpec
         blocksPagesTotalSpec
@@ -49,7 +52,7 @@ spec = withDefConfigurations $ \_ -> do
 
 -- | A spec with the following test invariant. If a block is generated, there is no way
 -- that blocksTotal could be less than 1.
-blocksTotalSpec :: HasConfigurations => Spec
+blocksTotalSpec :: (HasConfigurations, HasPostGresDB) => Spec
 blocksTotalSpec =
     describe "getBlockDifficulty"
     $ modifyMaxSuccess (const 200) $ do
@@ -62,7 +65,7 @@ blocksTotalSpec =
 
 -- | A spec with the simple test that @getBlocksPagesTotal@ works correct.
 -- It shows that two equal algorithms should work the same.
-blocksPagesTotalSpec :: HasConfiguration => Spec
+blocksPagesTotalSpec :: (HasConfiguration, HasPostGresDB) => Spec
 blocksPagesTotalSpec =
     describe "divRoundUp"
     $ modifyMaxSuccess (const 10000) $ do
@@ -78,7 +81,7 @@ blocksPagesTotalSpec =
 -- that blocksTotal could be different then the number of blocks on the blockchain.
 -- I originally thought that this is going to be faster then emulation, but seems the
 -- real issue of performance here is the block creation speed.
-blocksTotalUnitSpec :: HasConfigurations => Spec
+blocksTotalUnitSpec :: (HasConfigurations, HasPostGresDB) => Spec
 blocksTotalUnitSpec =
     describe "getBlocksTotal"
     $ modifyMaxSuccess (const 200) $ do
@@ -111,7 +114,7 @@ blocksTotalUnitSpec =
 -- | A spec with the following test invariant. If a block is generated, there is no way
 -- that blocksTotal could be less than 0.
 -- We don't have control over this block generation, so it really can be 0.
-blocksTotalFunctionalSpec :: HasConfigurations => Spec
+blocksTotalFunctionalSpec :: (HasConfigurations, HasPostGresDB) => Spec
 blocksTotalFunctionalSpec =
     describe "getBlocksTotalFunctional"
     $ modifyMaxSuccess (const 200) $ do
