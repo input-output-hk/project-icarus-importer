@@ -103,7 +103,8 @@ deletePendingTx txHash conn = void $ runDelete_   conn $
 -- | Get pending tx by hash
 getPendingTxByHash :: TxId -> PGS.Connection -> IO (Maybe PTxRecord)
 getPendingTxByHash txHash conn = do
-  txsMatched :: [(Text, [Text], [Int64], [Text], [Int64], UTCTime)] <- runSelect conn ptxByHashQuery
+  txsMatched  :: [(Text, [Text], [Int64], [Text], [Int64], UTCTime)]
+              <- runSelect conn ptxByHashQuery
   case txsMatched of
     [ (_, inpAddrs, inpAmounts, outAddrs, outAmounts, t) ] -> pure $ do
       inputs <- zipWithM toTxOutAux inpAddrs inpAmounts >>= nonEmpty

@@ -30,7 +30,6 @@ import           Pos.Core (timestampToUTCTimeL)
 import           Pos.Core.Txp (Tx (..), TxId, TxOut (..), TxOutAux (..))
 import           Pos.Crypto (hash)
 
-
 data TxRowPoly h iAddrs iAmts oAddrs oAmts bn t c = TxRow   { trHash          :: h
                                                             , trInputsAddr    :: iAddrs
                                                             , trInputsAmount  :: iAmts
@@ -84,13 +83,13 @@ insertFailedTx tx txExtra conn = insertTx tx txExtra Nothing False conn
 
 -- | Inserts a given Tx into the Tx history tables.
 insertTx :: Tx -> TxExtra -> Maybe Word64 -> Bool -> PGS.Connection -> IO ()
-insertTx tx txExtra maybeBlockHeight confirmed conn = do
-  insertTxToHistory tx txExtra maybeBlockHeight confirmed conn
+insertTx tx txExtra maybeBlockHeight succeeded conn = do
+  insertTxToHistory tx txExtra maybeBlockHeight succeeded conn
   TAT.insertTxAddresses txAddrTable tx (teInputOutputs txExtra) conn
 
 -- | Inserts the basic info of a given Tx into the master Tx history table.
 insertTxToHistory :: Tx -> TxExtra -> Maybe Word64 -> Bool -> PGS.Connection -> IO ()
-insertTxToHistory tx TxExtra{..} blockHeight confirmed conn = void $ runUpsert_ conn txsTable [row]
+insertTxToHistory tx TxExtra{..} blockHeight succeeded conn = void $ runUpsert_ conn txsTable [row]
   where
     inputs  = toaOut <$> (catMaybes $ NE.toList $ teInputOutputs)
     outputs = NE.toList $ _txOutputs tx
@@ -103,7 +102,7 @@ insertTxToHistory tx TxExtra{..} blockHeight confirmed conn = void $ runUpsert_ 
                                               (toNullable . pgInt8 . fromIntegral) <$> blockHeight
                   -- FIXME: Tx time should never be None at this stage
                 , trTime          = maybeToNullable utcTime
-                , trSucceeded     = pgBool confirmed
+                , trSucceeded     = pgBool succeeded
                 }
     utcTime = pgUTCTime . (^. timestampToUTCTimeL) <$> teFullProcessTime
 
