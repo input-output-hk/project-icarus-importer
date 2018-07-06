@@ -44,6 +44,7 @@ import           Pos.Web (serveImpl)
 
 import           Pos.BlockchainImporter.Aeson.ClientTypes ()
 import           Pos.BlockchainImporter.BlockchainImporterMode (BlockchainImporterMode)
+import           Pos.BlockchainImporter.Configuration (withPostGreTransactionM)
 import           Pos.BlockchainImporter.ExtraContext (HasBlockchainImporterCSLInterface (..))
 import           Pos.BlockchainImporter.Txp.Toil (eApplyFailedTx)
 import           Pos.BlockchainImporter.Web.Api (BlockchainImporterApi,
@@ -141,7 +142,7 @@ handleSendSTxError txAux sendErr = do
   currTime <- getCurrentTimestamp
   -- Remove pending tx if the tx is not already pending
   unless  (sendErr == TxProcessFailed ToilKnown) $
-          eApplyFailedTx (taTx txAux) (Just currTime)
+          withPostGreTransactionM $ eApplyFailedTx (taTx txAux) (Just currTime)
   let txHash = hash $ taTx txAux
   throwM $ sendSTxFailureToBIError txHash sendErr
 

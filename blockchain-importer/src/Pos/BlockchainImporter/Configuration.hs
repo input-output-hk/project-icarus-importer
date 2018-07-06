@@ -6,6 +6,7 @@ module Pos.BlockchainImporter.Configuration
        ( HasPostGresDB
        , withPostGresDB
        , withPostGreTransaction
+       , withPostGreTransactionM
        , maybePostGreStore
        , postGreOperate
        ) where
@@ -15,6 +16,7 @@ import           Universum
 import           Data.Reflection (Given (..), give, given)
 import           Data.Word (Word64)
 import qualified Database.PostgreSQL.Simple as PGS
+import           UnliftIO (MonadUnliftIO, withRunInIO)
 
 type HasPostGresDB = Given PostGresDBConfiguration
 
@@ -28,6 +30,9 @@ data PostGresDBConfiguration = PostGresDBConfiguration
 
 withPostGreTransaction :: HasPostGresDB => IO a -> IO a
 withPostGreTransaction = PGS.withTransaction (pgConnection given)
+
+withPostGreTransactionM :: forall m . (MonadUnliftIO m, MonadIO m, HasPostGresDB) => m () -> m ()
+withPostGreTransactionM m = withRunInIO $ \runInIO -> withPostGreTransaction $ runInIO m
 
 maybePostGreStore :: HasPostGresDB => Word64 -> (PGS.Connection -> IO ()) -> IO ()
 maybePostGreStore currBN storeFn
