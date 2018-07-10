@@ -140,7 +140,8 @@ handleSendSTxError ::
   => TxAux -> SendSTxFailure -> m a
 handleSendSTxError txAux sendErr = do
   currTime <- getCurrentTimestamp
-  -- Remove pending tx if the tx is not already pending
+  -- Handle separately the case that a tx was sent twice (ToilKnown error).
+  -- In that case, no change is done on the postgres db
   unless  (sendErr == TxProcessFailed ToilKnown) $
           withPostGreTransactionM $ eApplyFailedTx (taTx txAux) (Just currTime)
   let txHash = hash $ taTx txAux
