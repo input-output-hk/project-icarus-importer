@@ -36,8 +36,8 @@ import           Pos.Txp (Tx)
 externalConsistencyFromBlk :: ConsistencyCheckerEnv m => HeaderHash -> m Bool
 externalConsistencyFromBlk blkHashes = do
   validBestBlock <- consistentBestBlock
-  validTxsHistory <- allTxsStartingFromBlk txRowExists blkHashes
   validUtxos <- consistentUtxo
+  validTxsHistory <- allTxsStartingFromBlk txRowExists blkHashes
   pure $ validBestBlock && validTxsHistory && validUtxos
 
 {-
