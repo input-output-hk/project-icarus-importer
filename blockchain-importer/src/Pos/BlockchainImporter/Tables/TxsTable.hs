@@ -30,32 +30,40 @@ import           Pos.Core (timestampToUTCTimeL)
 import           Pos.Core.Txp (Tx (..), TxId, TxOut (..), TxOutAux (..))
 import           Pos.Crypto (hash)
 
-data TxRowPoly h iAddrs iAmts oAddrs oAmts bn t c = TxRow   { trHash          :: h
-                                                            , trInputsAddr    :: iAddrs
-                                                            , trInputsAmount  :: iAmts
-                                                            , trOutputsAddr   :: oAddrs
-                                                            , trOutputsAmount :: oAmts
-                                                            , trBlockNum      :: bn
-                                                            , trTime          :: t
-                                                            , trSucceeded     :: c
-                                                            } deriving (Show)
+{-
+  NOTE: The succeeded field can be obtained from checking whether the block number field is
+        null or not (it is only null if the tx failed). It was left for making more clear whether
+        a tx succeded or not.
 
-type TxRowPGW = TxRowPoly (Column PGText)
-                          (Column (PGArray PGText))
-                          (Column (PGArray PGInt8))
-                          (Column (PGArray PGText))
-                          (Column (PGArray PGInt8))
-                          (Column (Nullable PGInt8))
-                          (Column (Nullable PGTimestamptz))
-                          (Column PGBool)
-type TxRowPGR = TxRowPoly (Column PGText)
-                          (Column (PGArray PGText))
-                          (Column (PGArray PGInt8))
-                          (Column (PGArray PGText))
-                          (Column (PGArray PGInt8))
-                          (Column (Nullable PGInt8))
-                          (Column (Nullable PGTimestamptz))
-                          (Column PGBool)
+  FIXME: Normalize the DB and delete the succeeded field, replacing it by a virtual one.
+-}
+data TxRowPoly h iAddrs iAmts oAddrs oAmts bn t succ = TxRow  { trHash          :: h
+                                                              , trInputsAddr    :: iAddrs
+                                                              , trInputsAmount  :: iAmts
+                                                              , trOutputsAddr   :: oAddrs
+                                                              , trOutputsAmount :: oAmts
+                                                              , trBlockNum      :: bn
+                                                              , trTime          :: t
+                                                              , trSucceeded     :: succ
+                                                              } deriving (Show)
+
+type TxRowPGW = TxRowPoly (Column PGText)                   -- Tx hash
+                          (Column (PGArray PGText))         -- Inputs addresses
+                          (Column (PGArray PGInt8))         -- Inputs amounts
+                          (Column (PGArray PGText))         -- Outputs addresses
+                          (Column (PGArray PGInt8))         -- Outputs amounts
+                          (Column (Nullable PGInt8))        -- Block number
+                          (Column (Nullable PGTimestamptz)) -- Timestamp processing finished
+                          (Column PGBool)                   -- Was successful
+
+type TxRowPGR = TxRowPoly (Column PGText)                   -- Tx hash
+                          (Column (PGArray PGText))         -- Inputs addresses
+                          (Column (PGArray PGInt8))         -- Inputs amounts
+                          (Column (PGArray PGText))         -- Outputs addresses
+                          (Column (PGArray PGInt8))         -- Outputs amounts
+                          (Column (Nullable PGInt8))        -- Block number
+                          (Column (Nullable PGTimestamptz)) -- Timestamp processing finished
+                          (Column PGBool)                   -- Was successful
 
 type TxRow =  ( String, [String], [Int64], [String], [Int64])
 
