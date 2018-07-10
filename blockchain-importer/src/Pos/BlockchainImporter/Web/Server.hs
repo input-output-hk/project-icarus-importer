@@ -20,7 +20,8 @@ module Pos.BlockchainImporter.Web.Server
 
 import           Universum
 
-import           Control.Error.Util (exceptT, hoistEither)
+import           Control.Error.Util (exceptT, failWith, hoistEither)
+import           Control.Monad.Except (ExceptT, withExceptT)
 import           Data.Time.Units (Second)
 import           Formatting (build, sformat, (%))
 import           Mockable (Concurrently, Delay, Mockable, concurrently, delay)
@@ -34,22 +35,23 @@ import           Pos.Crypto (hash)
 
 import           Pos.Diffusion.Types (Diffusion (..))
 
-import           Pos.Core (difficultyL, getChainDifficulty)
+import           Pos.Core (difficultyL, getChainDifficulty, getCurrentTimestamp)
 import           Pos.Core.Block (Block)
-import           Pos.Core.Txp (taTx)
-import           Pos.Txp (MonadTxpLocal, txpProcessTx, verifyTx)
+import           Pos.Core.Txp (TxAux, taTx)
+import           Pos.Txp (MonadTxpLocal, ToilVerFailure (..), TxId, txpProcessTx, verifyTx)
 import           Pos.Txp.DB.Utxo (getTxOut)
 import           Pos.Web (serveImpl)
 
 import           Pos.BlockchainImporter.Aeson.ClientTypes ()
 import           Pos.BlockchainImporter.BlockchainImporterMode (BlockchainImporterMode)
+import           Pos.BlockchainImporter.Configuration (withPostGreTransactionM)
 import           Pos.BlockchainImporter.ExtraContext (HasBlockchainImporterCSLInterface (..))
+import           Pos.BlockchainImporter.Txp.Toil (eApplyFailedTx)
 import           Pos.BlockchainImporter.Web.Api (BlockchainImporterApi,
                                                  BlockchainImporterApiRecord (..),
                                                  blockchainImporterApi)
 import           Pos.BlockchainImporter.Web.ClientTypes (CEncodedSTx (..), decodeSTx)
 import           Pos.BlockchainImporter.Web.Error (BlockchainImporterError (..))
-
 
 
 ----------------------------------------------------------------
@@ -78,7 +80,7 @@ blockchainImporterHandlers
 blockchainImporterHandlers _diffusion =
     toServant (BlockchainImporterApiRecord
         { _blockCount         = getBlocksTotal
-        , _sendSignedTx       = sendSignedTx(_diffusion)
+        , _sendSignedTx       = sendEncodedSignedTx _diffusion
         }
         :: BlockchainImporterApiRecord (AsServerT m))
 
@@ -98,32 +100,52 @@ getBlocksTotal = do
     pure $ getBlockDifficulty tipBlock
 
 
-sendSignedTx
+sendEncodedSignedTx
      :: (BlockchainImporterMode ctx m, MonadTxpLocal m)
      => Diffusion m
      -> CEncodedSTx
      -> m ()
-sendSignedTx Diffusion{..} encodedSTx =
-  exceptT' (hoistEither $ decodeSTx encodedSTx) (const $ throwM eInvalidEnc) $ \txAux -> do
-    let txHash = hash $ taTx txAux
+sendEncodedSignedTx diff@Diffusion{..} encodedSTx =
+  exceptT' (hoistEither $ decodeSTx encodedSTx) (const $ throwM eInvalidEnc) $ \txAux ->
     -- FIXME: We are using only the confirmed UTxO, we should also take into account the pending txs
-    exceptT' (verifyTx getTxOut False txAux) (throwM . eInvalidTx txHash) $ \_ -> do
-      txProcessRes <- txpProcessTx (txHash, txAux)
-      whenLeft txProcessRes $ throwM . eProcessErr txHash
-      -- This is done for two reasons:
-      -- 1. In order not to overflow relay.
-      -- 2. To let other things (e. g. block processing) happen if
-      -- `newPayment`s are done continuously.
-      wasAccepted <- notFasterThan (6 :: Second) $ sendTx txAux
-      void $ unless wasAccepted $ (throwM $ eNotAccepted txHash)
-        where eInvalidEnc = Internal "Tx not broadcasted: invalid encoded tx"
-              eInvalidTx txHash reason = Internal $
-                  sformat ("Tx not broadcasted "%build%": "%build) txHash reason
-              eProcessErr txHash err = Internal $
-                  sformat ("Tx not broadcasted "%build%": error during process "%build) txHash err
-              eNotAccepted txHash = Internal $
-                  sformat  ("Tx broadcasted "%build%", not accepted by any peer") txHash
-              exceptT' e f g = exceptT f g e
+    exceptT' (sendSignedTx diff txAux) (handleSendSTxError txAux) (const $ pure ())
+    where eInvalidEnc = Internal "Tx not broadcasted: invalid encoded tx"
+          exceptT' e f g = exceptT f g e
+
+
+data SendSTxFailure = InvalidTx ToilVerFailure
+                    | TxProcessFailed ToilVerFailure
+                    | TxNotAccepted
+                    deriving Eq
+
+sendSignedTx
+     :: (BlockchainImporterMode ctx m, MonadTxpLocal m)
+     => Diffusion m
+     -> TxAux
+     -> ExceptT SendSTxFailure m ()
+sendSignedTx Diffusion {..} txAux = do
+  let txHash = hash $ taTx txAux
+  _ <- withExceptT InvalidTx $ verifyTx getTxOut False txAux
+  _ <- withExceptT TxProcessFailed $ ExceptT $ txpProcessTx (txHash, txAux)
+  -- FIXME: Replace 6 second limit with a lower value?
+  -- This is done for two reasons:
+  -- 1. In order not to overflow relay.
+  -- 2. To let other things (e. g. block processing) happen if
+  -- `newPayment`s are done continuously.
+  wasAccepted <- lift $ notFasterThan (6 :: Second) $ sendTx txAux
+  void $ unless wasAccepted $ (failWith TxNotAccepted Nothing)
+
+handleSendSTxError ::
+     (BlockchainImporterMode ctx m, MonadTxpLocal m)
+  => TxAux -> SendSTxFailure -> m a
+handleSendSTxError txAux sendErr = do
+  currTime <- getCurrentTimestamp
+  -- Handle separately the case that a tx was sent twice (ToilKnown error).
+  -- In that case, no change is done on the postgres db
+  unless  (sendErr == TxProcessFailed ToilKnown) $
+          withPostGreTransactionM $ eApplyFailedTx (taTx txAux) (Just currTime)
+  let txHash = hash $ taTx txAux
+  throwM $ sendSTxFailureToBIError txHash sendErr
 
 
 --------------------------------------------------------------------------------
@@ -134,6 +156,13 @@ sendSignedTx Diffusion{..} encodedSTx =
 getBlockDifficulty :: Block -> Integer
 getBlockDifficulty tipBlock = fromIntegral $ getChainDifficulty $ tipBlock ^. difficultyL
 
+sendSTxFailureToBIError :: TxId -> SendSTxFailure -> BlockchainImporterError
+sendSTxFailureToBIError txHash failure = Internal $ case failure of
+  InvalidTx reason -> sformat ("Tx not broadcasted "%build%": "%build)
+                              txHash reason
+  TxProcessFailed err -> sformat  ("Tx not broadcasted "%build%": error during process "%build)
+                                  txHash err
+  TxNotAccepted -> sformat  ("Tx broadcasted "%build%", not accepted by any peer") txHash
 
 ----------------------------------------------------------------------------
 -- Utilities

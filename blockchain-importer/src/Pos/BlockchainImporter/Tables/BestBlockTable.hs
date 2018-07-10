@@ -1,9 +1,4 @@
-{-# LANGUAGE Arrows                #-}
-{-# LANGUAGE FlexibleContexts      #-}
-{-# LANGUAGE FlexibleInstances     #-}
-{-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE OverloadedStrings     #-}
-{-# LANGUAGE TemplateHaskell       #-}
+{-# LANGUAGE Arrows #-}
 
 module Pos.BlockchainImporter.Tables.BestBlockTable
   ( -- * Data manipulation

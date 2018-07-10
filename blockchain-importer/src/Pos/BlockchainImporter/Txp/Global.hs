@@ -6,12 +6,10 @@ module Pos.BlockchainImporter.Txp.Global
 
 import           Universum
 
-import           UnliftIO (MonadUnliftIO, withRunInIO)
-
 import           Pos.Core (ComponentBlock (..), HasConfiguration, HeaderHash, SlotId (..),
                            difficultyL, epochIndexL, headerHash, headerSlotL)
 import           Pos.Core.Txp (TxAux, TxUndo)
-import           Pos.DB (SomeBatchOp (..))
+import           Pos.DB (MonadDBRead, SomeBatchOp (..))
 import           Pos.Slotting (getSlotStart)
 import           Pos.Txp (ProcessBlundsSettings (..), TxpBlund, TxpGlobalApplyMode,
                           TxpGlobalRollbackMode, TxpGlobalSettings (..), applyBlocksWith,
@@ -19,7 +17,7 @@ import           Pos.Txp (ProcessBlundsSettings (..), TxpBlund, TxpGlobalApplyMo
 import           Pos.Txp.Toil
 import           Pos.Util.Chrono (NewestFirst (..))
 
-import           Pos.BlockchainImporter.Configuration (HasPostGresDB, withPostGreTransaction)
+import           Pos.BlockchainImporter.Configuration (HasPostGresDB, withPostGreTransactionM)
 import           Pos.BlockchainImporter.Txp.Toil (BlockchainImporterExtraModifier (..),
                                                   EGlobalToilM, eApplyToil, eRollbackToil)
 
@@ -30,12 +28,9 @@ blockchainImporterTxpGlobalSettings =
     txpGlobalSettings
     { tgsApplyBlocks = applyBlocksWith applySettings
     , tgsRollbackBlocks = processBlunds rollbackSettings . getNewestFirst
-    , tgsApplyBlockModifier = withPGSTransactionM
-    , tgsRollbackBlockModifier = withPGSTransactionM
+    , tgsApplyBlockModifier = withPostGreTransactionM
+    , tgsRollbackBlockModifier = withPostGreTransactionM
     }
-
-withPGSTransactionM :: forall m . (MonadUnliftIO m, MonadIO m, HasPostGresDB) => m () -> m ()
-withPGSTransactionM m = withRunInIO $ \runInIO -> withPostGreTransaction $ runInIO m
 
 applySettings ::
        (TxpGlobalApplyMode ctx m, HasConfiguration, HasPostGresDB)
@@ -93,11 +88,11 @@ applySingle txpBlund = do
     -- Get the timestamp from that information.
     mTxTimestamp <- getSlotStart slotId
 
-    let (txAuxesAndUndos, hHash) = blundToAuxNUndoWHash txpBlund
-    eApplyToil mTxTimestamp txAuxesAndUndos (hHash, blockHeight)
+    let (txAuxesAndUndos, _) = blundToAuxNUndoWHash txpBlund
+    eApplyToil mTxTimestamp txAuxesAndUndos blockHeight
 
 rollbackSingle ::
-       forall m. (HasConfiguration, HasPostGresDB, MonadIO m)
+       forall m. (HasConfiguration, HasPostGresDB, MonadIO m, MonadDBRead m)
     => TxpBlund -> m (EGlobalToilM ())
 rollbackSingle txpBlund =
   let txpBlock        = txpBlund ^. _1

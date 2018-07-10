@@ -37,6 +37,7 @@ import           Pos.Util (postfixLFields)
 import           Pos.Util.Mockable ()
 import           Pos.Util.Util (HasLens (..))
 
+import           Pos.BlockchainImporter.Configuration (HasPostGresDB)
 import           Pos.BlockchainImporter.ExtraContext (ExtraContext, ExtraContextT,
                                                       HasBlockchainImporterCSLInterface,
                                                       makeExtraCtx, runExtraContextT)
@@ -75,6 +76,7 @@ type BlockchainImporterMode ctx m =
     -- Txp, could be @TxpLocalWorkMode@
     , MinWorkMode m
     -- The rest of the constraints - logger, mockable, configurations
+    , HasPostGresDB
     )
 
 ----------------------------------------------------------------------------

@@ -10,8 +10,8 @@ module Pos.BlockchainImporter.Txp.Toil.Logic
       , eNormalizeToil
       , eProcessTx
         -- * Pending tx DB processing
-      , eInsertPendingTx
-      , eDeletePendingTxs
+      , eApplyNewPendingTx
+      , eApplyFailedTx
       ) where
 
 import           Universum
@@ -19,17 +19,19 @@ import           Universum
 import           Control.Monad.Except (mapExceptT)
 
 import           Pos.BlockchainImporter.Configuration (HasPostGresDB, maybePostGreStore,
-                                                       postGreStore)
+                                                       postGreOperate)
 import           Pos.BlockchainImporter.Core (TxExtra (..))
 import qualified Pos.BlockchainImporter.Tables.BestBlockTable as BBT
 import qualified Pos.BlockchainImporter.Tables.PendingTxsTable as PTxsT
 import qualified Pos.BlockchainImporter.Tables.TxsTable as TxsT
 import qualified Pos.BlockchainImporter.Tables.UtxosTable as UT
 import           Pos.BlockchainImporter.Txp.Toil.Monad (EGlobalToilM, ELocalToilM)
-import           Pos.Core (BlockVersionData, EpochIndex, HasConfiguration, HeaderHash, Timestamp)
+import           Pos.Core (BlockVersionData, EpochIndex, HasConfiguration, Timestamp)
 import           Pos.Core.Txp (Tx (..), TxAux (..), TxId, TxIn (..), TxOutAux (..), TxUndo)
 import           Pos.Crypto (WithHash (..), hash)
+import           Pos.DB.Class (MonadDBRead)
 import           Pos.Txp.Configuration (HasTxpConfiguration)
+import           Pos.Txp.DB.Utxo (getTxOut)
 import           Pos.Txp.Toil (ToilVerFailure (..), extendGlobalToilM, extendLocalToilM)
 import qualified Pos.Txp.Toil as Txp
 import           Pos.Txp.Topsort (topsortTxs)
@@ -42,12 +44,12 @@ import qualified Pos.Util.Modifier as MM
 -- | Apply transactions from one block. They must be valid (for
 -- example, it implies topological sort).
 eApplyToil ::
-       forall m. (HasConfiguration, HasPostGresDB, MonadIO m)
+       forall m. (HasConfiguration, HasPostGresDB, MonadIO m, MonadDBRead m)
     => Maybe Timestamp
     -> [(TxAux, TxUndo)]
-    -> (HeaderHash, Word64)
+    -> Word64
     -> m (EGlobalToilM ())
-eApplyToil mTxTimestamp txun (hh, blockHeight) = do
+eApplyToil mTxTimestamp txun blockHeight = do
     -- Update best block
     liftIO $ maybePostGreStore blockHeight $ BBT.updateBestBlock blockHeight
 
@@ -57,20 +59,20 @@ eApplyToil mTxTimestamp txun (hh, blockHeight) = do
     liftIO $ maybePostGreStore blockHeight $ UT.applyModifierToUtxos $ applyUTxOModifier txun
 
     -- Update tx history
-    zipWithM_ (curry applier) [0..] txun
+    mapM_ applier txun
     return toilApplyUTxO
   where
-    applier :: (Word32, (TxAux, TxUndo)) -> m ()
-    applier (i, (txAux, txUndo)) = do
+    applier :: (TxAux, TxUndo) -> m ()
+    applier (txAux, txUndo) = do
         let tx = taTx txAux
-            newExtra = TxExtra (Just (hh, i)) mTxTimestamp txUndo
+            newExtra = TxExtra mTxTimestamp txUndo
 
-        liftIO $ maybePostGreStore blockHeight $ TxsT.insertTx tx newExtra blockHeight
-        eDeletePendingTxs [txAux]
+        liftIO $ maybePostGreStore blockHeight $ TxsT.insertConfirmedTx tx newExtra blockHeight
+        liftIO $ maybePostGreStore blockHeight $ PTxsT.deletePendingTx (hash tx)
 
 -- | Rollback transactions from one block.
 eRollbackToil ::
-     forall m. (HasConfiguration, HasPostGresDB, MonadIO m)
+     forall m. (HasConfiguration, HasPostGresDB, MonadIO m, MonadDBRead m)
   => [(TxAux, TxUndo)] -> Word64 -> m (EGlobalToilM ())
 eRollbackToil txun blockHeight = do
     -- Update best block
@@ -88,9 +90,10 @@ eRollbackToil txun blockHeight = do
     extraRollback :: (TxAux, TxUndo) -> m ()
     extraRollback (txAux, txUndo) = do
         let tx      = taTx txAux
+            txHash  = hash tx
 
-        liftIO $ maybePostGreStore blockHeight $ TxsT.deleteTx tx
-        eInsertPendingTx tx txUndo
+        liftIO $ maybePostGreStore blockHeight $ TxsT.deleteTx txHash
+        eApplyNewPendingTx tx txUndo
 
 ----------------------------------------------------------------------------
 -- Local
@@ -125,16 +128,38 @@ eNormalizeToil bvd curEpoch txs = catMaybes <$> mapM normalize ordered
     repair (i, (txAux, extra)) = ((i, txAux), const extra)
 
 -- | Inserts a pending tx to the Postgres DB
-eInsertPendingTx ::
+eApplyNewPendingTx ::
        (MonadIO m, HasPostGresDB)
     => Tx
     -> TxUndo
     -> m ()
-eInsertPendingTx tx txUndo = liftIO $ postGreStore $ PTxsT.insertPendingTx tx txUndo
+eApplyNewPendingTx tx txUndo = liftIO $ postGreOperate $ PTxsT.insertPendingTx tx txUndo
 
--- | Deletes a pending tx from the Postgres DB
-eDeletePendingTxs :: (MonadIO m, HasPostGresDB) => [TxAux] -> m ()
-eDeletePendingTxs txAuxs = mapM_ (liftIO . postGreStore . PTxsT.deletePendingTx . taTx) txAuxs
+{-| Deletes a pending tx from the Postgres DB and inserts it into the Txs table as a failed tx
+
+    Note that the tx that failed could have not being pending, as is the case where it failed
+    during it's processing. In that case, we attempt to obtain the inputs, returning them only
+    if we successfully get all of them
+-}
+eApplyFailedTx :: (MonadIO m, MonadDBRead m, HasPostGresDB) => Tx -> Maybe Timestamp -> m ()
+eApplyFailedTx ptx maybeTimestamp = do
+  let ptxId = hash ptx
+  maybePtx <- liftIO $ postGreOperate $ PTxsT.getPendingTxByHash ptxId
+  inputs <- case maybePtx of
+    Just pgPtx ->
+      pure $ Just <$> PTxsT.ptxInputs pgPtx
+    Nothing -> do
+      -- Fetch the tx inputs
+      -- If any of the inputs of the tx is not known, none is returned
+      knownInputs <- mapM getTxOut (_txInputs ptx)
+      let allInputsKnown = all isJust knownInputs
+          inputs         = if allInputsKnown then knownInputs
+                           else const Nothing <$> _txInputs ptx
+      pure inputs
+
+  whenJust maybePtx $ \_ ->
+           liftIO $ postGreOperate $ PTxsT.deletePendingTx ptxId
+  liftIO $ postGreOperate $ TxsT.insertFailedTx ptx (TxExtra maybeTimestamp inputs)
 
 ----------------------------------------------------------------------------
 -- Helpers
