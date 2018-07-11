@@ -19,8 +19,8 @@ import           UnliftIO (MonadUnliftIO)
 
 import           Pos.BlockchainImporter.Configuration (HasPostGresDB, postGreOperate)
 import qualified Pos.BlockchainImporter.Tables.BestBlockTable as BestBlkT (getBestBlock)
-import qualified Pos.BlockchainImporter.Tables.TxsTable as TxsT (TxRow, getTxByHash)
-import qualified Pos.BlockchainImporter.Tables.UtxosTable as UtxosT (UtxoRow, getUtxos)
+import qualified Pos.BlockchainImporter.Tables.TxsTable as TxsT (TxRecord, getTxByHash)
+import qualified Pos.BlockchainImporter.Tables.UtxosTable as UtxosT (UtxoRecord (..), getUtxos)
 import           Pos.Core (HasConfiguration, HasProtocolConstants, HeaderHash, getBlockCount,
                            getChainDifficulty)
 import           Pos.Core.Block (mainBlockTxPayload)
@@ -71,7 +71,7 @@ consistentUtxo = do
 
 allTxsStartingFromBlk ::
      ConsistencyCheckerEnv m
-  => (Maybe TxsT.TxRow -> Tx -> Bool)
+  => (Maybe TxsT.TxRecord -> Tx -> Bool)
   -> HeaderHash
   -> m Bool
 allTxsStartingFromBlk prop initialHash = do
@@ -83,7 +83,7 @@ allTxsStartingFromBlk prop initialHash = do
     allTxsFromBlkWithLogging ::
          ConsistencyCheckerEnv m
       => Int
-      -> (Maybe TxsT.TxRow -> Tx -> Bool)
+      -> (Maybe TxsT.TxRecord -> Tx -> Bool)
       -> HeaderHash
       -> m (Bool, Int)
     allTxsFromBlkWithLogging numberChecked txRowProp blkHash = do
@@ -98,7 +98,7 @@ allTxsStartingFromBlk prop initialHash = do
 
 allTxsFromManyBlksFullfilProp ::
      ConsistencyCheckerEnv m
-  => (Maybe TxsT.TxRow -> Tx -> Bool)
+  => (Maybe TxsT.TxRecord -> Tx -> Bool)
   -> [HeaderHash]
   -> m Bool
 allTxsFromManyBlksFullfilProp txRowProp blkHashes = do
@@ -135,7 +135,7 @@ internalConsistentTxAddr = do
 
 allTxsFromBlkFullFilProp ::
      ConsistencyCheckerEnv m
-  => (Maybe TxsT.TxRow -> Tx -> Bool)
+  => (Maybe TxsT.TxRecord -> Tx -> Bool)
   -> HeaderHash
   -> m Bool
 allTxsFromBlkFullFilProp txRowProp blkHash = do
@@ -163,13 +163,11 @@ getKVTxsByBlkHash blkHash = do
 getKVBestBlockNum :: ConsistencyCheckerEnv m => m Word64
 getKVBestBlockNum = getBlockCount . getChainDifficulty <$> getMaxSeenDifficulty
 
-containsUtxo :: [UtxosT.UtxoRow] -> Utxo -> Bool
+containsUtxo :: [UtxosT.UtxoRecord] -> Utxo -> Bool
 containsUtxo pgUtxos kvUtxos = isNothing $ find (\row -> not $ hasUtxoRow row kvUtxos) pgUtxos
 
-hasUtxoRow :: UtxosT.UtxoRow -> Utxo -> Bool
-hasUtxoRow (txHash, idx, receiver, amount) kvUtxos = isJust $ do
-  pgTxIn <- toTxIn txHash idx
-  pgTxOut <- toTxOut receiver amount
+hasUtxoRow :: UtxosT.UtxoRecord -> Utxo -> Bool
+hasUtxoRow (UtxosT.UtxoRecord pgTxIn pgTxOut) kvUtxos = isJust $ do
   kvOut <- Map.lookup pgTxIn kvUtxos
   if show kvOut == (show pgTxOut :: String) then Just ()
                                             else Nothing

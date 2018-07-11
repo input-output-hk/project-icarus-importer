@@ -2,7 +2,7 @@
 
 module Pos.BlockchainImporter.Tables.UtxosTable
   ( -- * Data types
-    UtxoRow
+    UtxoRecord (..)
     -- * Getters
   , getUtxos
     -- * Manipulation
@@ -23,6 +23,11 @@ import           Pos.Core.Txp (TxIn (..), TxOut (..), TxOutAux (..))
 import           Pos.Txp.Toil.Types (UtxoModifier)
 import qualified Pos.Util.Modifier as MM
 
+data UtxoRecord = UtxoRecord
+    { utxoInput  :: !TxIn
+    , utxoOutput :: !TxOutAux
+    }
+
 data UtxoRowPoly a b c d e = UtxoRow  { urUtxoId   :: a
                                       , urTxHash   :: b
                                       , urTxIndex  :: c
@@ -32,8 +37,6 @@ data UtxoRowPoly a b c d e = UtxoRow  { urUtxoId   :: a
 
 type UtxoRowPGW = UtxoRowPoly (Column PGText) (Column PGText) (Column PGInt4) (Column PGText) (Column PGInt8)
 type UtxoRowPGR = UtxoRowPoly (Column PGText) (Column PGText) (Column PGInt4) (Column PGText) (Column PGInt8)
-
-type UtxoRow = (Text, Int, Text, Int64)
 
 $(makeAdaptorAndInstance "pUtxos" ''UtxoRowPoly)
 
@@ -70,8 +73,13 @@ applyModifierToUtxos modifier conn = do
                     Delete utxosTable (\(UtxoRow sId _ _ _ _) -> in_ toDelete sId) rCount
 
 -- | Returns the utxo stored in the table
-getUtxos :: PGS.Connection -> IO [UtxoRow]
-getUtxos conn = runSelect conn utxosQuery
+getUtxos :: PGS.Connection -> IO [UtxoRecord]
+getUtxos conn = do
+  utxos :: [(Text, Int, Text, Int64)] <- runSelect conn utxosQuery
+  pure $ catMaybes $ (flip map) utxos $ \(inHash, inIndex, outReceiver, outAmount) -> do
+    input <- toTxIn inHash inIndex
+    output <- toTxOutAux outReceiver outAmount
+    pure $ UtxoRecord input output
   where utxosQuery = proc () -> do
           UtxoRow _ inHash inIndex outReceiver outAmount <- (selectTable utxosTable) -< ()
           A.returnA -< (inHash, inIndex, outReceiver, outAmount)

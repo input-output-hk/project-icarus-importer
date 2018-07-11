@@ -2,7 +2,7 @@
 
 module Pos.BlockchainImporter.Tables.TxsTable
   ( -- * Data types
-    TxRow
+    TxRecord
     -- * Getters
   , getTxByHash
     -- * Manipulation
@@ -14,9 +14,11 @@ module Pos.BlockchainImporter.Tables.TxsTable
 import           Universum
 
 import qualified Control.Arrow as A
+import           Control.Lens (from)
 import           Control.Monad (void)
 import qualified Data.List.NonEmpty as NE (toList)
 import           Data.Profunctor.Product.TH (makeAdaptorAndInstance)
+import           Data.Time.Clock (UTCTime)
 import qualified Database.PostgreSQL.Simple as PGS
 import           Opaleye
 import           Opaleye.RunSelect
@@ -26,9 +28,18 @@ import           Pos.BlockchainImporter.Tables.TxAddrTable (TxAddrRowPGR, TxAddr
                                                             transactionAddrTable)
 import qualified Pos.BlockchainImporter.Tables.TxAddrTable as TAT (insertTxAddresses)
 import           Pos.BlockchainImporter.Tables.Utils
-import           Pos.Core (timestampToUTCTimeL)
+import           Pos.Core (Timestamp, timestampToUTCTimeL)
 import           Pos.Core.Txp (Tx (..), TxId, TxOut (..), TxOutAux (..))
 import           Pos.Crypto (hash)
+
+data TxRecord = TxRecord
+    { txHash            :: !TxId
+    , txInputs          :: !(NonEmpty TxOutAux)
+    , txOutputs         :: !(NonEmpty TxOutAux)
+    , txBlockNum        :: !(Maybe Int64)
+    , txFullProcessTime :: !(Maybe Timestamp)
+    , txConfirmed       :: !Bool
+    }
 
 {-
   NOTE: The succeeded field can be obtained from checking whether the block number field is
@@ -64,8 +75,6 @@ type TxRowPGR = TxRowPoly (Column PGText)                   -- Tx hash
                           (Column (Nullable PGInt8))        -- Block number
                           (Column (Nullable PGTimestamptz)) -- Timestamp processing finished
                           (Column PGBool)                   -- Was successful
-
-type TxRow =  ( String, [String], [Int64], [String], [Int64])
 
 $(makeAdaptorAndInstance "pTxs" ''TxRowPoly)
 
@@ -122,13 +131,18 @@ deleteTx txId conn = void $ runDelete_  conn $
     txHash = pgString $ hashToString txId
 
 -- | Returns a tx by hash
-getTxByHash :: TxId -> PGS.Connection -> IO (Maybe TxRow)
+getTxByHash :: TxId -> PGS.Connection -> IO (Maybe TxRecord)
 getTxByHash txHash conn = do
-  txsMatched <- runSelect conn txByHashQuery
-  case txsMatched of
-    [ txMatched ] -> return $ Just txMatched
-    _             -> return Nothing
+  txsMatched  :: [(Text, [Text], [Int64], [Text], [Int64], Maybe Int64, Maybe UTCTime, Bool)]
+              <- runSelect conn txByHashQuery
+  pure $ case txsMatched of
+    [ ((_, inpAddrs, inpAmounts, outAddrs, outAmounts, blkNum, t, succeeded)) ] -> do
+      inputs <- zipWithM toTxOutAux inpAddrs inpAmounts >>= nonEmpty
+      outputs <- zipWithM toTxOutAux outAddrs outAmounts >>= nonEmpty
+      let time = t <&> (^. from timestampToUTCTimeL)
+      pure $ TxRecord txHash inputs outputs blkNum time succeeded
+    _ -> Nothing
     where txByHashQuery = proc () -> do
-            TxRow rowTxHash inputsAddr inputsAmount outputsAddr outputsAmount _ _ <- (selectTable txsTable) -< ()
+            TxRow rowTxHash inputsAddr inputsAmount outputsAddr outputsAmount blkNum t succ <- (selectTable txsTable) -< ()
             restrict -< rowTxHash .== (pgString $ hashToString txHash)
-            A.returnA -< (rowTxHash, inputsAddr, inputsAmount, outputsAddr, outputsAmount)
+            A.returnA -< (rowTxHash, inputsAddr, inputsAmount, outputsAddr, outputsAmount, blkNum, t, succ)

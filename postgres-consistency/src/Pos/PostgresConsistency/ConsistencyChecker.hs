@@ -11,7 +11,7 @@ import           Universum
 import           Data.List (tail)
 import           System.Wlog (logInfo)
 
-import qualified Pos.BlockchainImporter.Tables.TxsTable as TxsT (TxRow)
+import qualified Pos.BlockchainImporter.Tables.TxsTable as TxsT (TxRecord)
 import           Pos.Core (BlockCount (..), HasPrevBlock (prevBlockL), HasProtocolConstants,
                            HeaderHash, blkSecurityParam, headerHash)
 import           Pos.DB (getHeader, getTipHeader)
@@ -123,5 +123,5 @@ blkRangeSize :: HasProtocolConstants => Int
 blkRangeSize = (fromIntegral $ getBlockCount $ blkSecurityParam) + 10
 
 --FIXME: Maybe use getTxOut to compare txs?
-txRowExists :: Maybe TxsT.TxRow -> Tx -> Bool
+txRowExists :: Maybe TxsT.TxRecord -> Tx -> Bool
 txRowExists maybeTxRow _ = isJust maybeTxRow
