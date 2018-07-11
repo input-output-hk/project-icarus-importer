@@ -21,25 +21,12 @@ check_succeded_on_logs () {
   fi
 }
 
-# Chain options: 'mainnet', 'staging', 'local-staging'
+# Chain options: 'mainnet', 'staging'
 setup_chain_config () {
-  scriptsDir="$1"
-  chain="$2"
-
-  # Setup db
-  if [ ${chain} = "local-staging" ]; then
-    source "${scriptsDir}/setup-localDB.sh"
-  elif [ ${chain} = "staging" ]; then
-    source "${scriptsDir}/setup-stagingDB.sh"
-  elif [ ${chain} = "mainnet" ]; then
-    source "${scriptsDir}/setup-mainnetDB.sh"
-  else
-    logWithTimestamp "Invalid chain ${chain} selected, choose between 'mainnet', 'staging' and 'local-staging'"
-    exit
-  fi
+  chain="$1"
 
   # Setup node configuration
-  if [ ${chain} = "staging" ] || [ ${chain} = "local-staging" ]; then
+  if [ ${chain} = "staging" ]; then
     CONFIG_KEY="mainnet_dryrun_full"
     KEY_FILE="secret-staging.key"
     TOPOLOGY_HOST="relays.awstest.iohkdev.io"
@@ -48,7 +35,7 @@ setup_chain_config () {
     KEY_FILE="secret-mainnet.key"
     TOPOLOGY_HOST="relays.cardano-mainnet.iohk.io"
   else
-    logWithTimestamp "Invalid chain ${chain} selected, choose between 'mainnet', 'staging' and 'local-staging'"
+    logWithTimestamp "Invalid chain ${chain} selected, choose between 'mainnet' and 'staging'"
     exit
   fi
   

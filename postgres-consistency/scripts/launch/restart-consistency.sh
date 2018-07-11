@@ -2,6 +2,7 @@
 
 # Requires:
 #   - Having the node key-value db up-to-date
+#   - Configuring the environment values for the postgres db (i.e.: source setup-localDB.sh)
 # Usage:
 #   ./restart-consistency.sh CHAIN RESTART_NUM MIN_BETWEEN_RESTART
 #                            IMPORTER_KV_DB_LOCATION NODE_KV_DB_LOCATION
@@ -28,7 +29,7 @@ get_importer_height () {
 CONFIG_KEY=
 KEY_FILE=
 TOPOLOGY_HOST=
-setup_chain_config ${scriptDir} ${chain}
+setup_chain_config ${chain}
 
 logWithTimestamp "Doing setup"
 ${repoDir}/scripts/build/cardano-sl.sh blockchain-importer > /dev/null
@@ -46,7 +47,7 @@ for i in $(eval echo {1..$restartNumber})
       --configuration-file "${repoDir}/lib/configuration.yaml" \
       --configuration-key ${CONFIG_KEY} \
       --postgres-name ${DB} --postgres-password ${DB_PASSWORD} \
-      --postgres-host ${DB_HOST} --postgres-port ${DB_PORT} > /dev/null &
+      --postgres-host ${DB_HOST} --postgres-port ${DB_PORT} &
 
     sleep 5s
     blockHeight=$(get_importer_height)

@@ -24,7 +24,7 @@ kvDBLocation="$4"
 CONFIG_KEY=
 KEY_FILE=
 TOPOLOGY_HOST=
-setup_chain_config ${scriptDir} ${chain}
+setup_chain_config ${chain}
 
 # FIXME: Do npm install node-fetch?
 logWithTimestamp "Doing setup"

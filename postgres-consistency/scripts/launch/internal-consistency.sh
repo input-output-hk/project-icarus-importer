@@ -2,6 +2,7 @@
 
 # Requires:
 #   - Having the node key-value db up-to-date
+#   - Configuring the environment values for the postgres db (i.e.: source setup-localDB.sh)
 # Usage:
 #   ./internal-consistency.sh CHAIN IMPORTER_KV_DB_LOCATION NODE_KV_DB_LOCATION
 
@@ -20,7 +21,7 @@ kvDBLocationNode="$3"
 CONFIG_KEY=
 KEY_FILE=
 TOPOLOGY_HOST=
-setup_chain_config ${scriptDir} ${chain}
+setup_chain_config ${chain}
 
 logWithTimestamp "Doing setup"
 ${repoDir}/scripts/build/cardano-sl.sh postgres-consistency > /dev/null

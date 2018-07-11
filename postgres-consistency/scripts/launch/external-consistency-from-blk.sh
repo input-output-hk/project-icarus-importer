@@ -22,7 +22,7 @@ startingBlk="$3"
 CONFIG_KEY=
 KEY_FILE=
 TOPOLOGY_HOST=
-setup_chain_config ${scriptDir} ${chain}
+setup_chain_config ${chain}
 
 logWithTimestamp "Doing setup"
 ${repoDir}/scripts/build/cardano-sl.sh postgres-consistency > /dev/null
