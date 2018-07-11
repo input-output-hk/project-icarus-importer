@@ -1,6 +1,5 @@
 Consistency tests done (Important *):
 - Simple test of that importer-db-consistency package works
-    Commit: 2c1b2803beb05f70a3dd1921fc2671e9bd1d5bd5
     Details: Restarted the importer several times manually (using CTRL+C), verifying at each
              step the internal consistency (using the script internal-consistency.sh)
     Results: All checks were successful:
@@ -15,12 +14,10 @@ Consistency tests done (Important *):
 	    358421      | Successful: db had 935 utxos, took 5 minutes to complete
 	    398001      | Successful: db had 935 utxos, took 3 minutes to complete
 -* Verify the internal consistency of the staging postgres db
-    Commit: 2c1b2803beb05f70a3dd1921fc2671e9bd1d5bd5
     Details: Ran the internal-consistency.sh script with the external tx range test disabled
     Results: All checks were successful
 - Verify the random external consistency of the staging postgres db
     Date: 3 of July 2018
-    Commit: 2c1b2803beb05f70a3dd1921fc2671e9bd1d5bd5
     Details: Compared the postgres db with Cardano node db obtained locally (both up-to-date).
              Ran the test with different number of random blocks, using the now named random-external-consistency.sh
     Results: All checks were successful:
@@ -42,7 +39,6 @@ Consistency tests done (Important *):
                                         |   Commit: 176b01553335d554e73dcf28f695dd61e3c1dfba
 -* Restart various times the importer and check for internal consistency
     Date: 5 of July 2018
-    Commit: 176b01553335d554e73dcf28f695dd61e3c1dfba
     Details: Ran the restart-consistency.sh scripts, restarting the importer 10 times,
              with 10 minutes between restart
     Results: All checks were successful

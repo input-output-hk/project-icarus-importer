@@ -71,11 +71,11 @@ externalConsistencyRandom blkHashes = do
 internalConsistencyCheck :: ConsistencyCheckerEnv m => m Bool
 internalConsistencyCheck = do
   lastNBlocks <- getLastNBlkHashes blkRangeSize
-  validLast10BlksTxs <- allTxsFromManyBlksFullfilProp txRowExists lastNBlocks
+  validLastNBlksTxs <- allTxsFromManyBlksFullfilProp txRowExists lastNBlocks
   validUtxos <- consistentUtxo
   validTxAddr <- internalConsistentTxAddr
   validBestBlock <- consistentBestBlock
-  pure $ validLast10BlksTxs && validUtxos && validTxAddr && validBestBlock
+  pure $ validLastNBlksTxs && validUtxos && validTxAddr && validBestBlock
 
 {-
   Check consistency of the latest blocks with the key-value db of an up-to-date node

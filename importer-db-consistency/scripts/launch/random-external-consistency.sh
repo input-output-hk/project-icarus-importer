@@ -26,7 +26,7 @@ KEY_FILE=
 TOPOLOGY_HOST=
 setup_chain_config ${chain}
 
-# FIXME: Do npm install node-fetch?
+# FIXME: Do npm install node-fetch lodash?
 logWithTimestamp "Doing setup"
 ${repoDir}/scripts/build/cardano-sl.sh importer-db-consistency > /dev/null
 printf "wallet:\n relays: [[{ host: ${TOPOLOGY_HOST} }]]\n valency: 1\n fallbacks: 7" > ${topologyFile}

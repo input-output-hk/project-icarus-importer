@@ -1,10 +1,12 @@
 var fetch = require("node-fetch");
+var lodash = require("lodash");
 
 const serverRoute = 'https://explorer.iohkdev.io/api';
 
 const slotsPerEpoch = 21600;
 
 const randomNumberWithMax = function (topNumber) {
+  // TODO: Improve random method used
   return Math.floor((Math.random() * topNumber));
 }
 
@@ -69,7 +71,7 @@ const getRandomBlkHashes = function (topEpoch, numGenerated) {
   
   // FIXME: Do requests in batches to not kill the explorer
   return Promise.all(epochAndSlotGen.map(([epochGen, slotGen]) =>
-            epochAndSlotToBlkHash(epochGen, slotGen))).then(removeNullFromArray);
+            epochAndSlotToBlkHash(epochGen, slotGen))).then(lodash.compact);
 };
 
 /**
