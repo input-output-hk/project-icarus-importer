@@ -12,3 +12,9 @@ Consistency tests done (Important *):
       ---------------------------------------------------------------------------------
       [1079876-1250876] (171000 blocks) | Successful, took 1 hour and 18 minutes, 56937 txs checked
                                         | Tested from epoch 50 to latest block: 1250876 (7 epochs).
+-* Restart various times the importer and check for internal consistency
+    Date: 11 of July 2018
+    Commit: f0434f4744e803c91eac2b5e52b0d863dd2fcc93
+    Details: Ran the restart-consistency.sh scripts, restarting the importer 10 times,
+             with 10 minutes between restart
+    Results: All checks were successful

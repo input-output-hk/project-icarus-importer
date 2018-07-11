@@ -1,4 +1,4 @@
-module Pos.PostgresConsistency.Properties
+module Pos.ImporterDBConsistency.Properties
   (
     ConsistencyCheckerEnv
   , consistentBestBlock
@@ -28,7 +28,7 @@ import           Pos.Crypto (hash, hashHexF)
 import           Pos.DB (MonadDBRead, getHeader, getMaxSeenDifficulty)
 import           Pos.DB.Block (getBlock)
 import           Pos.GState.BlockExtra (resolveForwardLink)
-import           Pos.PostgresConsistency.Utils
+import           Pos.ImporterDBConsistency.Utils
 import           Pos.Txp (Tx, TxAux (..), Utxo, flattenTxPayload)
 import           Pos.Txp.DB (getAllPotentiallyHugeUtxo)
 

@@ -82,11 +82,11 @@ blockchain-importer-node.log
 blockchain-importer.log
 socket-io.log
 
-# postgres-consistency
-postgres-consistency-node.log.*
-postgres-consistency-node.log
-postgres-consistency.log
-postgres-consistency/scripts/node_modules
+# importer-db-consistency
+importer-db-consistency-node.log.*
+importer-db-consistency-node.log
+importer-db-consistency.log
+importer-db-consistency/scripts/node_modules
 
 # importify
 .importify

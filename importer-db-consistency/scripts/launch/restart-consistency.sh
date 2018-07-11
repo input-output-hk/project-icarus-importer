@@ -9,7 +9,7 @@
 
 scriptDir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 repoDir="${scriptDir}/../../.."
-logsFile="${repoDir}/postgres-consistency/restartConsistency.log"
+logsFile="${repoDir}/importer-db-consistency/restartConsistency.log"
 topologyFile="/tmp/restart-topology.yaml"
 
 . ${scriptDir}/utils.sh

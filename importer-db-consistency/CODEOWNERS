@@ -9,5 +9,5 @@
 frontend/                       @sectore
 
 src/                            @ksaric
-src/Pos/PostgresConsistency/Socket/        @martoon
+src/Pos/ImporterDBConsistency/Socket/        @martoon
 test/                           @ksaric

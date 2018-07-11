@@ -32,14 +32,14 @@ import           Pos.DB.DB (initNodeDBs)
 import           Pos.Launcher (ConfigurationOptions (..), HasConfigurations, NodeParams (..),
                                NodeResources (..), bracketNodeResources, elimRealMode,
                                loggerBracket, withConfigurations)
-import           Pos.PostgresConsistency.ConsistencyChecker
-import           Pos.PostgresConsistency.Utils (decodeBlkHash)
+import           Pos.ImporterDBConsistency.ConsistencyChecker
+import           Pos.ImporterDBConsistency.Utils (decodeBlkHash)
 import           Pos.Util (logException)
 import           Pos.Util.CompileInfo (HasCompileInfo, retrieveCompileTimeInfo, withCompileInfo)
 import           Pos.Util.UserSecret (usVss)
-import           PostgresConsistencyNodeOptions (PostgresChecks (..), PostgresConsistencyArgs (..),
-                                                 PostgresConsistencyNodeArgs (..),
-                                                 getPostgresConsistencyNodeOptions)
+import           ImporterDBConsistencyNodeOptions (PostgresChecks (..), ImporterDBConsistencyArgs (..),
+                                                 ImporterDBConsistencyNodeArgs (..),
+                                                 getImporterDBConsistencyNodeOptions)
 
 loggerName :: LoggerName
 loggerName = "consistency-checker"
@@ -51,14 +51,14 @@ loggerName = "consistency-checker"
 --FIXME: Remove unnecessary parameters
 main :: IO ()
 main = do
-    args <- getPostgresConsistencyNodeOptions
+    args <- getImporterDBConsistencyNodeOptions
     let loggingParams = CLI.loggingParams loggerName (enaCommonNodeArgs args)
     loggerBracket loggingParams . logException "node" . runProduction $ do
         logInfo "[Attention] Software is built with blockchainImporter part"
         action args
 
-action :: PostgresConsistencyNodeArgs -> Production ()
-action (PostgresConsistencyNodeArgs (cArgs@CommonNodeArgs{..}) PostgresConsistencyArgs{..}) =
+action :: ImporterDBConsistencyNodeArgs -> Production ()
+action (ImporterDBConsistencyNodeArgs (cArgs@CommonNodeArgs{..}) ImporterDBConsistencyArgs{..}) =
     withConfigurations conf $ \ntpConfig -> do
       conn <- liftIO $ PGS.connect postGresConfig
       withPostGresDB conn storingStartBlockPG $
@@ -72,13 +72,13 @@ action (PostgresConsistencyNodeArgs (cArgs@CommonNodeArgs{..}) PostgresConsisten
 
             bracketNodeResources currentParams sscParams
               blockchainImporterTxpGlobalSettings initNodeDBs $ \nr ->
-                runPostgresConsistencyRealMode nr
+                runImporterDBConsistencyRealMode nr
   where
-    runPostgresConsistencyRealMode
+    runImporterDBConsistencyRealMode
         :: (HasConfigurations, HasCompileInfo, HasPostGresDB)
         => NodeResources BlockchainImporterExtraModifier
         -> Production ()
-    runPostgresConsistencyRealMode nr@NodeResources{..} =
+    runImporterDBConsistencyRealMode nr@NodeResources{..} =
         let extraCtx = makeExtraCtx
             blockchainImporterModeToRealMode = runBlockchainImporterProd extraCtx
             elim = elimRealMode nr

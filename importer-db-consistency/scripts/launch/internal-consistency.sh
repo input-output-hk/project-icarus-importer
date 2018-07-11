@@ -8,7 +8,7 @@
 
 scriptDir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 repoDir="${scriptDir}/../../.."
-logsFile="${repoDir}/postgres-consistency/internalConsistency.log"
+logsFile="${repoDir}/importer-db-consistency/internalConsistency.log"
 topologyFile="/tmp/internal-topology.yaml"
 
 . ${scriptDir}/utils.sh
@@ -24,11 +24,11 @@ TOPOLOGY_HOST=
 setup_chain_config ${chain}
 
 logWithTimestamp "Doing setup"
-${repoDir}/scripts/build/cardano-sl.sh postgres-consistency > /dev/null
+${repoDir}/scripts/build/cardano-sl.sh importer-db-consistency > /dev/null
 printf "wallet:\n relays: [[{ host: ${TOPOLOGY_HOST} }]]\n valency: 1\n fallbacks: 7" > ${topologyFile}
 
 logWithTimestamp "Running internal consistency test"
-stack exec -- cardano-postgres-consistency int-const \
+stack exec -- cardano-importer-db-consistency int-const \
            --topology "${topologyFile}" \
            --log-config "${repoDir}/blockchain-importer/log-config.yaml" \
            --logs-prefix "${repoDir}/internal-logs" \
@@ -47,7 +47,7 @@ if [ $? = 0 ]; then
 fi
 
 logWithTimestamp "Getting hash of the tip block"
-stack exec -- cardano-postgres-consistency get-tip-hash \
+stack exec -- cardano-importer-db-consistency get-tip-hash \
            --topology "${topologyFile}" \
            --log-config "${repoDir}/blockchain-importer/log-config.yaml" \
            --logs-prefix "${repoDir}/internal-logs" \
@@ -63,7 +63,7 @@ tipHash=${tipHash:10}
 rm ${logsFile}
 
 logWithTimestamp "Running external tx range consistency test"
-stack exec -- cardano-postgres-consistency ext-range-const --tip-hash "${tipHash}" \
+stack exec -- cardano-importer-db-consistency ext-range-const --tip-hash "${tipHash}" \
            --topology "${topologyFile}" \
            --log-config "${repoDir}/blockchain-importer/log-config.yaml" \
            --logs-prefix "${repoDir}/internal-logs" \

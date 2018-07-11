@@ -1,5 +1,5 @@
 Consistency tests done (Important *):
-- Simple test of that postgres-consistency package works
+- Simple test of that importer-db-consistency package works
     Commit: 2c1b2803beb05f70a3dd1921fc2671e9bd1d5bd5
     Details: Restarted the importer several times manually (using CTRL+C), verifying at each
              step the internal consistency (using the script internal-consistency.sh)
@@ -42,7 +42,7 @@ Consistency tests done (Important *):
                                         |   Commit: 176b01553335d554e73dcf28f695dd61e3c1dfba
 -* Restart various times the importer and check for internal consistency
     Date: 5 of July 2018
-    Commit:
+    Commit: 176b01553335d554e73dcf28f695dd61e3c1dfba
     Details: Ran the restart-consistency.sh scripts, restarting the importer 10 times,
              with 10 minutes between restart
     Results: All checks were successful

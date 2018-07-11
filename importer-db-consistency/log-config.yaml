@@ -2,12 +2,12 @@ rotation:
     logLimit: 5242880 # 5MB
     keepFiles: 20
 severity: Debug
-file: postgres-consistency-node.log
+file: importer-db-consistency-node.log
 node:
     plugin:
         notifier:
             severity: Debug
-            file: postgres-consistency.log
+            file: importer-db-consistency.log
             socket-io:
                 severity: Debug
                 file: socket-io.log

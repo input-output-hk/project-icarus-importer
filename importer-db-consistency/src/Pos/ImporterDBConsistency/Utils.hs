@@ -1,4 +1,4 @@
-module Pos.PostgresConsistency.Utils where
+module Pos.ImporterDBConsistency.Utils where
 
 import           Universum
 

@@ -15,7 +15,7 @@
 
 ## 0.2.0 (July 7-10, 2017)
 
-* Auto-generated documentation available at https://cardanodocs.com/technical/postgres-consistency/api/
+* Auto-generated documentation available at https://cardanodocs.com/technical/importer-db-consistency/api/
 * Upgraded the client-side with the new version of the libraries, now using purescript 0.11.5
 * Added `paging` for `blocks`, simplified API
 * Added and improved socket.io, simplified events

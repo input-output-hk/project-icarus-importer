@@ -33,7 +33,7 @@ packages:
 - auxx
 - explorer
 - blockchain-importer
-- postgres-consistency
+- importer-db-consistency
 - node
 - tools
 - wallet
@@ -234,7 +234,7 @@ ghc-options:
   cardano-sl-wallet:                -Werror
   cardano-sl-explorer:              -Werror
   cardano-sl-blockchain-importer:   -Werror
-  cardano-sl-postgres-consistency:  -Werror
+  cardano-sl-importer-db-consistency:  -Werror
   cardano-sl-node:                  -Werror
   cardano-sl-wallet-new:            -Werror
 

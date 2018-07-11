@@ -1,4 +1,4 @@
-name:                cardano-sl-postgres-consistency
+name:                cardano-sl-importer-db-consistency
 version:             1.1.1
 synopsis:            Blockchain Importer
 description:         Please see README.md
@@ -13,10 +13,10 @@ extra-source-files:  README.md
 cabal-version:       >=1.10
 
 library
-  exposed-modules:      Pos.PostgresConsistency.ConsistencyChecker
-                        Pos.PostgresConsistency.Utils
+  exposed-modules:      Pos.ImporterDBConsistency.ConsistencyChecker
+                        Pos.ImporterDBConsistency.Utils
 
-  other-modules:        Pos.PostgresConsistency.Properties
+  other-modules:        Pos.ImporterDBConsistency.Properties
 
   build-depends:        QuickCheck
                       , aeson
@@ -129,17 +129,17 @@ library
     ld-options:        -fuse-ld=gold
 
 
-executable cardano-postgres-consistency
-  hs-source-dirs:      src/postgres-consistency
+executable cardano-importer-db-consistency
+  hs-source-dirs:      src/importer-db-consistency
   main-is:             Main.hs
-  other-modules:       PostgresConsistencyNodeOptions
+  other-modules:       ImporterDBConsistencyNodeOptions
   build-depends:       base
                      , cardano-sl
                      , cardano-sl-core
                      , cardano-sl-crypto
                      , cardano-sl-db
                      , cardano-sl-infra
-                     , cardano-sl-postgres-consistency
+                     , cardano-sl-importer-db-consistency
                      , cardano-sl-networking
                      , cardano-sl-update
                      , cardano-sl-util

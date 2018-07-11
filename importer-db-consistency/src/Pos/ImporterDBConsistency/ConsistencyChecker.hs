@@ -1,4 +1,4 @@
-module Pos.PostgresConsistency.ConsistencyChecker
+module Pos.ImporterDBConsistency.ConsistencyChecker
   (
     externalConsistencyFromBlk
   , externalConsistencyRandom
@@ -16,8 +16,8 @@ import           Pos.Core (BlockCount (..), HasPrevBlock (prevBlockL), HasProtoc
                            HeaderHash, blkSecurityParam, headerHash)
 import           Pos.DB (getHeader, getTipHeader)
 import           Pos.GState.BlockExtra (resolveForwardLink)
-import           Pos.PostgresConsistency.Properties
-import           Pos.PostgresConsistency.Utils
+import           Pos.ImporterDBConsistency.Properties
+import           Pos.ImporterDBConsistency.Utils
 import           Pos.Txp (Tx)
 
 ----------------------------------------------------------------------------
