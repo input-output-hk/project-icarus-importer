@@ -2,20 +2,15 @@
 
 module Pos.BlockchainImporter.Core.Types
        ( TxExtra (..)
-       , AddrHistory
        ) where
 
 import           Universum
 
-import           Pos.Core (HeaderHash, Timestamp)
-import           Pos.Core.Txp (TxId, TxUndo)
-import           Pos.Util.Chrono (NewestFirst)
-
-type AddrHistory = NewestFirst [] TxId
+import           Pos.Core (Timestamp)
+import           Pos.Core.Txp (TxUndo)
 
 data TxExtra = TxExtra
-    { teBlockchainPlace :: !(Maybe (HeaderHash, Word32))
-    , teReceivedTime    :: !(Maybe Timestamp)
+    { teFullProcessTime :: !(Maybe Timestamp)
     -- non-strict on purpose, see comment in `processTxDo` in Pos.BlockchainImporter.Txp.Local
     , teInputOutputs    :: TxUndo
     } deriving (Show, Generic, Eq)

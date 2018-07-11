@@ -93,8 +93,8 @@ applySingle txpBlund = do
     -- Get the timestamp from that information.
     mTxTimestamp <- getSlotStart slotId
 
-    let (txAuxesAndUndos, hHash) = blundToAuxNUndoWHash txpBlund
-    eApplyToil mTxTimestamp txAuxesAndUndos (hHash, blockHeight)
+    let (txAuxesAndUndos, _) = blundToAuxNUndoWHash txpBlund
+    eApplyToil mTxTimestamp txAuxesAndUndos blockHeight
 
 rollbackSingle ::
        forall m. (HasConfiguration, HasPostGresDB, MonadIO m)
