@@ -35,7 +35,7 @@ import           Pos.Crypto (hash)
 
 import           Pos.Diffusion.Types (Diffusion (..))
 
-import           Pos.Core (difficultyL, getChainDifficulty, getCurrentTimestamp)
+import           Pos.Core (difficultyL, getChainDifficulty)
 import           Pos.Core.Block (Block)
 import           Pos.Core.Txp (TxAux, taTx)
 import           Pos.Txp (MonadTxpLocal, ToilVerFailure (..), TxId, txpProcessTx, verifyTx)
@@ -139,11 +139,10 @@ handleSendSTxError ::
      (BlockchainImporterMode ctx m, MonadTxpLocal m)
   => TxAux -> SendSTxFailure -> m a
 handleSendSTxError txAux sendErr = do
-  currTime <- getCurrentTimestamp
   -- Handle separately the case that a tx was sent twice (ToilKnown error).
   -- In that case, no change is done on the postgres db
   unless  (sendErr == TxProcessFailed ToilKnown) $
-          withPostGreTransactionM $ eApplyFailedTx (taTx txAux) (Just currTime)
+          withPostGreTransactionM $ eApplyFailedTx (taTx txAux)
   let txHash = hash $ taTx txAux
   throwM $ sendSTxFailureToBIError txHash sendErr
 

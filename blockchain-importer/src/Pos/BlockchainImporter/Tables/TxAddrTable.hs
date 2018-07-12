@@ -7,13 +7,8 @@
 
 module Pos.BlockchainImporter.Tables.TxAddrTable
   (
-    -- * Data types
-    TxAddrRowPGW
-  , TxAddrRowPGR
-    -- * Table creation
-  , transactionAddrTable
     -- * Data manipulation
-  , insertTxAddresses
+    insertTxAddresses
   ) where
 
 import           Universum
@@ -39,8 +34,8 @@ type TxAddrRowPGR = TxAddrRowPoly (Column PGText) (Column PGText)
 
 $(makeAdaptorAndInstance "pTxAddr" ''TxAddrRowPoly)
 
-transactionAddrTable :: String -> Table TxAddrRowPGW TxAddrRowPGR
-transactionAddrTable name = Table name (pTxAddr TxAddrRow { taHash    = required "tx_hash"
+txAddrTable :: Table TxAddrRowPGW TxAddrRowPGR
+txAddrTable = Table "tx_addresses" (pTxAddr TxAddrRow { taHash    = required "tx_hash"
                                                       , taAddress = required "address"
                                                       })
 
@@ -53,8 +48,8 @@ makeRowPGW txHash txAddr = TxAddrRow {..}
     address   = addressToString $ txAddr
 
 -- | Inserts the senders and receivers of a given Tx into the Tx addresses table.
-insertTxAddresses :: Table TxAddrRowPGW TxAddrRowPGR -> Tx -> TxUndo -> PGS.Connection -> IO ()
-insertTxAddresses txAddrTable tx txUndo conn = void $ runUpsert_ conn txAddrTable rows
+insertTxAddresses :: Tx -> TxUndo -> PGS.Connection -> IO ()
+insertTxAddresses tx txUndo conn = void $ runUpsert_ conn txAddrTable rows
   where
     txHash    = hashToString (hash tx)
     senders   = txOutAddress . toaOut <$> (catMaybes $ NE.toList $ txUndo)

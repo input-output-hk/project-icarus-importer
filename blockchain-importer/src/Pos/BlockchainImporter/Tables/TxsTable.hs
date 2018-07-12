@@ -2,13 +2,14 @@
 
 module Pos.BlockchainImporter.Tables.TxsTable
   ( -- * Data types
-    TxRecord
+    TxRecord (..)
     -- * Getters
   , getTxByHash
     -- * Manipulation
-  , insertConfirmedTx
-  , insertFailedTx
-  , deleteTx
+  , upsertSuccessfulTx
+  , upsertFailedTx
+  , upsertPendingTx
+  , markPendingTxsAsFailed
   ) where
 
 import           Universum
@@ -18,99 +19,157 @@ import           Control.Lens (from)
 import           Control.Monad (void)
 import qualified Data.List.NonEmpty as NE (toList)
 import           Data.Profunctor.Product.TH (makeAdaptorAndInstance)
-import           Data.Time.Clock (UTCTime)
+import           Data.Time.Clock (UTCTime, getCurrentTime)
 import qualified Database.PostgreSQL.Simple as PGS
 import           Opaleye
 import           Opaleye.RunSelect
 
 import           Pos.BlockchainImporter.Core (TxExtra (..))
-import           Pos.BlockchainImporter.Tables.TxAddrTable (TxAddrRowPGR, TxAddrRowPGW,
-                                                            transactionAddrTable)
 import qualified Pos.BlockchainImporter.Tables.TxAddrTable as TAT (insertTxAddresses)
 import           Pos.BlockchainImporter.Tables.Utils
 import           Pos.Core (Timestamp, timestampToUTCTimeL)
-import           Pos.Core.Txp (Tx (..), TxId, TxOut (..), TxOutAux (..))
+import           Pos.Core.Txp (Tx (..), TxId, TxOut (..), TxOutAux (..), TxUndo)
 import           Pos.Crypto (hash)
 
 data TxRecord = TxRecord
-    { txHash            :: !TxId
-    , txInputs          :: !(NonEmpty TxOutAux)
-    , txOutputs         :: !(NonEmpty TxOutAux)
-    , txBlockNum        :: !(Maybe Int64)
-    , txFullProcessTime :: !(Maybe Timestamp)
-    , txConfirmed       :: !Bool
+    { txHash      :: !TxId
+    , txInputs    :: !(NonEmpty TxOutAux)
+    , txOutputs   :: !(NonEmpty TxOutAux)
+    , txBlockNum  :: !(Maybe Int64)
+    , txTimestamp :: !(Maybe Timestamp)
+    , txState     :: !TxState
     }
 
-{-
-  NOTE: The succeeded field can be obtained from checking whether the block number field is
-        null or not (it is only null if the tx failed). It was left for making more clear whether
-        a tx succeded or not.
+data TxState  = Successful
+              | Failed
+              | Pending
+              deriving (Show, Read)
 
-  FIXME: Normalize the DB and delete the succeeded field, replacing it by a virtual one.
--}
-data TxRowPoly h iAddrs iAmts oAddrs oAmts bn t succ = TxRow  { trHash          :: h
-                                                              , trInputsAddr    :: iAddrs
-                                                              , trInputsAmount  :: iAmts
-                                                              , trOutputsAddr   :: oAddrs
-                                                              , trOutputsAmount :: oAmts
-                                                              , trBlockNum      :: bn
-                                                              , trTime          :: t
-                                                              , trSucceeded     :: succ
-                                                              } deriving (Show)
+-- trTimestamp is the moment the tx entered it's current state
+data TxRowPoly h iAddrs iAmts oAddrs oAmts bn t state last = TxRow  { trHash          :: h
+                                                                    , trInputsAddr    :: iAddrs
+                                                                    , trInputsAmount  :: iAmts
+                                                                    , trOutputsAddr   :: oAddrs
+                                                                    , trOutputsAmount :: oAmts
+                                                                    , trBlockNum      :: bn
+                                                                    , trTimestamp     :: t
+                                                                    , trState         :: state
+                                                                    , trLastUpdate    :: last
+                                                                    } deriving (Show)
 
-type TxRowPGW = TxRowPoly (Column PGText)                   -- Tx hash
+type TxRowPG = TxRowPoly  (Column PGText)                   -- Tx hash
                           (Column (PGArray PGText))         -- Inputs addresses
                           (Column (PGArray PGInt8))         -- Inputs amounts
                           (Column (PGArray PGText))         -- Outputs addresses
                           (Column (PGArray PGInt8))         -- Outputs amounts
                           (Column (Nullable PGInt8))        -- Block number
-                          (Column (Nullable PGTimestamptz)) -- Timestamp processing finished
-                          (Column PGBool)                   -- Was successful
-
-type TxRowPGR = TxRowPoly (Column PGText)                   -- Tx hash
-                          (Column (PGArray PGText))         -- Inputs addresses
-                          (Column (PGArray PGInt8))         -- Inputs amounts
-                          (Column (PGArray PGText))         -- Outputs addresses
-                          (Column (PGArray PGInt8))         -- Outputs amounts
-                          (Column (Nullable PGInt8))        -- Block number
-                          (Column (Nullable PGTimestamptz)) -- Timestamp processing finished
-                          (Column PGBool)                   -- Was successful
+                          (Column (Nullable PGTimestamptz)) -- Timestamp tx moved to current state
+                          (Column PGText)                   -- Tx state
+                          (Column PGTimestamptz)            -- Timestamp of the last update
 
 $(makeAdaptorAndInstance "pTxs" ''TxRowPoly)
 
-txsTable :: Table TxRowPGW TxRowPGR
+txsTable :: Table TxRowPG TxRowPG
 txsTable = Table "txs" (pTxs TxRow  { trHash            = required "hash"
                                     , trInputsAddr      = required "inputs_address"
                                     , trInputsAmount    = required "inputs_amount"
                                     , trOutputsAddr     = required "outputs_address"
                                     , trOutputsAmount   = required "outputs_amount"
                                     , trBlockNum        = required "block_num"
-                                    , trTime            = required "time"
-                                    , trSucceeded       = required "succeeded"
+                                    , trTimestamp       = required "time"
+                                    , trState           = required "tx_state"
+                                    , trLastUpdate      = required "last_update"
                                     })
 
-txAddrTable :: Table TxAddrRowPGW TxAddrRowPGR
-txAddrTable = transactionAddrTable "tx_addresses"
 
-insertConfirmedTx :: Tx -> TxExtra -> Word64 -> PGS.Connection -> IO ()
-insertConfirmedTx tx txExtra blockHeight conn = insertTx tx txExtra (Just blockHeight) True conn
+----------------------------------------------------------------------------
+-- Getters and manipulation
+----------------------------------------------------------------------------
 
-insertFailedTx :: Tx -> TxExtra -> PGS.Connection -> IO ()
-insertFailedTx tx txExtra conn = insertTx tx txExtra Nothing False conn
+-- | Returns a tx by hash
+getTxByHash :: TxId -> PGS.Connection -> IO (Maybe TxRecord)
+getTxByHash txHash conn = do
+  txsMatched  :: [(Text, [Text], [Int64], [Text], [Int64], Maybe Int64, Maybe UTCTime, String)]
+              <- runSelect conn txByHashQuery
+  pure $ case txsMatched of
+    [ ((_, inpAddrs, inpAmounts, outAddrs, outAmounts, blkNum, t, txStateString)) ] -> do
+      inputs <- zipWithM toTxOutAux inpAddrs inpAmounts >>= nonEmpty
+      outputs <- zipWithM toTxOutAux outAddrs outAmounts >>= nonEmpty
+      txState <- readMaybe txStateString
+      let time = t <&> (^. from timestampToUTCTimeL)
+      pure $ TxRecord txHash inputs outputs blkNum time txState
+    _ -> Nothing
+    where txByHashQuery = proc () -> do
+            TxRow rowTxHash inputsAddr inputsAmount outputsAddr outputsAmount blkNum t txState _ <- (selectTable txsTable) -< ()
+            restrict -< rowTxHash .== (pgString $ hashToString txHash)
+            A.returnA -< (rowTxHash, inputsAddr, inputsAmount, outputsAddr, outputsAmount, blkNum, t, txState)
 
--- | Inserts a given Tx into the Tx history tables.
-insertTx :: Tx -> TxExtra -> Maybe Word64 -> Bool -> PGS.Connection -> IO ()
-insertTx tx txExtra maybeBlockHeight succeeded conn = do
-  insertTxToHistory tx txExtra maybeBlockHeight succeeded conn
-  TAT.insertTxAddresses txAddrTable tx (teInputOutputs txExtra) conn
+{-|
+    Inserts a confirmed tx to the tx history table
+    If the tx was already present with a different state, it is moved to the confirmed one and
+    it's timestamp and last update are updated
+-}
+upsertSuccessfulTx :: Tx -> TxExtra -> Word64 -> PGS.Connection -> IO ()
+upsertSuccessfulTx tx txExtra blockHeight conn = upsertTx tx txExtra (Just blockHeight) Successful conn
 
--- | Inserts the basic info of a given Tx into the master Tx history table.
-insertTxToHistory :: Tx -> TxExtra -> Maybe Word64 -> Bool -> PGS.Connection -> IO ()
-insertTxToHistory tx TxExtra{..} blockHeight succeeded conn = void $ runUpsert_ conn txsTable [row]
+{-|
+    Inserts a failed tx to the tx history table with the current time as it's timestamp
+    If the tx was already present with a different state, it is moved to the failed one and
+    it's timestamp and last update are updated
+-}
+upsertFailedTx :: Tx -> TxUndo -> PGS.Connection -> IO ()
+upsertFailedTx tx txUndo conn = do
+  txExtra <- currentTxExtra txUndo
+  upsertTx tx txExtra Nothing Failed conn
+
+{-|
+    Inserts a pending tx to the tx history table with the current time as it's timestamp
+    If the tx was already present with a different state, it is moved to the pending one and
+    it's timestamp and last update are updated
+-}
+upsertPendingTx :: Tx -> TxUndo -> PGS.Connection -> IO ()
+upsertPendingTx tx txUndo conn = do
+  txExtra <- currentTxExtra txUndo
+  upsertTx tx txExtra Nothing Pending conn
+
+{-|
+    Marks all pending txs as failed
+    All the txs changed have their timestamp and last update changed to the current time
+-}
+markPendingTxsAsFailed :: PGS.Connection -> IO ()
+markPendingTxsAsFailed conn = do
+  currentTime <- getCurrentTime
+  let changePendingToFailed row = row
+                                    { trState      = show Failed
+                                    , trTimestamp  = toNullable $ pgUTCTime currentTime
+                                    , trLastUpdate = pgUTCTime currentTime
+                                    }
+      isPending row             = trState row .== show Pending
+  void $ runUpdate_ conn $ Update txsTable changePendingToFailed isPending rCount
+
+
+----------------------------------------------------------------------------
+-- Helpers
+----------------------------------------------------------------------------
+
+-- Inserts a given Tx into the Tx history tables with a given state (overriding any
+-- it if it was already present).
+upsertTx :: Tx -> TxExtra -> Maybe Word64 -> TxState -> PGS.Connection -> IO ()
+upsertTx tx txExtra maybeBlockHeight succeeded conn = do
+  upsertTxToHistory tx txExtra maybeBlockHeight succeeded conn
+  TAT.insertTxAddresses tx (teInputOutputs txExtra) conn
+
+-- Inserts the basic info of a given Tx into the master Tx history table (overriding any
+-- it if it was already present)
+upsertTxToHistory :: Tx -> TxExtra -> Maybe Word64 -> TxState -> PGS.Connection -> IO ()
+upsertTxToHistory tx TxExtra{..} blockHeight txState conn = do
+  currentTime <- getCurrentTime
+  void $ runUpsert_ conn txsTable [rowFromLastUpdate currentTime]
   where
-    inputs  = toaOut <$> (catMaybes $ NE.toList $ teInputOutputs)
-    outputs = NE.toList $ _txOutputs tx
-    row = TxRow { trHash          = pgString $ hashToString (hash tx)
+    inputs                        = toaOut <$> (catMaybes $ NE.toList $ teInputOutputs)
+    outputs                       = NE.toList $ _txOutputs tx
+    rowFromLastUpdate currentTime =
+          TxRow { trHash          = pgString $ hashToString (hash tx)
                 , trInputsAddr    = pgArray (pgString . addressToString . txOutAddress) inputs
                 , trInputsAmount  = pgArray (pgInt8 . coinToInt64 . txOutValue) inputs
                 , trOutputsAddr   = pgArray (pgString . addressToString . txOutAddress) outputs
@@ -118,31 +177,14 @@ insertTxToHistory tx TxExtra{..} blockHeight succeeded conn = void $ runUpsert_ 
                 , trBlockNum      = fromMaybe (Opaleye.null) $
                                               (toNullable . pgInt8 . fromIntegral) <$> blockHeight
                   -- FIXME: Tx time should never be None at this stage
-                , trTime          = maybeToNullable utcTime
-                , trSucceeded     = pgBool succeeded
+                , trTimestamp     = maybeToNullable $ timestampToPGTime <$> teTimestamp
+                , trState         = pgString $ show txState
+                , trLastUpdate    = pgUTCTime currentTime
                 }
-    utcTime = pgUTCTime . (^. timestampToUTCTimeL) <$> teFullProcessTime
+    timestampToPGTime = pgUTCTime . (^. timestampToUTCTimeL)
 
--- | Deletes a Tx by Tx hash from the Tx history tables.
-deleteTx :: TxId -> PGS.Connection -> IO ()
-deleteTx txId conn = void $ runDelete_  conn $
-                                      Delete txsTable (\row -> trHash row .== txHash) rCount
-  where
-    txHash = pgString $ hashToString txId
-
--- | Returns a tx by hash
-getTxByHash :: TxId -> PGS.Connection -> IO (Maybe TxRecord)
-getTxByHash txHash conn = do
-  txsMatched  :: [(Text, [Text], [Int64], [Text], [Int64], Maybe Int64, Maybe UTCTime, Bool)]
-              <- runSelect conn txByHashQuery
-  pure $ case txsMatched of
-    [ ((_, inpAddrs, inpAmounts, outAddrs, outAmounts, blkNum, t, succeeded)) ] -> do
-      inputs <- zipWithM toTxOutAux inpAddrs inpAmounts >>= nonEmpty
-      outputs <- zipWithM toTxOutAux outAddrs outAmounts >>= nonEmpty
-      let time = t <&> (^. from timestampToUTCTimeL)
-      pure $ TxRecord txHash inputs outputs blkNum time succeeded
-    _ -> Nothing
-    where txByHashQuery = proc () -> do
-            TxRow rowTxHash inputsAddr inputsAmount outputsAddr outputsAmount blkNum t succ <- (selectTable txsTable) -< ()
-            restrict -< rowTxHash .== (pgString $ hashToString txHash)
-            A.returnA -< (rowTxHash, inputsAddr, inputsAmount, outputsAddr, outputsAmount, blkNum, t, succ)
+currentTxExtra :: TxUndo -> IO TxExtra
+currentTxExtra txUndo = do
+  currentTime <- getCurrentTime
+  let currentTimestamp = currentTime ^. from timestampToUTCTimeL
+  pure $ TxExtra (Just currentTimestamp) txUndo

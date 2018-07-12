@@ -6,12 +6,12 @@ module Pos.BlockchainImporter.Txp.Global
 
 import           Universum
 
-import           Pos.Core (ComponentBlock (..), HasConfiguration, HeaderHash, SlotId (..),
-                           difficultyL, epochIndexL, headerHash, headerSlotL)
+import           Pos.Core (ComponentBlock (..), HasConfiguration, HasProtocolConstants, HeaderHash,
+                           SlotId (..), difficultyL, epochIndexL, headerHash, headerSlotL)
 import           Pos.Core.Txp (TxAux, TxUndo)
 import           Pos.DB (MonadDBRead, SomeBatchOp (..))
 import           Pos.Slotting (getSlotStart)
-import           Pos.Txp (ProcessBlundsSettings (..), TxpBlund, TxpGlobalApplyMode,
+import           Pos.Txp (ProcessBlundsSettings (..), TxpBlock, TxpBlund, TxpGlobalApplyMode,
                           TxpGlobalRollbackMode, TxpGlobalSettings (..), applyBlocksWith,
                           blundToAuxNUndo, processBlunds, txpGlobalSettings)
 import           Pos.Txp.Toil
@@ -68,22 +68,7 @@ applySingle txpBlund = do
     -- type TxpBlock = ComponentBlock TxPayload
 
     let txpBlock = txpBlund ^. _1
-    let (slotId, blockHeight) = case txpBlock of
-            ComponentBlockGenesis genesisBlock ->
-                (
-                    SlotId
-                        { siEpoch = genesisBlock ^. epochIndexL
-                        , siSlot  = minBound
-                        -- Genesis block doesn't have a slot, set to minBound
-                        }
-                    ,
-                    0
-                )
-            ComponentBlockMain mainHeader _  ->
-                (
-                    mainHeader ^. headerSlotL,
-                    fromIntegral $ mainHeader ^. difficultyL
-                )
+    let (slotId, blockHeight) = getBlockSlotAndHeight txpBlock
 
     -- Get the timestamp from that information.
     mTxTimestamp <- getSlotStart slotId
@@ -95,11 +80,9 @@ rollbackSingle ::
        forall m. (HasConfiguration, HasPostGresDB, MonadIO m, MonadDBRead m)
     => TxpBlund -> m (EGlobalToilM ())
 rollbackSingle txpBlund =
-  let txpBlock        = txpBlund ^. _1
-      blockHeight     = case txpBlock of
-            ComponentBlockGenesis _         -> 0
-            ComponentBlockMain mainHeader _ -> fromIntegral $ mainHeader ^. difficultyL
-      txAuxesAndUndos = blundToAuxNUndo txpBlund
+  let txpBlock         = txpBlund ^. _1
+      (_, blockHeight) = getBlockSlotAndHeight txpBlock
+      txAuxesAndUndos  = blundToAuxNUndo txpBlund
   in eRollbackToil txAuxesAndUndos blockHeight
 
 createEmptyEnv :: Applicative m => Utxo -> [TxAux] -> m ()
@@ -112,3 +95,18 @@ emptyExtraOp _ = mempty
 blundToAuxNUndoWHash :: TxpBlund -> ([(TxAux, TxUndo)], HeaderHash)
 blundToAuxNUndoWHash blund@(blk, _) =
     (blundToAuxNUndo blund, headerHash blk)
+
+getBlockSlotAndHeight :: HasProtocolConstants => TxpBlock -> (SlotId, Word64)
+getBlockSlotAndHeight txpBlock = case txpBlock of
+  ComponentBlockGenesis genesisBlock ->
+      ( SlotId
+            { siEpoch = genesisBlock ^. epochIndexL
+            , siSlot  = minBound
+            -- Genesis block doesn't have a slot, set to minBound
+            }
+      , 0
+      )
+  ComponentBlockMain mainHeader _  ->
+      ( mainHeader ^. headerSlotL
+      , fromIntegral $ mainHeader ^. difficultyL
+      )
