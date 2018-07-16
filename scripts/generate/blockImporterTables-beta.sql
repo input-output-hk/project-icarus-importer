@@ -21,6 +21,7 @@ CREATE TABLE txs 	( hash		          text      PRIMARY KEY
 
 CREATE TABLE tx_addresses ( tx_hash  text     REFERENCES txs ON DELETE CASCADE
 											    , address  text
+                          , PRIMARY KEY (tx_hash, address)
 											    );
 
 -- Indexes

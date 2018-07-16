@@ -164,7 +164,9 @@ upsertTx tx txExtra maybeBlockHeight succeeded conn = do
 upsertTxToHistory :: Tx -> TxExtra -> Maybe Word64 -> TxState -> PGS.Connection -> IO ()
 upsertTxToHistory tx TxExtra{..} blockHeight txState conn = do
   currentTime <- getCurrentTime
-  void $ runUpsert_ conn txsTable [rowFromLastUpdate currentTime]
+  void $ runUpsert_ conn txsTable ["hash"]
+                    ["block_num", "tx_state", "last_update", "time"]
+                    [rowFromLastUpdate currentTime]
   where
     inputs                        = toaOut <$> (catMaybes $ NE.toList $ teInputOutputs)
     outputs                       = NE.toList $ _txOutputs tx
