@@ -39,8 +39,8 @@ import           Serokell.Util.Text (listJson)
 import           System.Wlog (WithLogger)
 
 import           Pos.Block.Base (genesisBlock0)
-import           Pos.Core (Address, ChainDifficulty, HasConfiguration, Timestamp (..), difficultyL,
-                           headerHash, protocolMagic, GenesisHash (..), genesisHash)
+import           Pos.Core (Address, ChainDifficulty, GenesisHash (..), HasConfiguration,
+                           Timestamp (..), difficultyL, genesisHash, headerHash, protocolMagic)
 import           Pos.Core.Block (Block, MainBlock, mainBlockSlot, mainBlockTxPayload)
 import           Pos.Crypto (WithHash (..), withHash)
 import           Pos.DB (MonadDBRead, MonadGState)

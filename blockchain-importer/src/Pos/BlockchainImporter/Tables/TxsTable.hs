@@ -1,28 +1,45 @@
 {-# LANGUAGE Arrows #-}
 
 module Pos.BlockchainImporter.Tables.TxsTable
-  ( -- * Manipulation
-    insertConfirmedTx
+  ( -- * Data types
+    TxRecord (..)
+    -- * Getters
+  , getTxByHash
+    -- * Manipulation
+  , insertConfirmedTx
   , insertFailedTx
   , deleteTx
   ) where
 
 import           Universum
 
+import qualified Control.Arrow as A
+import           Control.Lens (from)
 import           Control.Monad (void)
 import qualified Data.List.NonEmpty as NE (toList)
 import           Data.Profunctor.Product.TH (makeAdaptorAndInstance)
+import           Data.Time.Clock (UTCTime)
 import qualified Database.PostgreSQL.Simple as PGS
 import           Opaleye
+import           Opaleye.RunSelect
 
 import           Pos.BlockchainImporter.Core (TxExtra (..))
 import           Pos.BlockchainImporter.Tables.TxAddrTable (TxAddrRowPGR, TxAddrRowPGW,
                                                             transactionAddrTable)
 import qualified Pos.BlockchainImporter.Tables.TxAddrTable as TAT (insertTxAddresses)
 import           Pos.BlockchainImporter.Tables.Utils
-import           Pos.Core (timestampToUTCTimeL)
+import           Pos.Core (Timestamp, timestampToUTCTimeL)
 import           Pos.Core.Txp (Tx (..), TxId, TxOut (..), TxOutAux (..))
 import           Pos.Crypto (hash)
+
+data TxRecord = TxRecord
+    { txHash            :: !TxId
+    , txInputs          :: !(NonEmpty TxOutAux)
+    , txOutputs         :: !(NonEmpty TxOutAux)
+    , txBlockNum        :: !(Maybe Int64)
+    , txFullProcessTime :: !(Maybe Timestamp)
+    , txConfirmed       :: !Bool
+    }
 
 {-
   NOTE: The succeeded field can be obtained from checking whether the block number field is
@@ -112,3 +129,20 @@ deleteTx txId conn = void $ runDelete_  conn $
                                       Delete txsTable (\row -> trHash row .== txHash) rCount
   where
     txHash = pgString $ hashToString txId
+
+-- | Returns a tx by hash
+getTxByHash :: TxId -> PGS.Connection -> IO (Maybe TxRecord)
+getTxByHash txHash conn = do
+  txsMatched  :: [(Text, [Text], [Int64], [Text], [Int64], Maybe Int64, Maybe UTCTime, Bool)]
+              <- runSelect conn txByHashQuery
+  pure $ case txsMatched of
+    [ ((_, inpAddrs, inpAmounts, outAddrs, outAmounts, blkNum, t, succeeded)) ] -> do
+      inputs <- zipWithM toTxOutAux inpAddrs inpAmounts >>= nonEmpty
+      outputs <- zipWithM toTxOutAux outAddrs outAmounts >>= nonEmpty
+      let time = t <&> (^. from timestampToUTCTimeL)
+      pure $ TxRecord txHash inputs outputs blkNum time succeeded
+    _ -> Nothing
+    where txByHashQuery = proc () -> do
+            TxRow rowTxHash inputsAddr inputsAmount outputsAddr outputsAmount blkNum t suc <- (selectTable txsTable) -< ()
+            restrict -< rowTxHash .== (pgString $ hashToString txHash)
+            A.returnA -< (rowTxHash, inputsAddr, inputsAmount, outputsAddr, outputsAmount, blkNum, t, suc)

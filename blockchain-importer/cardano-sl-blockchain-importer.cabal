@@ -19,7 +19,11 @@ library
                         Pos.BlockchainImporter.Core
                         Pos.BlockchainImporter.ExtraContext
 
+                        Pos.BlockchainImporter.Tables.BestBlockTable
                         Pos.BlockchainImporter.Tables.PendingTxsTable
+                        Pos.BlockchainImporter.Tables.TxsTable
+                        Pos.BlockchainImporter.Tables.UtxosTable
+                        Pos.BlockchainImporter.Tables.Utils
 
                         Pos.BlockchainImporter.Txp
 
@@ -47,11 +51,7 @@ library
                         Pos.BlockchainImporter.Txp.Toil.Monad
                         Pos.BlockchainImporter.Txp.Toil.Types
                         Pos.BlockchainImporter.BListener
-                        Pos.BlockchainImporter.Tables.Utils
-                        Pos.BlockchainImporter.Tables.BestBlockTable
-                        Pos.BlockchainImporter.Tables.TxsTable
                         Pos.BlockchainImporter.Tables.TxAddrTable
-                        Pos.BlockchainImporter.Tables.UtxosTable
 
   build-depends:        QuickCheck
                       , aeson
@@ -158,9 +158,11 @@ library
   ghc-options: -pgmP cpphs -optP --cpp
 
   -- linker speed up for linux
-  if os(linux)
-    ghc-options:       -optl-fuse-ld=gold
-    ld-options:        -fuse-ld=gold
+  -- FIXME: Importing the blockchain-importer from the consistency checker doesn't work
+  --        if this isn't commented out. 
+  --if os(linux)
+  --  ghc-options:       -optl-fuse-ld=gold
+  --  ld-options:        -fuse-ld=gold
 
 
 executable cardano-blockchain-importer

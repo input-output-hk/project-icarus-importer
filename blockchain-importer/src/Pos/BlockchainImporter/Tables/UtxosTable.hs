@@ -1,20 +1,32 @@
 {-# LANGUAGE Arrows #-}
 
 module Pos.BlockchainImporter.Tables.UtxosTable
-  ( applyModifierToUtxos
+  ( -- * Data types
+    UtxoRecord (..)
+    -- * Getters
+  , getUtxos
+    -- * Manipulation
+  , applyModifierToUtxos
   ) where
 
 import           Universum
 
+import qualified Control.Arrow as A
 import           Data.Maybe (catMaybes)
 import           Data.Profunctor.Product.TH (makeAdaptorAndInstance)
 import qualified Database.PostgreSQL.Simple as PGS
 import           Opaleye
+import           Opaleye.RunSelect
 
 import           Pos.BlockchainImporter.Tables.Utils
 import           Pos.Core.Txp (TxIn (..), TxOut (..), TxOutAux (..))
 import           Pos.Txp.Toil.Types (UtxoModifier)
 import qualified Pos.Util.Modifier as MM
+
+data UtxoRecord = UtxoRecord
+    { utxoInput  :: !TxIn
+    , utxoOutput :: !TxOutAux
+    }
 
 data UtxoRowPoly a b c d e = UtxoRow  { urUtxoId   :: a
                                       , urTxHash   :: b
@@ -59,3 +71,15 @@ applyModifierToUtxos modifier conn = do
   void $ runUpsert_ conn utxosTable toInsert
   void $ runDelete_ conn $
                     Delete utxosTable (\(UtxoRow sId _ _ _ _) -> in_ toDelete sId) rCount
+
+-- | Returns the utxo stored in the table
+getUtxos :: PGS.Connection -> IO [UtxoRecord]
+getUtxos conn = do
+  utxos :: [(Text, Int, Text, Int64)] <- runSelect conn utxosQuery
+  pure $ catMaybes $ (flip map) utxos $ \(inHash, inIndex, outReceiver, outAmount) -> do
+    input <- toTxIn inHash inIndex
+    output <- toTxOutAux outReceiver outAmount
+    pure $ UtxoRecord input output
+  where utxosQuery = proc () -> do
+          UtxoRow _ inHash inIndex outReceiver outAmount <- (selectTable utxosTable) -< ()
+          A.returnA -< (inHash, inIndex, outReceiver, outAmount)

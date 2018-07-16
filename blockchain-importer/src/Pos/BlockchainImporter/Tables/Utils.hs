@@ -5,6 +5,7 @@ module Pos.BlockchainImporter.Tables.Utils
     hashToString
   , addressToString
   , coinToInt64
+  , toTxIn
   , toTxOutAux
     -- * Postgres
   , runUpsert_
@@ -18,8 +19,8 @@ import           Formatting (sformat)
 import qualified Opaleye as O
 
 import           Pos.Core.Common (Address, Coin (..), addressF, decodeTextAddress)
-import           Pos.Core.Txp (TxOut (..), TxOutAux (..))
-import           Pos.Crypto (hashHexF)
+import           Pos.Core.Txp (TxIn (..), TxOut (..), TxOutAux (..))
+import           Pos.Crypto (decodeHash, hashHexF)
 import           Pos.Crypto.Hashing (AbstractHash)
 import           Pos.Txp.Toil.Types ()
 
@@ -40,6 +41,11 @@ toTxOutAux :: Text -> Int64 -> Maybe TxOutAux
 toTxOutAux receiver amount = do
   decReceiver <- rightToMaybe $ decodeTextAddress receiver
   pure $ TxOutAux $ TxOut decReceiver (Coin $ fromIntegral amount)
+
+toTxIn :: Text -> Int -> Maybe TxIn
+toTxIn txHash idx = do
+  decTxHash <- rightToMaybe $ decodeHash txHash
+  pure $ TxInUtxo decTxHash (fromIntegral idx)
 
 ----------------------------------------------------------------------------
 -- Postgres

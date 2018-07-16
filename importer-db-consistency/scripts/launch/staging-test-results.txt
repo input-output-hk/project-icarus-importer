@@ -1,0 +1,20 @@
+Consistency tests done:
+- Verify the internal consistency of the staging postgres db
+    Details: Ran the internal-consistency.sh script with the external tx range test disabled
+    Results: All checks were successful
+- Verify the sequential external consistency of the staging postgres db
+    Date: 4 of July 2018
+    Details: Compared the postgres db with Cardano node db obtained locally (both up-to-date).
+    Results: All checks were successful
+      Interval blks checked             | Result
+      ---------------------------------------------------------------------------------
+      [0-67000]        (67000 blocks)   | Successful, took 18 minutes, 836 txs checked
+                                        |   Commit: 43fd250ff97c6193d5b25ce25c34a68d7a9f5768
+      [869176-1211207] (345000 blocks)  | Successful, took 54 minutes, 1605 txs checked
+                                        | Tested from epoch 40 to latest block: 1211207 (15 epochs).
+                                        |   Commit: 176b01553335d554e73dcf28f695dd61e3c1dfba
+- Restart various times the importer and check for internal consistency
+    Date: 5 of July 2018
+    Details: Ran the restart-consistency.sh scripts, restarting the importer 10 times,
+             with 10 minutes between restart
+    Results: All checks were successful
