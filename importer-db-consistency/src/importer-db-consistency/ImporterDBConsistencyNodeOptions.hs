@@ -30,7 +30,6 @@ data ImporterDBConsistencyNodeArgs = ImporterDBConsistencyNodeArgs
     } deriving Show
 
 data PostgresChecks = ExternalConsistencyFromBlk String
-                    | RandomExternalConsistency FilePath
                     | InternalConsistency
                     | ExternalTxRangeConsistency String
                     | GetTipHash
@@ -96,9 +95,6 @@ postgresCheckParser = do
   let externalCheckFromBlkCmd = command "ext-const-from-blk"
                                   (info externalCheckFromBlkParser
                                   (progDesc "Check external consistency from a given blk with up-to-date node db"))
-      externalCheckRandomCmd = command "ext-const-random"
-                                (info externalCheckRandomParser
-                                (progDesc "Randomly check external consistency with up-to-date node db"))
       internalCheckCmd = command "int-const"
                           (info (pure InternalConsistency)
                           (progDesc "Check internal consistency with importer db"))
@@ -109,7 +105,6 @@ postgresCheckParser = do
                         (info (pure GetTipHash)
                         (progDesc "Print block tip hash"))
   subparser (externalCheckFromBlkCmd
-          <> externalCheckRandomCmd
           <> internalCheckCmd
           <> externalTxRangeCheckCmd
           <> getTipHashCmd)
@@ -119,12 +114,6 @@ postgresCheckParser = do
             metavar "STARTING-BLOCK" <>
             help    "Block from where to start checking for consistency."
           pure $ ExternalConsistencyFromBlk blkToCheck
-        externalCheckRandomParser = do
-          blksToCheck <- strOption $
-            long    "blocks-file" <>
-            metavar "CONSISTENCY-BLK-HASHES-FILE" <>
-            help    "File with block hashes to check for consistency."
-          pure $ RandomExternalConsistency blksToCheck
         externalRangeTxCheckParser = do
           tipHash <- strOption $
             long    "tip-hash" <>

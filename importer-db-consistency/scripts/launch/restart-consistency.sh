@@ -47,7 +47,7 @@ for i in $(eval echo {1..$restartNumber})
       --configuration-file "${repoDir}/lib/configuration.yaml" \
       --configuration-key ${CONFIG_KEY} \
       --postgres-name ${DB} --postgres-password ${DB_PASSWORD} \
-      --postgres-host ${DB_HOST} --postgres-port ${DB_PORT} &
+      --postgres-host ${DB_HOST} --postgres-port ${DB_PORT} > /dev/null &
 
     sleep 5s
     blockHeight=$(get_importer_height)

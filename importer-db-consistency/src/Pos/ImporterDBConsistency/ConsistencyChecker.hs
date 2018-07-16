@@ -1,7 +1,6 @@
 module Pos.ImporterDBConsistency.ConsistencyChecker
   (
     externalConsistencyFromBlk
-  , externalConsistencyRandom
   , internalConsistencyCheck
   , externalConsistencyWithTxRange
   ) where
@@ -28,6 +27,9 @@ import           Pos.Txp (Tx)
   Check consistency with the key-value db of a node up-to-date.
   Objective: Test consistency of the postgresdb generated after running full import,
              with the one generated in a Cardano node.
+             For sequentially doing a partial/total check of tx history consistency,
+             the check is total if the starting block is the genesis block
+             (hash: 89d9b5a5b8ddc8d7e5a6795e9774d97faf1efea59b2caf7eaf9f8c5b32059df4)
   Requires: Having the postgresdb also up-to-date
     - Checks that the same best block is in both the node and postgresdb
     - Checks that utxo from node are stored in postgresdb
@@ -38,24 +40,6 @@ externalConsistencyFromBlk blkHashes = do
   validBestBlock <- consistentBestBlock
   validUtxos <- consistentUtxo
   validTxsHistory <- allTxsStartingFromBlk txRowExists blkHashes
-  pure $ validBestBlock && validTxsHistory && validUtxos
-
-{-
-  Check consistency with the key-value db of a node up-to-date.
-  Objective: Test consistency of the postgresdb generated after running full import,
-             with the one generated in a Cardano node.
-  Requires: Having the postgresdb also up-to-date
-    - Checks that the same best block is in both the node and postgresdb
-    - Checks that utxo from node are stored in postgresdb
-    - Checks that tx in node from random blocks are stored postgresdb
-        The random blocks to check are received as a parameter
--}
--- FIXME: Log how many txs where found
-externalConsistencyRandom :: ConsistencyCheckerEnv m => [HeaderHash] -> m Bool
-externalConsistencyRandom blkHashes = do
-  validBestBlock <- consistentBestBlock
-  validTxsHistory <- allTxsFromManyBlksFullfilProp txRowExists blkHashes
-  validUtxos <- consistentUtxo
   pure $ validBestBlock && validTxsHistory && validUtxos
 
 {-
@@ -118,9 +102,18 @@ getNextNBlkHashesFromHash n initialHash = if n <= 0 then pure [] else
           hashesFromNext <- getNextNBlkHashesFromHash (n - 1) nextHeaderHash
           pure $ initialHash : hashesFromNext
 
--- blkRangeSize selected to be 'k' (number of blocks rollbacked on new epoch) + 10
+{-
+    Size of the range of blocks checked for tx history consistency. Selected to be 'k',
+    the number of blocks rollbacked on every new epoch.
+
+    This allows checking the consistency of the tx history after this process:
+    - In case 'k' blocks were rollbacked and none yet applied, that none of the txs
+      rollbacked is present on the db.
+    - In case the 'k' blocks were already re-applied, that this process was carried
+      successfully.
+-}
 blkRangeSize :: HasProtocolConstants => Int
-blkRangeSize = (fromIntegral $ getBlockCount $ blkSecurityParam) + 10
+blkRangeSize = fromIntegral $ getBlockCount blkSecurityParam
 
 --FIXME: Maybe use getTxOut to compare txs?
 txRowExists :: Maybe TxsT.TxRecord -> Tx -> Bool
