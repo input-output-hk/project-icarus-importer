@@ -2,7 +2,7 @@
 
 module Pos.BlockchainImporter.Tables.TxsTable
   ( -- * Data types
-    TxRecord
+    TxRecord (..)
     -- * Getters
   , getTxByHash
     -- * Manipulation
@@ -143,6 +143,6 @@ getTxByHash txHash conn = do
       pure $ TxRecord txHash inputs outputs blkNum time succeeded
     _ -> Nothing
     where txByHashQuery = proc () -> do
-            TxRow rowTxHash inputsAddr inputsAmount outputsAddr outputsAmount blkNum t succ <- (selectTable txsTable) -< ()
+            TxRow rowTxHash inputsAddr inputsAmount outputsAddr outputsAmount blkNum t suc <- (selectTable txsTable) -< ()
             restrict -< rowTxHash .== (pgString $ hashToString txHash)
-            A.returnA -< (rowTxHash, inputsAddr, inputsAmount, outputsAddr, outputsAmount, blkNum, t, succ)
+            A.returnA -< (rowTxHash, inputsAddr, inputsAmount, outputsAddr, outputsAmount, blkNum, t, suc)

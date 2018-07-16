@@ -17,6 +17,10 @@ import           Formatting (sformat, (%))
 import           Mockable (Production, runProduction)
 import           System.Wlog (LoggerName, logInfo)
 
+import           ImporterDBConsistencyNodeOptions (ImporterDBConsistencyArgs (..),
+                                                   ImporterDBConsistencyNodeArgs (..),
+                                                   PostgresChecks (..),
+                                                   getImporterDBConsistencyNodeOptions)
 import           Pos.Binary ()
 import           Pos.BlockchainImporter.Configuration (HasPostGresDB, withPostGresDB)
 import           Pos.BlockchainImporter.ExtraContext (makeExtraCtx)
@@ -25,21 +29,18 @@ import           Pos.BlockchainImporter.Txp (BlockchainImporterExtraModifier,
 import           Pos.BlockchainImporter.Web (BlockchainImporterProd, runBlockchainImporterProd)
 import           Pos.Client.CLI (CommonNodeArgs (..), NodeArgs (..), getNodeParams)
 import qualified Pos.Client.CLI as CLI
-import           Pos.Core (HeaderHash, headerHash)
+import           Pos.Core (headerHash)
 import           Pos.Crypto (hashHexF)
 import           Pos.DB (getTipHeader)
 import           Pos.DB.DB (initNodeDBs)
+import           Pos.ImporterDBConsistency.ConsistencyChecker
+import           Pos.ImporterDBConsistency.Utils (decodeBlkHash)
 import           Pos.Launcher (ConfigurationOptions (..), HasConfigurations, NodeParams (..),
                                NodeResources (..), bracketNodeResources, elimRealMode,
                                loggerBracket, withConfigurations)
-import           Pos.ImporterDBConsistency.ConsistencyChecker
-import           Pos.ImporterDBConsistency.Utils (decodeBlkHash)
 import           Pos.Util (logException)
 import           Pos.Util.CompileInfo (HasCompileInfo, retrieveCompileTimeInfo, withCompileInfo)
 import           Pos.Util.UserSecret (usVss)
-import           ImporterDBConsistencyNodeOptions (PostgresChecks (..), ImporterDBConsistencyArgs (..),
-                                                 ImporterDBConsistencyNodeArgs (..),
-                                                 getImporterDBConsistencyNodeOptions)
 
 loggerName :: LoggerName
 loggerName = "consistency-checker"
@@ -93,11 +94,6 @@ action (ImporterDBConsistencyNodeArgs (cArgs@CommonNodeArgs{..}) ImporterDBConsi
     nodeArgs :: NodeArgs
     nodeArgs = NodeArgs { behaviorConfigPath = Nothing }
 
-    getBlkHashes :: String -> IO [HeaderHash]
-    getBlkHashes fileName = do
-      contents <- readFile fileName
-      pure $ catMaybes $ decodeBlkHash <$> words contents
-
     callSelectedCheck ::
          (HasConfigurations, HasCompileInfo, HasPostGresDB)
       => PostgresChecks
@@ -111,11 +107,6 @@ action (ImporterDBConsistencyNodeArgs (cArgs@CommonNodeArgs{..}) ImporterDBConsi
           Nothing ->
             logInfo $ toText ("Consistency check failed: Not running external check from blk " ++
                               "due to invalid starting blk hash")
-    callSelectedCheck (RandomExternalConsistency blkHashFile) = do
-        logInfo "Running random external consistency check"
-        blksToCheck <- liftIO $ getBlkHashes blkHashFile
-        checkRes <- externalConsistencyRandom blksToCheck
-        logCheckResult checkRes
     callSelectedCheck InternalConsistency = do
         logInfo "Running internal consistency check"
         checkRes <- internalConsistencyCheck

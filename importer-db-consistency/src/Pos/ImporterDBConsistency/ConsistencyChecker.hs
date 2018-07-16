@@ -1,7 +1,6 @@
 module Pos.ImporterDBConsistency.ConsistencyChecker
   (
     externalConsistencyFromBlk
-  , externalConsistencyRandom
   , internalConsistencyCheck
   , externalConsistencyWithTxRange
   ) where
@@ -41,25 +40,6 @@ externalConsistencyFromBlk blkHashes = do
   validBestBlock <- consistentBestBlock
   validUtxos <- consistentUtxo
   validTxsHistory <- allTxsStartingFromBlk txRowExists blkHashes
-  pure $ validBestBlock && validTxsHistory && validUtxos
-
-{-
-  Check consistency with the key-value db of a node up-to-date.
-  Objective: Test consistency of the postgresdb generated after running full import,
-             with the one generated in a Cardano node.
-             For doing a statistical check of the tx history consistency
-  Requires: Having the postgresdb also up-to-date
-    - Checks that the same best block is in both the node and postgresdb
-    - Checks that utxo from node are stored in postgresdb
-    - Checks that tx in node from random blocks are stored postgresdb
-        The random blocks to check are received as a parameter
--}
--- FIXME: Log how many txs where found
-externalConsistencyRandom :: ConsistencyCheckerEnv m => [HeaderHash] -> m Bool
-externalConsistencyRandom blkHashes = do
-  validBestBlock <- consistentBestBlock
-  validTxsHistory <- allTxsFromManyBlksFullfilProp txRowExists blkHashes
-  validUtxos <- consistentUtxo
   pure $ validBestBlock && validTxsHistory && validUtxos
 
 {-
