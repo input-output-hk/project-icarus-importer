@@ -31,6 +31,7 @@ import           Pos.Core (Timestamp, timestampToUTCTimeL)
 import           Pos.Core.Txp (Tx (..), TxId, TxOut (..), TxOutAux (..), TxUndo)
 import           Pos.Crypto (hash)
 
+-- txTimestamp corresponds to the trTimestamp
 data TxRecord = TxRecord
     { txHash      :: !TxId
     , txInputs    :: !(NonEmpty TxOutAux)
@@ -45,7 +46,22 @@ data TxState  = Successful
               | Pending
               deriving (Show, Read)
 
--- trTimestamp is the moment the tx entered it's current state
+{-|
+    Given the possible events:
+    - Tx gets confirmed (tx becomes Successful)
+    - Tx sending fails (tx becomes Failed)
+    - Tx gets created (tx becomes Pending)
+    The difference between the trTimestamp and trLastUpdate is that:
+    - trTimestamp is the time the event happened, that the tx changed it's state
+    - trLastUpdate is the time the importer learned of this event
+
+    The main case where both timestamp differ is when syncing from peers, trTimestamp is
+    the moment that block was created (no matter how long ago this was) while trLastUpdate
+    is the moment the importer received the block.
+
+    Both are needed, as trTimestap is the one the user is interested of knowing, while
+    trLastUpdate is used for fetching those events
+-}
 data TxRowPoly h iAddrs iAmts oAddrs oAmts bn t state last = TxRow  { trHash          :: h
                                                                     , trInputsAddr    :: iAddrs
                                                                     , trInputsAmount  :: iAmts
