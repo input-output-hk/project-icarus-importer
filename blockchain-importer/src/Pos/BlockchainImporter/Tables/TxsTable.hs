@@ -41,6 +41,25 @@ data TxRecord = TxRecord
     , txState     :: !TxState
     }
 
+{-|
+    Tx state machine:
+                          tx included
+                            in block
+                       --------------->
+                      |                 Succesful
+                      |   -------------     ^
+                      |  |    block         |
+                      |  |  rollbacked      |
+        tx created    |  V                  |
+      -------------> Pending                | Chain reorganization
+                      ^  |                  |
+                      |  | tx becomes       |
+                      |  |   invalid        |
+                      |   ------------->    |
+                      |                  Failed
+                       -----------------
+                           tx resend
+-}
 data TxState  = Successful
               | Failed
               | Pending

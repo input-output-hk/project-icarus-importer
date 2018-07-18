@@ -10,7 +10,8 @@ module Pos.BlockchainImporter.Txp.Toil.Logic
       , eNormalizeToil
       , eProcessTx
         -- * Pending tx DB processing
-      , eApplyFailedTx
+      , OnConflict (..)
+      , eUpsertFailedTx
       ) where
 
 import           Universum
@@ -124,29 +125,28 @@ eNormalizeToil bvd curEpoch txs = catMaybes <$> mapM normalize ordered
       pure $ txAux <$ leftToMaybe res
     repair (i, (txAux, extra)) = ((i, txAux), const extra)
 
-{-| Deletes a pending tx from the Postgres DB and inserts it into the Txs table as a failed tx
+
+data OnConflict = DoNothing | DoUpdate
+
+{-| Upserts a failed tx into the tx history table, solving conflicts according to the onConflict
+    parameter
 
     Note that the tx that failed could have not being pending, as is the case where it failed
     during it's processing. In that case, we attempt to obtain the inputs, returning them only
     if we successfully get all of them
 -}
-eApplyFailedTx :: (MonadIO m, MonadDBRead m, HasPostGresDB) => Tx -> m ()
-eApplyFailedTx tx = do
-  let txId = hash tx
-  maybeTx <- liftIO $ postGreOperate $ TxsT.getTxByHash txId
-  inputs <- case maybeTx of
-    Just pgTx ->
-      pure $ Just <$> TxsT.txInputs pgTx
-    Nothing -> do
-      -- Fetch the tx inputs
-      -- If any of the inputs of the tx is not known, none is returned
-      knownInputs <- mapM getTxOut (_txInputs tx)
-      let allInputsKnown = all isJust knownInputs
-          inputs         = if allInputsKnown then knownInputs
-                           else const Nothing <$> _txInputs tx
-      pure inputs
+eUpsertFailedTx :: (MonadIO m, MonadDBRead m, HasPostGresDB) => OnConflict -> Tx -> m ()
+eUpsertFailedTx onConflict tx = do
+  inputs <- fetchTxSenders tx
 
-  liftIO $ postGreOperate $ TxsT.upsertFailedTx tx inputs
+  shouldUpsert <- case onConflict of
+    DoNothing -> do
+      maybeOldTx <- liftIO $ postGreOperate $ TxsT.getTxByHash (hash tx)
+      pure $ isNothing maybeOldTx
+    DoUpdate -> pure True
+
+  when shouldUpsert $
+       liftIO $ postGreOperate $ TxsT.upsertFailedTx tx inputs
 
 ----------------------------------------------------------------------------
 -- Helpers
@@ -185,3 +185,19 @@ rollbackSingleModifier (txAux, txUndo) = foldr  MM.delete
 
         mapValueToMaybe :: a -> Maybe b -> Maybe (a, b)
         mapValueToMaybe a = fmap ((,) a)
+
+fetchTxSenders :: (MonadIO m, MonadDBRead m, HasPostGresDB) => Tx -> m TxUndo
+fetchTxSenders tx = do
+  let txId = hash tx
+  maybeTx <- liftIO $ postGreOperate $ TxsT.getTxByHash txId
+  case maybeTx of
+    Just pgTx ->
+      pure $ Just <$> TxsT.txInputs pgTx
+    Nothing -> do
+      -- Fetch the tx inputs
+      -- If any of the inputs of the tx is not known, none is returned
+      knownInputs <- mapM getTxOut (_txInputs tx)
+      let allInputsKnown = all isJust knownInputs
+          inputs         = if allInputsKnown then knownInputs
+                           else const Nothing <$> _txInputs tx
+      pure inputs

@@ -31,8 +31,8 @@ import           Pos.BlockchainImporter.Configuration (HasPostGresDB, postGreOpe
 import           Pos.BlockchainImporter.Core (TxExtra (..))
 import           Pos.BlockchainImporter.Tables.TxsTable as TxsT
 import           Pos.BlockchainImporter.Txp.Toil (BlockchainImporterExtraModifier, ELocalToilM,
-                                                  eApplyFailedTx, eNormalizeToil, eProcessTx,
-                                                  eemLocalTxsExtra)
+                                                  OnConflict (..), eNormalizeToil, eProcessTx,
+                                                  eUpsertFailedTx, eemLocalTxsExtra)
 
 type ETxpLocalWorkMode ctx m =
     ( TxpLocalWorkMode ctx m
@@ -87,7 +87,8 @@ eTxNormalize ::
 eTxNormalize = withPostGreTransactionM $ do
     extras <- MM.insertionsMap . view eemLocalTxsExtra <$> withTxpLocalData getTxpExtra
     invalidTxs <- txNormalizeAbstract buildEmptyContext (normalizeToil' extras)
-    whenJust invalidTxs $ mapM_ (eApplyFailedTx . taTx)
+    -- Invalid txs previously were in Pending state, so they are updated to the db
+    whenJust invalidTxs $ mapM_ (eUpsertFailedTx DoUpdate . taTx)
   where
     buildEmptyContext :: Utxo -> [TxAux] -> m ()
     buildEmptyContext _ _ = pure ()
