@@ -47,7 +47,7 @@ type TxpBlock = ComponentBlock TxPayload
 type TxpBlund = (TxpBlock, TxpUndo)
 
 -- | Flag determining whether applying and rollbacking was done due to new epoch.
-newtype NewEpochOperation = NewEpochOperation Bool
+newtype NewEpochOperation = NewEpochOperation Bool deriving Show
 
 data TxpGlobalSettings = TxpGlobalSettings
     { -- | Verify a chain of payloads from blocks and return txp undos
