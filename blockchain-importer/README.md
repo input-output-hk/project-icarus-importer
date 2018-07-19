@@ -1,5 +1,10 @@
 # `cardano-sl-blockchain-importer`
 
+Package based on the `cardano-sl-explorer` (in how it's hooked to the Cardano node), which keeps a postgres db up-to-date with it's rocks db, saving in it:
+- The current UTxO.
+- The best block number.
+- The tx history (including successful, failed and pending txs).
+
 ## Installation
 
 ### Requirements
@@ -20,7 +25,10 @@ nix:
 
 ## Generate documentation
 
-Generated documentation for BlockchainImporter Web API is available [online](https://cardanodocs.com/technical/blockchain-importer/api/).
+Generated documentation for BlockchainImporter Web API can be obtained (as `blockchain-importer-web-api-swagger.json`) by running:
+```bash
+stack exec cardano-importer-swagger
+```
 
 ## Run mock server
 
@@ -30,28 +38,19 @@ stack exec cardano-blockchain-importer-mock
 
 ## Run it
 
+**Pre-requesites**: `sudo apt-get install liblzma-dev libpq-dev`
+
 Run it from project root.
 
 ### Dev version
 
-**Pre-requesites**: `sudo apt-get install liblzma-dev libpq-dev`
-
-- run `./scripts/build/cardano-sl.sh`
-- run `./scripts/launch/blockchain-importer-with-nodes.sh`
+- run `./scripts/build/cardano-sl.sh blockchain-importer`
+- Using `stack exec` to use the importer, such as in:
+```bash
+stack exec -- cardano-blockchain-importer --topology "/tmp/topology-staging.yaml" --log-config "blockchain-importer/log-config.yaml" --logs-prefix "logs" --db-path "db-importer" --keyfile "secret-staging.key" --configuration-file "lib/configuration.yaml" --configuration-key mainnet_dryrun_full --postgres-name "stagingpgdb" --postgres-password "mysecretpassword" --postgres-host "localhost"
+```
 
 ### Prod version (connects BlockchainImporter to `staging` or `mainnet`)
 
-- Run `/scripts/clean/db.sh` to do a clean synchronization, so that BlockchainImporter will sync and download blockchain from start.
-- Connect to cluster as described in  `docs/how-to/connect-to-cluster.md`
-- Open http://localhost:3100/ in your browser. (Note: It takes some time to sync all data from cluster. That's why BlockchainImporter's UI might not display latest data from start.)
-
-
-## Sockets
-
-`CORS` requests to connect `socket` server are currently restricted to following resources:
-* https://cardano-blockchain-importer.com
-* https://blockchain-importer.iohkdev.io
-* http://cardano-blockchain-importer.cardano-mainnet.iohk.io
-* http://localhost:3100
-
-Change `CORS` policies in `src/Pos/BlockchainImporter/Socket/App.hs` whenever you have to add more resources.
+- Run `/scripts/clean/db.sh` to do a clean synchronization, so that BlockchainImporter will sync and download blockchain from start. Create a 
+- Connect to cluster as described in  `docs/how-to/connect-to-cluster.md` **FIXME: Add usage of nix for building, currently doesn't work**
