@@ -17,6 +17,7 @@ module Pos.BlockchainImporter.Txp.Toil.Logic
 import           Universum
 
 import           Control.Monad.Except (mapExceptT)
+import qualified Database.PostgreSQL.Simple as PGS
 
 import           Pos.BlockchainImporter.Configuration (HasPostGresDB, maybePostGreStore,
                                                        postGreOperate)
@@ -31,6 +32,7 @@ import           Pos.Crypto (WithHash (..), hash)
 import           Pos.DB.Class (MonadDBRead)
 import           Pos.Txp.Configuration (HasTxpConfiguration)
 import           Pos.Txp.DB.Utxo (getTxOut)
+import           Pos.Txp.Settings (NewEpochOperation (..))
 import           Pos.Txp.Toil (ToilVerFailure (..), extendGlobalToilM, extendLocalToilM)
 import qualified Pos.Txp.Toil as Txp
 import           Pos.Txp.Topsort (topsortTxs)
@@ -44,18 +46,21 @@ import qualified Pos.Util.Modifier as MM
 -- example, it implies topological sort).
 eApplyToil ::
        forall m. (HasConfiguration, HasPostGresDB, MonadIO m, MonadDBRead m)
-    => Maybe Timestamp
+    => NewEpochOperation
+    -> Maybe Timestamp
     -> [(TxAux, TxUndo)]
     -> Word64
     -> m (EGlobalToilM ())
-eApplyToil mTxTimestamp txun blockHeight = do
+eApplyToil isNewEpoch mTxTimestamp txun blockHeight = do
     -- Update best block
-    liftIO $ maybePostGreStore blockHeight $ BBT.updateBestBlock blockHeight
+    postgresStoreOnBlockEvent isNewEpoch blockHeight $
+                              BBT.updateBestBlock blockHeight
 
     -- Update UTxOs
     let toilApplyUTxO = extendGlobalToilM $ Txp.applyToil txun
 
-    liftIO $ maybePostGreStore blockHeight $ UT.applyModifierToUtxos $ applyUTxOModifier txun
+    postgresStoreOnBlockEvent isNewEpoch blockHeight $
+                              UT.applyModifierToUtxos $ applyUTxOModifier txun
 
     -- Update tx history
     mapM_ applier txun
@@ -66,22 +71,26 @@ eApplyToil mTxTimestamp txun blockHeight = do
         let tx = taTx txAux
             newExtra = TxExtra mTxTimestamp txUndo
 
-        liftIO $ maybePostGreStore blockHeight $ TxsT.upsertSuccessfulTx tx newExtra blockHeight
+        postgresStoreOnBlockEvent isNewEpoch blockHeight $
+                                  TxsT.upsertSuccessfulTx tx newExtra blockHeight
 
 -- | Rollback transactions from one block.
 eRollbackToil ::
      forall m. (HasConfiguration, HasPostGresDB, MonadIO m, MonadDBRead m)
-  => [(TxAux, TxUndo)]
+  => NewEpochOperation
+  -> [(TxAux, TxUndo)]
   -> Word64
   -> m (EGlobalToilM ())
-eRollbackToil txun blockHeight = do
+eRollbackToil isNewEpoch txun blockHeight = do
     -- Update best block
-    liftIO $ maybePostGreStore blockHeight $ BBT.updateBestBlock (blockHeight - 1)
+    postgresStoreOnBlockEvent isNewEpoch blockHeight $
+                              BBT.updateBestBlock (blockHeight - 1)
 
     -- Update UTxOs
     let toilRollbackUtxo = extendGlobalToilM $ Txp.rollbackToil txun
 
-    liftIO $ maybePostGreStore blockHeight $ UT.applyModifierToUtxos $ rollbackUTxOModifier txun
+    postgresStoreOnBlockEvent isNewEpoch blockHeight $
+                              UT.applyModifierToUtxos $ rollbackUTxOModifier txun
 
     -- Update tx history
     mapM_ extraRollback $ reverse txun
@@ -91,7 +100,8 @@ eRollbackToil txun blockHeight = do
     extraRollback (txAux, txUndo) = do
         let tx      = taTx txAux
 
-        liftIO $ postGreOperate $ TxsT.upsertPendingTx tx txUndo
+        postgresStoreOnBlockEvent isNewEpoch blockHeight $
+                                  TxsT.upsertPendingTx tx txUndo
 
 ----------------------------------------------------------------------------
 -- Local
@@ -201,3 +211,13 @@ fetchTxSenders tx = do
           inputs         = if allInputsKnown then knownInputs
                            else const Nothing <$> _txInputs tx
       pure inputs
+
+postgresStoreOnBlockEvent ::
+     (MonadIO m, HasPostGresDB)
+  => NewEpochOperation
+  -> Word64
+  -> (PGS.Connection -> IO ())
+  -> m ()
+postgresStoreOnBlockEvent isNewEpoch blockHeight op = case isNewEpoch of
+  (NewEpochOperation True)  -> pure ()
+  (NewEpochOperation False) -> liftIO $ maybePostGreStore blockHeight op

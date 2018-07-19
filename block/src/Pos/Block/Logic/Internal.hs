@@ -35,12 +35,12 @@ import           UnliftIO (MonadUnliftIO)
 
 import           Pos.Block.BListener (MonadBListener)
 import           Pos.Block.Slog (BypassSecurityCheck (..), MonadSlogApply, MonadSlogBase,
-                                 ShouldCallBListener, slogApplyBlocks, slogRollbackBlocks)
+                                 ShouldCallBListener (..), slogApplyBlocks, slogRollbackBlocks)
 import           Pos.Block.Types (Blund, Undo (undoDlg, undoTx, undoUS))
-import           Pos.Core (ComponentBlock (..), IsGenesisHeader, epochIndexL, HasGeneratedSecrets,
-                           gbHeader, headerHash, mainBlockDlgPayload, mainBlockSscPayload, HasGenesisData,
-                           mainBlockTxPayload, mainBlockUpdatePayload, HasGenesisBlockVersionData,
-                           HasGenesisData, HasProtocolConstants)
+import           Pos.Core (ComponentBlock (..), HasGeneratedSecrets, HasGenesisBlockVersionData,
+                           HasGenesisData, HasProtocolConstants, IsGenesisHeader, epochIndexL,
+                           gbHeader, headerHash, mainBlockDlgPayload, mainBlockSscPayload,
+                           mainBlockTxPayload, mainBlockUpdatePayload)
 import           Pos.Core.Block (Block, GenesisBlock, MainBlock)
 import           Pos.DB (MonadDB, MonadDBRead, MonadGState, SomeBatchOp (..))
 import qualified Pos.DB.GState.Common as GS (writeBatchGState)
@@ -56,7 +56,8 @@ import           Pos.Ssc.Logic (sscApplyBlocks, sscNormalize, sscRollbackBlocks)
 import           Pos.Ssc.Mem (MonadSscMem)
 import           Pos.Ssc.Types (SscBlock)
 import           Pos.Txp.MemState (MonadTxpLocal (..))
-import           Pos.Txp.Settings (TxpBlock, TxpBlund, TxpGlobalSettings (..))
+import           Pos.Txp.Settings (NewEpochOperation (..), TxpBlock, TxpBlund,
+                                   TxpGlobalSettings (..))
 import           Pos.Update (UpdateBlock)
 import           Pos.Update.Context (UpdateContext)
 import           Pos.Update.Logic (usApplyBlocks, usNormalize, usRollbackBlocks)
@@ -181,7 +182,7 @@ applyBlocksDbUnsafeDo
     -> OldestFirst NE Blund
     -> Maybe PollModifier
     -> m ()
-applyBlocksDbUnsafeDo scb blunds pModifier = do
+applyBlocksDbUnsafeDo scb@(ShouldCallBListener scbBool) blunds pModifier = do
     TxpGlobalSettings {..} <- view (lensOf @TxpGlobalSettings)
     tgsApplyBlockModifier $ do
         let blocks = fmap fst blunds
@@ -190,7 +191,7 @@ applyBlocksDbUnsafeDo scb blunds pModifier = do
         slogBatch <- slogApplyBlocks scb blunds
         usBatch <- SomeBatchOp <$> usApplyBlocks (map toUpdateBlock blocks) pModifier
         delegateBatch <- SomeBatchOp <$> dlgApplyBlocks (map toDlgBlund blunds)
-        txpBatch <- tgsApplyBlocks $ map toTxpBlund blunds
+        txpBatch <- tgsApplyBlocks (NewEpochOperation $ not scbBool) $ map toTxpBlund blunds
         sscBatch <- SomeBatchOp <$>
             -- TODO: pass not only 'Nothing'
             sscApplyBlocks (map toSscBlock blocks) Nothing
@@ -211,7 +212,7 @@ rollbackBlocksUnsafe
     -> ShouldCallBListener
     -> NewestFirst NE Blund
     -> m ()
-rollbackBlocksUnsafe bsc scb toRollback = do
+rollbackBlocksUnsafe bsc scb@(ShouldCallBListener scbBool) toRollback = do
     TxpGlobalSettings {..} <- view (lensOf @TxpGlobalSettings)
     tgsRollbackBlockModifier $ do
         slogRoll <- slogRollbackBlocks bsc scb toRollback
@@ -219,7 +220,7 @@ rollbackBlocksUnsafe bsc scb toRollback = do
         usRoll <- SomeBatchOp <$> usRollbackBlocks
                       (toRollback & each._2 %~ undoUS
                                   & each._1 %~ toUpdateBlock)
-        txRoll <- tgsRollbackBlocks $ map toTxpBlund toRollback
+        txRoll <- tgsRollbackBlocks (NewEpochOperation $ not scbBool) $ map toTxpBlund toRollback
         sscBatch <- SomeBatchOp <$> sscRollbackBlocks
             (map (toSscBlock . fst) toRollback)
         GS.writeBatchGState

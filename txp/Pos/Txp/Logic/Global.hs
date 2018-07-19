@@ -54,8 +54,8 @@ txpGlobalSettings :: (HasProtocolMagic, HasGenesisData) => TxpGlobalSettings
 txpGlobalSettings =
     TxpGlobalSettings
     { tgsVerifyBlocks = verifyBlocks
-    , tgsApplyBlocks = applyBlocksWith (processBlundsSettings False applyToil)
-    , tgsRollbackBlocks = rollbackBlocks
+    , tgsApplyBlocks = \_ -> applyBlocksWith (processBlundsSettings False applyToil)
+    , tgsRollbackBlocks = \_ -> rollbackBlocks
     , tgsApplyBlockModifier = identity
     , tgsRollbackBlockModifier = identity
     }
