@@ -15,7 +15,7 @@ import           Pos.Slotting (getSlotStart)
 import           Pos.Txp (ProcessBlundsSettings (..), TxpBlock, TxpBlund, TxpGlobalApplyMode,
                           TxpGlobalRollbackMode, TxpGlobalSettings (..), applyBlocksWith,
                           blundToAuxNUndo, processBlunds, txpGlobalSettings)
-import           Pos.Txp.Settings (NewEpochOperation)
+import           Pos.Txp.Settings (IsNewEpochOperation)
 import           Pos.Txp.Toil
 import           Pos.Util.Chrono (NewestFirst (..))
 
@@ -23,7 +23,10 @@ import           Pos.BlockchainImporter.Configuration (HasPostGresDB, withPostGr
 import           Pos.BlockchainImporter.Txp.Toil (BlockchainImporterExtraModifier (..),
                                                   EGlobalToilM, eApplyToil, eRollbackToil)
 
--- | Settings used for global transactions data processing used by blockchainImporter.
+{-|
+    Settings used for global transactions data processing used by blockchainImporter.
+    The 2*k blocks rollbacked and re-applied on every new epoch don't impact on the postgresdb
+-}
 blockchainImporterTxpGlobalSettings :: (HasConfiguration, HasPostGresDB) => TxpGlobalSettings
 blockchainImporterTxpGlobalSettings =
     -- verification is same
@@ -36,7 +39,7 @@ blockchainImporterTxpGlobalSettings =
 
 applySettings ::
        (TxpGlobalApplyMode ctx m, HasConfiguration, HasPostGresDB)
-    => NewEpochOperation -> ProcessBlundsSettings () BlockchainImporterExtraModifier m
+    => IsNewEpochOperation -> ProcessBlundsSettings () BlockchainImporterExtraModifier m
 applySettings isNewEpoch =
     ProcessBlundsSettings
         { pbsProcessSingle = applySingle isNewEpoch
@@ -47,7 +50,7 @@ applySettings isNewEpoch =
 
 rollbackSettings ::
        (TxpGlobalRollbackMode m, HasConfiguration, MonadIO m, HasPostGresDB)
-    => NewEpochOperation -> ProcessBlundsSettings () BlockchainImporterExtraModifier m
+    => IsNewEpochOperation -> ProcessBlundsSettings () BlockchainImporterExtraModifier m
 rollbackSettings isNewEpoch =
     ProcessBlundsSettings
         { pbsProcessSingle = rollbackSingle isNewEpoch
@@ -58,7 +61,7 @@ rollbackSettings isNewEpoch =
 
 applySingle ::
        forall ctx m. (HasConfiguration, HasPostGresDB, TxpGlobalApplyMode ctx m)
-    => NewEpochOperation -> TxpBlund -> m (EGlobalToilM ())
+    => IsNewEpochOperation -> TxpBlund -> m (EGlobalToilM ())
 applySingle isNewEpoch txpBlund = do
     -- @TxpBlund@ is a block/blund with a reduced set of information required for
     -- transaction processing. We use it to determine at which slot did a transaction
@@ -80,7 +83,7 @@ applySingle isNewEpoch txpBlund = do
 
 rollbackSingle ::
        forall m. (HasConfiguration, HasPostGresDB, MonadIO m, MonadDBRead m)
-    => NewEpochOperation -> TxpBlund -> m (EGlobalToilM ())
+    => IsNewEpochOperation -> TxpBlund -> m (EGlobalToilM ())
 rollbackSingle isNewEpoch txpBlund =
   let txpBlock         = txpBlund ^. _1
       (_, maybeBlockHeight) = getBlockSlotAndHeight txpBlock

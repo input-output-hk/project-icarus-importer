@@ -56,7 +56,7 @@ import           Pos.Ssc.Logic (sscApplyBlocks, sscNormalize, sscRollbackBlocks)
 import           Pos.Ssc.Mem (MonadSscMem)
 import           Pos.Ssc.Types (SscBlock)
 import           Pos.Txp.MemState (MonadTxpLocal (..))
-import           Pos.Txp.Settings (NewEpochOperation (..), TxpBlock, TxpBlund,
+import           Pos.Txp.Settings (IsNewEpochOperation (..), TxpBlock, TxpBlund,
                                    TxpGlobalSettings (..))
 import           Pos.Update (UpdateBlock)
 import           Pos.Update.Context (UpdateContext)
@@ -191,7 +191,7 @@ applyBlocksDbUnsafeDo scb@(ShouldCallBListener scbBool) blunds pModifier = do
         slogBatch <- slogApplyBlocks scb blunds
         usBatch <- SomeBatchOp <$> usApplyBlocks (map toUpdateBlock blocks) pModifier
         delegateBatch <- SomeBatchOp <$> dlgApplyBlocks (map toDlgBlund blunds)
-        txpBatch <- tgsApplyBlocks (NewEpochOperation $ not scbBool) $ map toTxpBlund blunds
+        txpBatch <- tgsApplyBlocks (IsNewEpochOperation $ not scbBool) $ map toTxpBlund blunds
         sscBatch <- SomeBatchOp <$>
             -- TODO: pass not only 'Nothing'
             sscApplyBlocks (map toSscBlock blocks) Nothing
@@ -220,7 +220,7 @@ rollbackBlocksUnsafe bsc scb@(ShouldCallBListener scbBool) toRollback = do
         usRoll <- SomeBatchOp <$> usRollbackBlocks
                       (toRollback & each._2 %~ undoUS
                                   & each._1 %~ toUpdateBlock)
-        txRoll <- tgsRollbackBlocks (NewEpochOperation $ not scbBool) $ map toTxpBlund toRollback
+        txRoll <- tgsRollbackBlocks (IsNewEpochOperation $ not scbBool) $ map toTxpBlund toRollback
         sscBatch <- SomeBatchOp <$> sscRollbackBlocks
             (map (toSscBlock . fst) toRollback)
         GS.writeBatchGState

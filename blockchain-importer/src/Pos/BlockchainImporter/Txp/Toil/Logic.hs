@@ -33,7 +33,7 @@ import           Pos.Crypto (WithHash (..), hash)
 import           Pos.DB.Class (MonadDBRead)
 import           Pos.Txp.Configuration (HasTxpConfiguration)
 import           Pos.Txp.DB.Utxo (getTxOut)
-import           Pos.Txp.Settings (NewEpochOperation (..))
+import           Pos.Txp.Settings (IsNewEpochOperation (..))
 import           Pos.Txp.Toil (ToilVerFailure (..), extendGlobalToilM, extendLocalToilM)
 import qualified Pos.Txp.Toil as Txp
 import           Pos.Txp.Topsort (topsortTxs)
@@ -47,10 +47,10 @@ import qualified Pos.Util.Modifier as MM
 -- example, it implies topological sort).
 eApplyToil ::
        forall m. (HasConfiguration, HasPostGresDB, MonadIO m, MonadDBRead m)
-    => NewEpochOperation
-    -> Maybe Timestamp
-    -> [(TxAux, TxUndo)]
-    -> Maybe ChainDifficulty
+    => IsNewEpochOperation    -- Whether apply resulted from new epoch operation
+    -> Maybe Timestamp        -- Timestamp of the block
+    -> [(TxAux, TxUndo)]      -- Txs of the block
+    -> Maybe ChainDifficulty  -- Difficulty of the block, if it's not a genesis
     -> m (EGlobalToilM ())
 eApplyToil isNewEpoch mTxTimestamp txun maybeBlockHeight = do
     -- Genesis block changes don't impact postgresdb
@@ -59,13 +59,12 @@ eApplyToil isNewEpoch mTxTimestamp txun maybeBlockHeight = do
 
 eApplyToilPG ::
      forall m. (HasConfiguration, HasPostGresDB, MonadIO m, MonadDBRead m)
-  => NewEpochOperation
+  => IsNewEpochOperation
   -> Maybe Timestamp
   -> [(TxAux, TxUndo)]
   -> ChainDifficulty
   -> m ()
 eApplyToilPG isNewEpoch mTxTimestamp txun blockHeight = do
-    print $ "Applying block " ++ show blockHeight ++ " with postgres " ++ show isNewEpoch
     -- Update best block
     postgresStoreOnBlockEvent isNewEpoch blockHeight $
                               BBT.updateBestBlock blockHeight
@@ -88,11 +87,11 @@ eApplyToilPG isNewEpoch mTxTimestamp txun blockHeight = do
 
 -- | Rollback transactions from one block or genesis.
 eRollbackToil ::
-     forall m. (HasConfiguration, HasPostGresDB, MonadIO m, MonadDBRead m)
-  => NewEpochOperation
-  -> [(TxAux, TxUndo)]
-  -> Maybe ChainDifficulty
-  -> m (EGlobalToilM ())
+       forall m. (HasConfiguration, HasPostGresDB, MonadIO m, MonadDBRead m)
+    => IsNewEpochOperation    -- Whether rollback resulted from new epoch operation
+    -> [(TxAux, TxUndo)]      -- Txs of the block
+    -> Maybe ChainDifficulty  -- Difficulty of the block, if it's not a genesis
+    -> m (EGlobalToilM ())
 eRollbackToil isNewEpoch txun maybeBlockHeight = do
     -- Genesis block changes don't impact postgresdb
     whenJust maybeBlockHeight $ eRollbackToilPG isNewEpoch txun
@@ -100,13 +99,11 @@ eRollbackToil isNewEpoch txun maybeBlockHeight = do
 
 eRollbackToilPG ::
      forall m. (HasConfiguration, HasPostGresDB, MonadIO m, MonadDBRead m)
-  => NewEpochOperation
+  => IsNewEpochOperation
   -> [(TxAux, TxUndo)]
   -> ChainDifficulty
   -> m ()
 eRollbackToilPG isNewEpoch txun blockHeight = do
-    print $ "Rollbacking block " ++ show blockHeight ++ " with postgres " ++ show isNewEpoch
-
     -- Update best block
     postgresStoreOnBlockEvent isNewEpoch blockHeight $
                               BBT.updateBestBlock (blockHeight - 1)
@@ -237,10 +234,10 @@ fetchTxSenders tx = do
 
 postgresStoreOnBlockEvent ::
      (MonadIO m, HasPostGresDB)
-  => NewEpochOperation
+  => IsNewEpochOperation
   -> ChainDifficulty
   -> (PGS.Connection -> IO ())
   -> m ()
 postgresStoreOnBlockEvent isNewEpoch blockHeight op = case isNewEpoch of
-  (NewEpochOperation True)  -> pure ()
-  (NewEpochOperation False) -> liftIO $ maybePostGreStore blockHeight op
+  (IsNewEpochOperation True)  -> pure ()
+  (IsNewEpochOperation False) -> liftIO $ maybePostGreStore blockHeight op
