@@ -23,6 +23,7 @@ import           Pos.Binary ()
 import           Pos.BlockchainImporter.Configuration (HasPostGresDB, withPostGreTransaction,
                                                        withPostGresDB)
 import           Pos.BlockchainImporter.ExtraContext (makeExtraCtx)
+import           Pos.BlockchainImporter.Recovery (recoverDBsConsistency)
 import           Pos.BlockchainImporter.Tables.TxsTable (markPendingTxsAsFailed)
 import           Pos.BlockchainImporter.Txp (BlockchainImporterExtraModifier,
                                              blockchainImporterTxpGlobalSettings)
@@ -103,7 +104,9 @@ action (BlockchainImporterNodeArgs (cArgs@CommonNodeArgs{..}) BlockchainImporter
             elim = elimRealMode nr
             ekgNodeMetrics = EkgNodeMetrics
                 nrEkgStore
-            serverRealMode = blockchainImporterModeToRealMode $ runServer
+            serverRealMode = blockchainImporterModeToRealMode $ do
+              when recoveryMode recoverDBsConsistency
+              runServer
                 (runProduction . elim . blockchainImporterModeToRealMode)
                 ncNodeParams
                 ekgNodeMetrics

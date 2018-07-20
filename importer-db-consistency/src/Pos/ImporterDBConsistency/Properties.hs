@@ -21,12 +21,13 @@ import           Pos.BlockchainImporter.Configuration (HasPostGresDB, postGreOpe
 import qualified Pos.BlockchainImporter.Tables.BestBlockTable as BestBlkT (getBestBlock)
 import qualified Pos.BlockchainImporter.Tables.TxsTable as TxsT (TxRecord, getTxByHash)
 import qualified Pos.BlockchainImporter.Tables.UtxosTable as UtxosT (UtxoRecord (..), getUtxos)
-import           Pos.Core (HasConfiguration, HasProtocolConstants, HeaderHash, getBlockCount,
-                           getChainDifficulty)
+import           Pos.Core (ChainDifficulty, HasConfiguration, HasProtocolConstants, HeaderHash,
+                           difficultyL)
 import           Pos.Core.Block (mainBlockTxPayload)
 import           Pos.Crypto (hash, hashHexF)
-import           Pos.DB (MonadDBRead, getHeader, getMaxSeenDifficulty)
+import           Pos.DB (MonadDBRead, getHeader)
 import           Pos.DB.Block (getBlock)
+import           Pos.DB.BlockIndex (getTipHeader)
 import           Pos.GState.BlockExtra (resolveForwardLink)
 import           Pos.ImporterDBConsistency.Utils
 import           Pos.Txp (Tx, TxAux (..), Utxo, flattenTxPayload)
@@ -160,8 +161,8 @@ getKVTxsByBlkHash blkHash = do
     Just (Left _) -> pure $ Just []
     Nothing -> pure $ Nothing
 
-getKVBestBlockNum :: ConsistencyCheckerEnv m => m Word64
-getKVBestBlockNum = getBlockCount . getChainDifficulty <$> getMaxSeenDifficulty
+getKVBestBlockNum :: ConsistencyCheckerEnv m => m ChainDifficulty
+getKVBestBlockNum = view difficultyL <$> getTipHeader
 
 containsUtxo :: [UtxosT.UtxoRecord] -> Utxo -> Bool
 containsUtxo pgUtxos kvUtxos = isNothing $ find (\row -> not $ hasUtxoRow row kvUtxos) pgUtxos

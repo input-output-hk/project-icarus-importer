@@ -7,6 +7,8 @@ module Pos.BlockchainImporter.Tables.UtxosTable
   , getUtxos
     -- * Manipulation
   , applyModifierToUtxos
+    -- * Recovery (use carefully!)
+  , clearUtxos
   ) where
 
 import           Universum
@@ -83,3 +85,8 @@ getUtxos conn = do
   where utxosQuery = proc () -> do
           UtxoRow _ inHash inIndex outReceiver outAmount <- (selectTable utxosTable) -< ()
           A.returnA -< (inHash, inIndex, outReceiver, outAmount)
+
+-- | Delete all utxos from table
+clearUtxos :: PGS.Connection -> IO ()
+clearUtxos conn = void $ runDelete_ conn $
+                                    Delete utxosTable (const $ pgBool True) rCount

@@ -14,9 +14,9 @@ import           Universum
 
 import           Data.Version (showVersion)
 import qualified Database.PostgreSQL.Simple as PGS
-import           Options.Applicative (Parser, auto, execParser, footerDoc, fullDesc, header, help,
-                                      helper, info, infoOption, long, metavar, option, progDesc,
-                                      showDefault, strOption, value)
+import           Options.Applicative (Parser, auto, execParser, flag, footerDoc, fullDesc, header,
+                                      help, helper, info, infoOption, long, metavar, option,
+                                      progDesc, showDefault, strOption, value)
 
 import           Paths_cardano_sl_blockchain_importer (version)
 import           Pos.Client.CLI (CommonNodeArgs (..))
@@ -36,6 +36,7 @@ data BlockchainImporterArgs = BlockchainImporterArgs
     -- ^ Configuration of the PostGres DB
     , storingStartBlockPG :: !Word64
     -- ^ Starting block number from which data will be stored on the DB
+    , recoveryMode        :: !Bool
     } deriving Show
 
 -- Parses the postgres configuration, using the defaults from 'PGS.defaultConnectInfo'
@@ -78,6 +79,9 @@ blockchainImporterArgsParser = do
         metavar "PS-START-NUM" <>
         value   0 <>
         help    "First block whose info will be stored on postgres DB."
+    recoveryMode <- flag False True $
+        long "recovery-mode" <>
+        help "Enable recovery mode"
     pure $ BlockchainImporterNodeArgs commonNodeArgs BlockchainImporterArgs{..}
 
 -- | The parser for the blockchainImporter.

@@ -10,6 +10,8 @@ module Pos.BlockchainImporter.Tables.TxsTable
   , upsertFailedTx
   , upsertPendingTx
   , markPendingTxsAsFailed
+    -- * Recovery (use carefully!)
+  , deleteTxsAfterBlk
   ) where
 
 import           Universum
@@ -182,6 +184,13 @@ markPendingTxsAsFailed conn = do
       isPending row             = trState row .== show Pending
   void $ runUpdate_ conn $ Update txsTable changePendingToFailed isPending rCount
 
+-- | Deletes all confirmed txs whose block number is greater than the provided one
+deleteTxsAfterBlk :: ChainDifficulty -> PGS.Connection -> IO ()
+deleteTxsAfterBlk fromBlk conn = void $ runDelete_ conn deleteAfterBlkQuery
+  where deleteAfterBlkQuery = Delete txsTable shouldDeleteTx rCount
+        shouldDeleteTx tx   = matchNullable (pgBool False)
+                                            (\txBlkNum -> txBlkNum .> (pgInt8 $ fromIntegral fromBlk))
+                                            (trBlockNum tx)
 
 ----------------------------------------------------------------------------
 -- Helpers

@@ -26,6 +26,8 @@ library
 
                         Pos.BlockchainImporter.Txp
 
+                        Pos.BlockchainImporter.Recovery
+
                         Pos.BlockchainImporter.Web
                         Pos.BlockchainImporter.Web.Api
                         Pos.BlockchainImporter.Web.ClientTypes
