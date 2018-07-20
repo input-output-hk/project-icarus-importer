@@ -55,3 +55,7 @@ Run it from project root.
 * http://localhost:3100
 
 Change `CORS` policies in `src/Pos/BlockchainImporter/Socket/App.hs` whenever you have to add more resources.
+
+## Recovery mode
+
+In case of a crash on the importer, recovery from the rocks db from any non-corrupted db (obtained with the importer or a Cardano node) can done by enabling the flag `--recovery-mode`.

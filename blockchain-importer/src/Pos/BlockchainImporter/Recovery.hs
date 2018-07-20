@@ -6,7 +6,6 @@ module Pos.BlockchainImporter.Recovery
 import           Universum
 
 import           Control.Lens (_Wrapped)
-import           Data.List (genericTake)
 import           Data.Map ((\\))
 import           Formatting (build, int, sformat, (%))
 import           JsonLog (CanJsonLog (..))
@@ -78,8 +77,9 @@ rollbackRocksDB rollbackTo = withStateLock HighPriority ApplyBlockWithRollback $
   tipDifficulty <- rocksDBTipDifficulty
   let numToRollback = fromIntegral $ tipDifficulty - rollbackTo
   printTipDifficulty
-  blundsMaybeEmpty <- modifyBlunds numToRollback <$>
-      DB.loadBlundsFromTipByDepth (fromIntegral numToRollback)
+  blundsMaybeEmpty <- modifyBlunds <$> DB.loadBlundsFromTipByDepth numToRollback
+  -- NOTE: We may load more blunds than necessary, as genesis blocks don't
+  --       contribute to depth counter.
   logInfo $ sformat ("Loaded "%int%" blunds") (length blundsMaybeEmpty)
   case _Wrapped nonEmpty blundsMaybeEmpty of
       Nothing -> pass
@@ -89,12 +89,9 @@ rollbackRocksDB rollbackTo = withStateLock HighPriority ApplyBlockWithRollback $
           logInfo $ sformat ("Rolled back "%int%" blocks") (length blunds)
           printTipDifficulty
   where
-  -- It's illegal to rollback 0-th genesis block.  We also may load
-  -- more blunds than necessary, because genesis blocks don't
-  -- contribute to depth counter.
-  modifyBlunds :: HasSscConfiguration => Word -> NewestFirst [] Blund -> NewestFirst [] Blund
-  modifyBlunds numToRollback =
-      over _NewestFirst (genericTake numToRollback . skip0thGenesis)
+  -- It's illegal to rollback 0-th genesis block.
+  modifyBlunds :: HasSscConfiguration => NewestFirst [] Blund -> NewestFirst [] Blund
+  modifyBlunds = over _NewestFirst skip0thGenesis
   skip0thGenesis = filter (not . is0thGenesis)
   is0thGenesis :: Blund -> Bool
   is0thGenesis (Left genBlock, _)
@@ -145,7 +142,9 @@ blkNumberToRollback ::
   => ChainDifficulty        -- Rocks db best block number
   -> ChainDifficulty        -- Postgres db best block number
   -> ChainDifficulty
-blkNumberToRollback rocksBestBlock postgresBestBlock = max (latestCommonBlk - maxRollback) 0
+blkNumberToRollback rocksBestBlock postgresBestBlock =
+  if latestCommonBlk > maxRollback then latestCommonBlk - maxRollback
+                                   else 0
   where latestCommonBlk = min rocksBestBlock postgresBestBlock
         maxRollback = fromIntegral blkSecurityParam
 
