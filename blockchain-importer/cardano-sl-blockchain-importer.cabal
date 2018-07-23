@@ -38,6 +38,9 @@ library
 
                         Pos.BlockchainImporter.TestUtil
 
+                        Pos.ImporterDBConsistency.ConsistencyChecker
+                        Pos.ImporterDBConsistency.Utils
+
                         -- Needed for testing
                         Pos.Arbitrary.BlockchainImporter
 
@@ -53,6 +56,8 @@ library
                         Pos.BlockchainImporter.Txp.Toil.Types
                         Pos.BlockchainImporter.BListener
                         Pos.BlockchainImporter.Tables.TxAddrTable
+
+                        Pos.ImporterDBConsistency.Properties
 
   build-depends:        QuickCheck
                       , aeson
@@ -178,6 +183,60 @@ executable cardano-blockchain-importer
                      , cardano-sl-networking
                      , cardano-sl-update
                      , cardano-sl-util
+                     , formatting
+                     , log-warper
+                     , optparse-applicative
+                     , postgresql-simple
+                     , universum
+  default-language:    Haskell2010
+  ghc-options:         -threaded -rtsopts
+                       -Wall
+                       -fno-warn-orphans
+                       -with-rtsopts=-N
+                       -O2
+
+  default-extensions:   DeriveDataTypeable
+                        DeriveGeneric
+                        GeneralizedNewtypeDeriving
+                        StandaloneDeriving
+                        FlexibleContexts
+                        FlexibleInstances
+                        MultiParamTypeClasses
+                        FunctionalDependencies
+                        DefaultSignatures
+                        NoImplicitPrelude
+                        OverloadedStrings
+                        RecordWildCards
+                        TypeApplications
+                        TupleSections
+                        ViewPatterns
+                        LambdaCase
+                        MultiWayIf
+                        MonadFailDesugaring
+
+  build-tools: cpphs >= 1.19
+  ghc-options: -pgmP cpphs -optP --cpp
+
+  -- linker speed up for linux
+  if os(linux)
+    ghc-options:       -optl-fuse-ld=gold
+    ld-options:        -fuse-ld=gold
+
+executable cardano-importer-db-consistency
+  hs-source-dirs:      src/importer-db-consistency
+  main-is:             Main.hs
+  other-modules:       ImporterDBConsistencyNodeOptions
+  build-depends:       base
+                     , cardano-sl
+                     , cardano-sl-core
+                     , cardano-sl-crypto
+                     , cardano-sl-db
+                     , cardano-sl-infra
+                     , cardano-sl-blockchain-importer
+                     , cardano-sl-networking
+                     , cardano-sl-update
+                     , cardano-sl-util
+                     , cardano-sl-blockchain-importer
                      , formatting
                      , log-warper
                      , optparse-applicative

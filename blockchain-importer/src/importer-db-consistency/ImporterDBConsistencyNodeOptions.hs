@@ -19,7 +19,7 @@ import           Options.Applicative (Parser, auto, command, execParser, footerD
                                       header, help, helper, info, infoOption, long, metavar, option,
                                       progDesc, showDefault, strOption, subparser, value)
 
-import           Paths_cardano_sl_postgres_consistency (version)
+import           Paths_cardano_sl_blockchain_importer (version)
 import           Pos.Client.CLI (CommonNodeArgs (..))
 import qualified Pos.Client.CLI as CLI
 

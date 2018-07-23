@@ -14,7 +14,7 @@ import           Universum
 import           Data.Maybe (fromJust)
 import qualified Database.PostgreSQL.Simple as PGS
 import           Mockable (Production, runProduction)
-import           System.Wlog (LoggerName, logInfo)
+import           System.Wlog (LoggerName, logError, logInfo)
 
 import           BlockchainImporterNodeOptions (BlockchainImporterArgs (..),
                                                 BlockchainImporterNodeArgs (..),
@@ -34,6 +34,7 @@ import qualified Pos.Client.CLI as CLI
 import           Pos.Context (NodeContext (..))
 import           Pos.DB.DB (initNodeDBs)
 import           Pos.Diffusion.Types (Diffusion)
+import           Pos.ImporterDBConsistency.ConsistencyChecker (internalConsistencyCheck)
 import           Pos.Launcher (ConfigurationOptions (..), HasConfigurations, NodeParams (..),
                                NodeResources (..), bracketNodeResources, elimRealMode,
                                loggerBracket, runNode, runServer, withConfigurations)
@@ -104,13 +105,23 @@ action (BlockchainImporterNodeArgs (cArgs@CommonNodeArgs{..}) BlockchainImporter
             elim = elimRealMode nr
             ekgNodeMetrics = EkgNodeMetrics
                 nrEkgStore
-            serverRealMode = blockchainImporterModeToRealMode $ do
-              when recoveryMode recoverDBsConsistency
-              runServer
-                (runProduction . elim . blockchainImporterModeToRealMode)
-                ncNodeParams
-                ekgNodeMetrics
-                go
+            startImporter = runServer
+              (runProduction . elim . blockchainImporterModeToRealMode)
+              ncNodeParams
+              ekgNodeMetrics
+              go
+            serverRealMode = blockchainImporterModeToRealMode $
+              if recoveryMode then do
+                  recoverDBsConsistency
+                  startImporter
+              else do
+                logInfo "Checking internal db consistency..."
+                consistentDBs <- internalConsistencyCheck
+                if consistentDBs then do
+                  logInfo "Consistency check succeded, starting importer..."
+                  startImporter
+                else logError $ toText $ "Inconsistency detected between Rocks and " ++
+                                         "Postgres DBs, start using --recovery-mode flag"
         in  elim serverRealMode
 
     nodeArgs :: NodeArgs
