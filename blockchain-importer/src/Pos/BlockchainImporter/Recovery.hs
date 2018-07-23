@@ -18,9 +18,9 @@ import           Pos.BlockchainImporter.Configuration (HasPostGresDB, postGreOpe
 import qualified Pos.BlockchainImporter.Tables.BestBlockTable as BestBlockT
 import qualified Pos.BlockchainImporter.Tables.TxsTable as TxsT
 import qualified Pos.BlockchainImporter.Tables.UtxosTable as UtxosT
-import           Pos.Core (ChainDifficulty, HasConfiguration, HasGeneratedSecrets,
+import           Pos.Core (BlockCount, HasConfiguration, HasGeneratedSecrets,
                            HasGenesisBlockVersionData, HasGenesisData, HasProtocolConstants,
-                           blkSecurityParam, difficultyL, epochIndexL)
+                           blkSecurityParam, difficultyL, epochIndexL, getChainDifficulty)
 import qualified Pos.DB.Block.Load as DB
 import qualified Pos.DB.BlockIndex as DB
 import           Pos.Ssc.Configuration (HasSscConfiguration)
@@ -73,7 +73,7 @@ recoverDBsConsistency = do
 -- Rollbacking functions
 ----------------------------------------------------------------------------
 
-rollbackRocksDB :: RecoveryMode ctx m => ChainDifficulty -> m ()
+rollbackRocksDB :: RecoveryMode ctx m => BlockCount -> m ()
 rollbackRocksDB rollbackTo = withStateLock HighPriority ApplyBlockWithRollback $ \_ -> do
   tipDifficulty <- rocksDBTipDifficulty
   let numToRollback = fromIntegral $ tipDifficulty - rollbackTo
@@ -113,7 +113,7 @@ rollbackRocksDB rollbackTo = withStateLock HighPriority ApplyBlockWithRollback $
     Warning:  Internal postgres db consistency is lost during this function execution
               Recovery should be re-done if canceled
 -}
-rollbackPostgresDB :: RecoveryMode ctx m => ChainDifficulty -> m ()
+rollbackPostgresDB :: RecoveryMode ctx m => BlockCount -> m ()
 rollbackPostgresDB rollbackTo = do
   logInfo $ sformat ("Rollbacking postgres db to block "%build) rollbackTo
   logWarning $ toText $ "Recovery process should be re-done if this is canceled, " ++
@@ -140,9 +140,9 @@ rollbackPostgresDB rollbackTo = do
 
 blkNumberToRollback ::
      HasProtocolConstants
-  => ChainDifficulty        -- Rocks db best block number
-  -> ChainDifficulty        -- Postgres db best block number
-  -> ChainDifficulty
+  => BlockCount        -- Rocks db best block number
+  -> BlockCount        -- Postgres db best block number
+  -> BlockCount
 blkNumberToRollback rocksBestBlock postgresBestBlock =
   if latestCommonBlk > maxRollback then latestCommonBlk - maxRollback
                                    else 0
@@ -155,5 +155,5 @@ nonGenesisRocksUtxos = do
   let genesisUtxos = unGenesisUtxo genesisUtxo
   pure $ allKVUtxos \\ genesisUtxos
 
-rocksDBTipDifficulty :: RecoveryMode ctx m => m ChainDifficulty
-rocksDBTipDifficulty = view difficultyL <$> DB.getTipHeader
+rocksDBTipDifficulty :: RecoveryMode ctx m => m BlockCount
+rocksDBTipDifficulty = getChainDifficulty . view difficultyL <$> DB.getTipHeader

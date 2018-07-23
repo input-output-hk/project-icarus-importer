@@ -6,8 +6,8 @@ module Pos.BlockchainImporter.Txp.Global
 
 import           Universum
 
-import           Pos.Core (ChainDifficulty, ComponentBlock (..), HasConfiguration,
-                           HasProtocolConstants, HeaderHash, SlotId (..), difficultyL, epochIndexL,
+import           Pos.Core (BlockCount, ComponentBlock (..), HasConfiguration, HasProtocolConstants,
+                           HeaderHash, SlotId (..), difficultyL, epochIndexL, getChainDifficulty,
                            headerHash, headerSlotL)
 import           Pos.Core.Txp (TxAux, TxUndo)
 import           Pos.DB (MonadDBRead, SomeBatchOp (..))
@@ -102,7 +102,7 @@ blundToAuxNUndoWHash blund@(blk, _) =
     (blundToAuxNUndo blund, headerHash blk)
 
 -- Returns no chain difficulty if the passed block is a genesis
-getBlockSlotAndHeight :: HasProtocolConstants => TxpBlock -> (SlotId, Maybe ChainDifficulty)
+getBlockSlotAndHeight :: HasProtocolConstants => TxpBlock -> (SlotId, Maybe BlockCount)
 getBlockSlotAndHeight txpBlock = case txpBlock of
   ComponentBlockGenesis genesisBlock ->
       ( SlotId
@@ -114,5 +114,7 @@ getBlockSlotAndHeight txpBlock = case txpBlock of
       )
   ComponentBlockMain mainHeader _  ->
       ( mainHeader ^. headerSlotL
-      , Just $ mainHeader ^. difficultyL
+      , -- Currently the chain difficulty is the number of the block, if that definition changes,
+        -- this should also as well
+        Just $ getChainDifficulty $ mainHeader ^. difficultyL
       )

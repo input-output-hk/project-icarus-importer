@@ -29,7 +29,7 @@ import           Opaleye.RunSelect
 import           Pos.BlockchainImporter.Core (TxExtra (..))
 import qualified Pos.BlockchainImporter.Tables.TxAddrTable as TAT (insertTxAddresses)
 import           Pos.BlockchainImporter.Tables.Utils
-import           Pos.Core (ChainDifficulty, Timestamp, timestampToUTCTimeL)
+import           Pos.Core (BlockCount, Timestamp, timestampToUTCTimeL)
 import           Pos.Core.Txp (Tx (..), TxId, TxOut (..), TxOutAux (..), TxUndo)
 import           Pos.Crypto (hash)
 
@@ -146,7 +146,7 @@ getTxByHash txHash conn = do
     If the tx was already present with a different state, it is moved to the confirmed one and
     it's timestamp and last update are updated
 -}
-upsertSuccessfulTx :: Tx -> TxExtra -> ChainDifficulty -> PGS.Connection -> IO ()
+upsertSuccessfulTx :: Tx -> TxExtra -> BlockCount -> PGS.Connection -> IO ()
 upsertSuccessfulTx tx txExtra blockHeight conn = upsertTx tx txExtra (Just blockHeight) Successful conn
 
 {-|
@@ -192,7 +192,7 @@ markPendingTxsAsFailed conn = do
     failed with 'markPendingTxsAsFailed'. If any of these was successful, it will eventually
     be moved to that state on syncing.
 -}
-deleteTxsAfterBlk :: ChainDifficulty -> PGS.Connection -> IO ()
+deleteTxsAfterBlk :: BlockCount -> PGS.Connection -> IO ()
 deleteTxsAfterBlk fromBlk conn = void $ runDelete_ conn deleteAfterBlkQuery
   where deleteAfterBlkQuery = Delete txsTable shouldDeleteTx rCount
         shouldDeleteTx tx   = matchNullable (pgBool False)
@@ -205,14 +205,14 @@ deleteTxsAfterBlk fromBlk conn = void $ runDelete_ conn deleteAfterBlkQuery
 
 -- Inserts a given Tx into the Tx history tables with a given state (overriding any
 -- it if it was already present).
-upsertTx :: Tx -> TxExtra -> Maybe ChainDifficulty -> TxState -> PGS.Connection -> IO ()
+upsertTx :: Tx -> TxExtra -> Maybe BlockCount -> TxState -> PGS.Connection -> IO ()
 upsertTx tx txExtra maybeBlockHeight succeeded conn = do
   upsertTxToHistory tx txExtra maybeBlockHeight succeeded conn
   TAT.insertTxAddresses tx (teInputOutputs txExtra) conn
 
 -- Inserts the basic info of a given Tx into the master Tx history table (overriding any
 -- it if it was already present)
-upsertTxToHistory :: Tx -> TxExtra -> Maybe ChainDifficulty -> TxState -> PGS.Connection -> IO ()
+upsertTxToHistory :: Tx -> TxExtra -> Maybe BlockCount -> TxState -> PGS.Connection -> IO ()
 upsertTxToHistory tx TxExtra{..} blockHeight txState conn = do
   currentTime <- getCurrentTime
   void $ runUpsert_ conn txsTable ["hash"]

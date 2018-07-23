@@ -15,7 +15,7 @@ import qualified Database.PostgreSQL.Simple as PGS
 import           Opaleye
 import           Opaleye.RunSelect
 
-import           Pos.Core (ChainDifficulty)
+import           Pos.Core (BlockCount)
 
 data BestBlockRowPoly a = BestBlockRow  { bbBlockNum :: a
                                         } deriving (Show)
@@ -30,7 +30,7 @@ bestBlockTable = Table "bestblock" (pBestBlock  BestBlockRow
                                                 { bbBlockNum = required "best_block_num" })
 
 -- | Updates the best block number stored
-updateBestBlock :: ChainDifficulty -> PGS.Connection -> IO ()
+updateBestBlock :: BlockCount -> PGS.Connection -> IO ()
 updateBestBlock newBestBlock conn = do
   n <- runUpdate_ conn $
                   Update bestBlockTable (const colBlockNum) (const $ pgBool True) rCount
@@ -39,7 +39,7 @@ updateBestBlock newBestBlock conn = do
     where colBlockNum = BestBlockRow $ pgInt8 $ fromIntegral newBestBlock
 
 -- | Returns the best block number
-getBestBlock :: PGS.Connection -> IO ChainDifficulty
+getBestBlock :: PGS.Connection -> IO BlockCount
 getBestBlock conn = do
   bestBlockMatched :: [Int64] <- runSelect conn bestBlockQuery
   case bestBlockMatched of
