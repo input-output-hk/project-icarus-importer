@@ -52,5 +52,6 @@ stack exec -- cardano-blockchain-importer --topology "/tmp/topology-staging.yaml
 
 ### Prod version (connects BlockchainImporter to `staging` or `mainnet`)
 
-- Run `/scripts/clean/db.sh` to do a clean synchronization, so that BlockchainImporter will sync and download blockchain from start. Create a 
+- Run `/scripts/clean/db.sh` to do a clean synchronization, so that BlockchainImporter will sync and download blockchain from start.
+- Create an empty Postgres DB with the tables and indexes from `scripts/generate/blockImporterTables-beta.sql`.
 - Connect to cluster as described in  `docs/how-to/connect-to-cluster.md` **FIXME: Add usage of nix for building, currently doesn't work**
