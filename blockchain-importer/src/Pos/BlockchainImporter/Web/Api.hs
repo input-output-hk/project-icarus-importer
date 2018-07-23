@@ -52,7 +52,7 @@ blockchainImporterApi = Proxy
 data BlockchainImporterApiRecord route = BlockchainImporterApiRecord
   {
     _blockCount :: route
-        :- Summary "Gets the total number of blocks imported."
+        :- Summary "Gets the total number of blocks imported (according to rocks db)."
         :> "stats"
         :> "blocksCount"
         :> ExRes Get Integer

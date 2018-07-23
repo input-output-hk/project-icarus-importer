@@ -103,7 +103,7 @@ getNextNBlkHashesFromHash n initialHash = if n <= 0 then pure [] else
           pure $ initialHash : hashesFromNext
 
 {-
-    Size of the range of blocks checked for tx history consistency. Selected to be 'k',
+    Size of the range of blocks checked for tx history consistency. Selected to be 2 * k,
     the number of blocks rollbacked on every new epoch.
 
     This allows checking the consistency of the tx history after this process:
@@ -113,7 +113,8 @@ getNextNBlkHashesFromHash n initialHash = if n <= 0 then pure [] else
       successfully.
 -}
 blkRangeSize :: HasProtocolConstants => Int
-blkRangeSize = fromIntegral $ getBlockCount blkSecurityParam
+blkRangeSize = 2 * k
+  where k = fromIntegral $ getBlockCount blkSecurityParam
 
 --FIXME: Maybe use getTxOut to compare txs?
 txRowExists :: Maybe TxsT.TxRecord -> Tx -> Bool
