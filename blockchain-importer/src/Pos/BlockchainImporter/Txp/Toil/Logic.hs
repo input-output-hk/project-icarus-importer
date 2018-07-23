@@ -10,8 +10,8 @@ module Pos.BlockchainImporter.Txp.Toil.Logic
       , eNormalizeToil
       , eProcessTx
         -- * Pending tx DB processing
-      , eApplyNewPendingTx
-      , eApplyFailedTx
+      , OnConflict (..)
+      , eUpsertFailedTx
       ) where
 
 import           Universum
@@ -22,7 +22,6 @@ import           Pos.BlockchainImporter.Configuration (HasPostGresDB, maybePostG
                                                        postGreOperate)
 import           Pos.BlockchainImporter.Core (TxExtra (..))
 import qualified Pos.BlockchainImporter.Tables.BestBlockTable as BBT
-import qualified Pos.BlockchainImporter.Tables.PendingTxsTable as PTxsT
 import qualified Pos.BlockchainImporter.Tables.TxsTable as TxsT
 import qualified Pos.BlockchainImporter.Tables.UtxosTable as UT
 import           Pos.BlockchainImporter.Txp.Toil.Monad (EGlobalToilM, ELocalToilM)
@@ -67,13 +66,14 @@ eApplyToil mTxTimestamp txun blockHeight = do
         let tx = taTx txAux
             newExtra = TxExtra mTxTimestamp txUndo
 
-        liftIO $ maybePostGreStore blockHeight $ TxsT.insertConfirmedTx tx newExtra blockHeight
-        liftIO $ maybePostGreStore blockHeight $ PTxsT.deletePendingTx (hash tx)
+        liftIO $ maybePostGreStore blockHeight $ TxsT.upsertSuccessfulTx tx newExtra blockHeight
 
 -- | Rollback transactions from one block.
 eRollbackToil ::
      forall m. (HasConfiguration, HasPostGresDB, MonadIO m, MonadDBRead m)
-  => [(TxAux, TxUndo)] -> Word64 -> m (EGlobalToilM ())
+  => [(TxAux, TxUndo)]
+  -> Word64
+  -> m (EGlobalToilM ())
 eRollbackToil txun blockHeight = do
     -- Update best block
     liftIO $ maybePostGreStore blockHeight $ BBT.updateBestBlock (blockHeight - 1)
@@ -90,10 +90,8 @@ eRollbackToil txun blockHeight = do
     extraRollback :: (TxAux, TxUndo) -> m ()
     extraRollback (txAux, txUndo) = do
         let tx      = taTx txAux
-            txHash  = hash tx
 
-        liftIO $ maybePostGreStore blockHeight $ TxsT.deleteTx txHash
-        eApplyNewPendingTx tx txUndo
+        liftIO $ postGreOperate $ TxsT.upsertPendingTx tx txUndo
 
 ----------------------------------------------------------------------------
 -- Local
@@ -127,39 +125,28 @@ eNormalizeToil bvd curEpoch txs = catMaybes <$> mapM normalize ordered
       pure $ txAux <$ leftToMaybe res
     repair (i, (txAux, extra)) = ((i, txAux), const extra)
 
--- | Inserts a pending tx to the Postgres DB
-eApplyNewPendingTx ::
-       (MonadIO m, HasPostGresDB)
-    => Tx
-    -> TxUndo
-    -> m ()
-eApplyNewPendingTx tx txUndo = liftIO $ postGreOperate $ PTxsT.insertPendingTx tx txUndo
 
-{-| Deletes a pending tx from the Postgres DB and inserts it into the Txs table as a failed tx
+data OnConflict = DoNothing | DoUpdate
+
+{-| Upserts a failed tx into the tx history table, solving conflicts according to the onConflict
+    parameter
 
     Note that the tx that failed could have not being pending, as is the case where it failed
     during it's processing. In that case, we attempt to obtain the inputs, returning them only
     if we successfully get all of them
 -}
-eApplyFailedTx :: (MonadIO m, MonadDBRead m, HasPostGresDB) => Tx -> Maybe Timestamp -> m ()
-eApplyFailedTx ptx maybeTimestamp = do
-  let ptxId = hash ptx
-  maybePtx <- liftIO $ postGreOperate $ PTxsT.getPendingTxByHash ptxId
-  inputs <- case maybePtx of
-    Just pgPtx ->
-      pure $ Just <$> PTxsT.ptxInputs pgPtx
-    Nothing -> do
-      -- Fetch the tx inputs
-      -- If any of the inputs of the tx is not known, none is returned
-      knownInputs <- mapM getTxOut (_txInputs ptx)
-      let allInputsKnown = all isJust knownInputs
-          inputs         = if allInputsKnown then knownInputs
-                           else const Nothing <$> _txInputs ptx
-      pure inputs
+eUpsertFailedTx :: (MonadIO m, MonadDBRead m, HasPostGresDB) => OnConflict -> Tx -> m ()
+eUpsertFailedTx onConflict tx = do
+  inputs <- fetchTxSenders tx
 
-  whenJust maybePtx $ \_ ->
-           liftIO $ postGreOperate $ PTxsT.deletePendingTx ptxId
-  liftIO $ postGreOperate $ TxsT.insertFailedTx ptx (TxExtra maybeTimestamp inputs)
+  shouldUpsert <- case onConflict of
+    DoNothing -> do
+      maybeOldTx <- liftIO $ postGreOperate $ TxsT.getTxByHash (hash tx)
+      pure $ isNothing maybeOldTx
+    DoUpdate -> pure True
+
+  when shouldUpsert $
+       liftIO $ postGreOperate $ TxsT.upsertFailedTx tx inputs
 
 ----------------------------------------------------------------------------
 -- Helpers
@@ -198,3 +185,19 @@ rollbackSingleModifier (txAux, txUndo) = foldr  MM.delete
 
         mapValueToMaybe :: a -> Maybe b -> Maybe (a, b)
         mapValueToMaybe a = fmap ((,) a)
+
+fetchTxSenders :: (MonadIO m, MonadDBRead m, HasPostGresDB) => Tx -> m TxUndo
+fetchTxSenders tx = do
+  let txId = hash tx
+  maybeTx <- liftIO $ postGreOperate $ TxsT.getTxByHash txId
+  case maybeTx of
+    Just pgTx ->
+      pure $ Just <$> TxsT.txInputs pgTx
+    Nothing -> do
+      -- Fetch the tx inputs
+      -- If any of the inputs of the tx is not known, none is returned
+      knownInputs <- mapM getTxOut (_txInputs tx)
+      let allInputsKnown = all isJust knownInputs
+          inputs         = if allInputsKnown then knownInputs
+                           else const Nothing <$> _txInputs tx
+      pure inputs

@@ -20,9 +20,10 @@ import           BlockchainImporterNodeOptions (BlockchainImporterArgs (..),
                                                 BlockchainImporterNodeArgs (..),
                                                 getBlockchainImporterNodeOptions)
 import           Pos.Binary ()
-import           Pos.BlockchainImporter.Configuration (HasPostGresDB, withPostGresDB)
+import           Pos.BlockchainImporter.Configuration (HasPostGresDB, withPostGreTransaction,
+                                                       withPostGresDB)
 import           Pos.BlockchainImporter.ExtraContext (makeExtraCtx)
-import           Pos.BlockchainImporter.Tables.PendingTxsTable (clearPendingTx)
+import           Pos.BlockchainImporter.Tables.TxsTable (markPendingTxsAsFailed)
 import           Pos.BlockchainImporter.Txp (BlockchainImporterExtraModifier,
                                              blockchainImporterTxpGlobalSettings)
 import           Pos.BlockchainImporter.Web (BlockchainImporterProd, blockchainImporterPlugin,
@@ -75,8 +76,12 @@ action (BlockchainImporterNodeArgs (cArgs@CommonNodeArgs{..}) BlockchainImporter
                     , updateTriggerWorker
                     ]
 
-            -- Clear postgres mem pool
-            liftIO $ clearPendingTx conn
+            -- Mark all pending txs as failed
+            -- Note: During the syncing process some of these txs could change their state
+            --       to successful. This is not a problem as it only happens in the rare case
+            --       of a restart of the importer, which should be properly informed to the user.
+            liftIO $ withPostGreTransaction $ markPendingTxsAsFailed conn
+
             bracketNodeResources currentParams sscParams
                 blockchainImporterTxpGlobalSettings
                 initNodeDBs $ \nr@NodeResources {..} ->

@@ -20,7 +20,6 @@ library
                         Pos.BlockchainImporter.ExtraContext
 
                         Pos.BlockchainImporter.Tables.BestBlockTable
-                        Pos.BlockchainImporter.Tables.PendingTxsTable
                         Pos.BlockchainImporter.Tables.TxsTable
                         Pos.BlockchainImporter.Tables.UtxosTable
                         Pos.BlockchainImporter.Tables.Utils
