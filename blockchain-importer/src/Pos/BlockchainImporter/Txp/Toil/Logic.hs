@@ -26,8 +26,7 @@ import qualified Pos.BlockchainImporter.Tables.BestBlockTable as BBT
 import qualified Pos.BlockchainImporter.Tables.TxsTable as TxsT
 import qualified Pos.BlockchainImporter.Tables.UtxosTable as UT
 import           Pos.BlockchainImporter.Txp.Toil.Monad (EGlobalToilM, ELocalToilM)
-import           Pos.Core (BlockVersionData, ChainDifficulty, EpochIndex, HasConfiguration,
-                           Timestamp)
+import           Pos.Core (BlockCount, BlockVersionData, EpochIndex, HasConfiguration, Timestamp)
 import           Pos.Core.Txp (Tx (..), TxAux (..), TxId, TxIn (..), TxOutAux (..), TxUndo)
 import           Pos.Crypto (WithHash (..), hash)
 import           Pos.DB.Class (MonadDBRead)
@@ -50,7 +49,7 @@ eApplyToil ::
     => IsNewEpochOperation    -- Whether apply resulted from new epoch operation
     -> Maybe Timestamp        -- Timestamp of the block
     -> [(TxAux, TxUndo)]      -- Txs of the block
-    -> Maybe ChainDifficulty  -- Difficulty of the block, if it's not a genesis
+    -> Maybe BlockCount       -- Number of the block, if it's not a genesis
     -> m (EGlobalToilM ())
 eApplyToil isNewEpoch mTxTimestamp txun maybeBlockHeight = do
     -- Genesis block changes don't impact postgresdb
@@ -62,7 +61,7 @@ eApplyToilPG ::
   => IsNewEpochOperation
   -> Maybe Timestamp
   -> [(TxAux, TxUndo)]
-  -> ChainDifficulty
+  -> BlockCount
   -> m ()
 eApplyToilPG isNewEpoch mTxTimestamp txun blockHeight = do
     -- Update best block
@@ -90,7 +89,7 @@ eRollbackToil ::
        forall m. (HasConfiguration, HasPostGresDB, MonadIO m, MonadDBRead m)
     => IsNewEpochOperation    -- Whether rollback resulted from new epoch operation
     -> [(TxAux, TxUndo)]      -- Txs of the block
-    -> Maybe ChainDifficulty  -- Difficulty of the block, if it's not a genesis
+    -> Maybe BlockCount       -- Number of the block, if it's not a genesis
     -> m (EGlobalToilM ())
 eRollbackToil isNewEpoch txun maybeBlockHeight = do
     -- Genesis block changes don't impact postgresdb
@@ -101,7 +100,7 @@ eRollbackToilPG ::
      forall m. (HasConfiguration, HasPostGresDB, MonadIO m, MonadDBRead m)
   => IsNewEpochOperation
   -> [(TxAux, TxUndo)]
-  -> ChainDifficulty
+  -> BlockCount
   -> m ()
 eRollbackToilPG isNewEpoch txun blockHeight = do
     -- Update best block
@@ -235,7 +234,7 @@ fetchTxSenders tx = do
 postgresStoreOnBlockEvent ::
      (MonadIO m, HasPostGresDB)
   => IsNewEpochOperation
-  -> ChainDifficulty
+  -> BlockCount
   -> (PGS.Connection -> IO ())
   -> m ()
 postgresStoreOnBlockEvent isNewEpoch blockHeight op = case isNewEpoch of
