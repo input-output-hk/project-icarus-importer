@@ -15,6 +15,8 @@ import qualified Database.PostgreSQL.Simple as PGS
 import           Opaleye
 import           Opaleye.RunSelect
 
+import           Pos.Core (BlockCount)
+
 data BestBlockRowPoly a = BestBlockRow  { bbBlockNum :: a
                                         } deriving (Show)
 
@@ -28,7 +30,7 @@ bestBlockTable = Table "bestblock" (pBestBlock  BestBlockRow
                                                 { bbBlockNum = required "best_block_num" })
 
 -- | Updates the best block number stored
-updateBestBlock :: Word64 -> PGS.Connection -> IO ()
+updateBestBlock :: BlockCount -> PGS.Connection -> IO ()
 updateBestBlock newBestBlock conn = do
   n <- runUpdate_ conn $
                   Update bestBlockTable (const colBlockNum) (const $ pgBool True) rCount

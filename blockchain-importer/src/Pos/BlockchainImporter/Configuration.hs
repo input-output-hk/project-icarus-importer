@@ -18,6 +18,8 @@ import           Data.Word (Word64)
 import qualified Database.PostgreSQL.Simple as PGS
 import           UnliftIO (MonadUnliftIO, withRunInIO)
 
+import           Pos.Core (BlockCount)
+
 type HasPostGresDB = Given PostGresDBConfiguration
 
 data PostGresDBConfiguration = PostGresDBConfiguration
@@ -34,10 +36,10 @@ withPostGreTransaction = PGS.withTransaction (pgConnection given)
 withPostGreTransactionM :: forall m . (MonadUnliftIO m, MonadIO m, HasPostGresDB) => m () -> m ()
 withPostGreTransactionM m = withRunInIO $ \runInIO -> withPostGreTransaction $ runInIO m
 
-maybePostGreStore :: HasPostGresDB => Word64 -> (PGS.Connection -> IO ()) -> IO ()
+maybePostGreStore :: HasPostGresDB => BlockCount -> (PGS.Connection -> IO ()) -> IO ()
 maybePostGreStore currBN storeFn
-  | currBN >= (pgStartBlock given)  = postGreOperate storeFn
-  | otherwise                       = pure ()
+  | (fromIntegral currBN) >= (pgStartBlock given)  = postGreOperate storeFn
+  | otherwise                                      = pure ()
 
 postGreOperate :: HasPostGresDB => (PGS.Connection -> IO a) -> IO a
 postGreOperate storeFn = storeFn $ pgConnection given
