@@ -37,13 +37,11 @@ data PostgresChecks = ExternalConsistencyFromBlk String
 
 -- | ImporterDBConsistency specific arguments.
 data ImporterDBConsistencyArgs = ImporterDBConsistencyArgs
-    { webPort             :: !Word16
+    { webPort        :: !Word16
     -- ^ The port for the blockchainImporter backend
-    , postGresConfig      :: !PGS.ConnectInfo
+    , postGresConfig :: !PGS.ConnectInfo
     -- ^ Configuration of the PostGres DB
-    , storingStartBlockPG :: !Word64
-    -- ^ Starting block number from which data will be stored on the DB
-    , checksToDo          :: !PostgresChecks
+    , checksToDo     :: !PostgresChecks
     -- ^ File with blk hashes to check for consistency
     } deriving Show
 
@@ -82,11 +80,6 @@ blockchainImporterArgsParser = do
     commonNodeArgs <- CLI.commonNodeArgsParser
     webPort        <- CLI.webPortOption 8200 "Port for web API."
     postGresConfig <- connectInfoParser
-    storingStartBlockPG     <- option auto $
-        long    "postgres-startblock" <>
-        metavar "PG-START-NUM" <>
-        value   0 <>
-        help    "First block whose info will be stored on postgres DB."
     checksToDo <- postgresCheckParser
     pure $ ImporterDBConsistencyNodeArgs commonNodeArgs ImporterDBConsistencyArgs{..}
 

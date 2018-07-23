@@ -21,6 +21,7 @@ import           Options.Applicative (Parser, auto, execParser, flag, footerDoc,
 import           Paths_cardano_sl_blockchain_importer (version)
 import           Pos.Client.CLI (CommonNodeArgs (..))
 import qualified Pos.Client.CLI as CLI
+import           Pos.Core (BlockCount (..))
 
 
 data BlockchainImporterNodeArgs = BlockchainImporterNodeArgs
@@ -34,11 +35,12 @@ data BlockchainImporterArgs = BlockchainImporterArgs
     -- ^ The port for the blockchainImporter backend
     , postGresConfig          :: !PGS.ConnectInfo
     -- ^ Configuration of the PostGres DB
-    , storingStartBlockPG     :: !Word64
+    , storingStartBlockPG     :: !BlockCount
     -- ^ Starting block number from which data will be stored on the DB
     , recoveryMode            :: !Bool
-    -- ^ For testing: Do no initial consistency check (default: false)
+    -- ^ Enable importer recovery mode
     , disableConsistencyCheck :: !Bool
+    -- ^ For testing: Do no initial consistency check (default: false)
     } deriving Show
 
 -- Parses the postgres configuration, using the defaults from 'PGS.defaultConnectInfo'
@@ -76,7 +78,7 @@ blockchainImporterArgsParser = do
     commonNodeArgs <- CLI.commonNodeArgsParser
     webPort        <- CLI.webPortOption 8200 "Port for web API."
     postGresConfig <- connectInfoParser
-    storingStartBlockPG     <- option auto $
+    storingStartBlockPG     <- option (BlockCount <$> auto) $
         long    "postgres-startblock" <>
         metavar "PS-START-NUM" <>
         value   0 <>

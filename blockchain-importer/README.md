@@ -59,8 +59,8 @@ stack exec -- cardano-blockchain-importer --topology "/tmp/topology-staging.yaml
 ## Recovery mode
 
 In case of a potential crash of the importer, or the server running it, the importer Rocks db could reach a corrupted state (with `DBMalformed error` for example). To address this problem:
-- Have a back-up Cardano node syncing (in the saame chain)
-- When the crash happens, start-up the importer on recovery mode with the same Postgres db configured, but using the Rocks db of the Cardano node.
+- Have a back-up Cardano node syncing (in the same chain)
+- When the crash happens, stop the Cardano node and start-up the importer on recovery mode with the same Postgres db configured, but using the Rocks db of the Cardano node.
 **Note**: Recovery mode can be enabled with the flag `--recovery-mode`.
 
 
