@@ -14,7 +14,7 @@ import           Universum
 import           Data.Maybe (fromJust)
 import qualified Database.PostgreSQL.Simple as PGS
 import           Mockable (Production, runProduction)
-import           System.Wlog (LoggerName, logError, logInfo)
+import           System.Wlog (LoggerName, logError, logInfo, logWarning)
 
 import           BlockchainImporterNodeOptions (BlockchainImporterArgs (..),
                                                 BlockchainImporterNodeArgs (..),
@@ -45,7 +45,7 @@ import           Pos.Util.CompileInfo (HasCompileInfo, retrieveCompileTimeInfo, 
 import           Pos.Util.UserSecret (usVss)
 
 loggerName :: LoggerName
-loggerName = "node"
+loggerName = "importer"
 
 ----------------------------------------------------------------------------
 -- Main action
@@ -55,7 +55,7 @@ main :: IO ()
 main = do
     args <- getBlockchainImporterNodeOptions
     let loggingParams = CLI.loggingParams loggerName (enaCommonNodeArgs args)
-    loggerBracket loggingParams . logException "node" . runProduction $ do
+    loggerBracket loggingParams . logException "importer" . runProduction $ do
         logInfo "[Attention] Software is built with blockchainImporter part"
         action args
 
@@ -114,6 +114,9 @@ action (BlockchainImporterNodeArgs (cArgs@CommonNodeArgs{..}) BlockchainImporter
               if recoveryMode then do
                   recoverDBsConsistency
                   startImporter
+              else if disableConsistencyCheck then do
+                logWarning "Initial consistency check disabled!"
+                startImporter
               else do
                 logInfo "Checking internal db consistency..."
                 consistentDBs <- internalConsistencyCheck

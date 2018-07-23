@@ -30,13 +30,15 @@ data BlockchainImporterNodeArgs = BlockchainImporterNodeArgs
 
 -- | BlockchainImporter specific arguments.
 data BlockchainImporterArgs = BlockchainImporterArgs
-    { webPort             :: !Word16
+    { webPort                 :: !Word16
     -- ^ The port for the blockchainImporter backend
-    , postGresConfig      :: !PGS.ConnectInfo
+    , postGresConfig          :: !PGS.ConnectInfo
     -- ^ Configuration of the PostGres DB
-    , storingStartBlockPG :: !Word64
+    , storingStartBlockPG     :: !Word64
     -- ^ Starting block number from which data will be stored on the DB
-    , recoveryMode        :: !Bool
+    , recoveryMode            :: !Bool
+    -- ^ For testing: Do no initial consistency check (default: false)
+    , disableConsistencyCheck :: !Bool
     } deriving Show
 
 -- Parses the postgres configuration, using the defaults from 'PGS.defaultConnectInfo'
@@ -82,6 +84,9 @@ blockchainImporterArgsParser = do
     recoveryMode <- flag False True $
         long "recovery-mode" <>
         help "Enable recovery mode"
+    disableConsistencyCheck <- flag False True $
+        long "no-consistency-check" <>
+        help "Disable initial consistency check for importer"
     pure $ BlockchainImporterNodeArgs commonNodeArgs BlockchainImporterArgs{..}
 
 -- | The parser for the blockchainImporter.

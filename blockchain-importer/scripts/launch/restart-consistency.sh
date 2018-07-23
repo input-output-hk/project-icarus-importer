@@ -9,7 +9,7 @@
 
 scriptDir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 repoDir="${scriptDir}/../../.."
-logsFile="${repoDir}/importer-db-consistency/restartConsistency.log"
+logsFile="${repoDir}/blockchain-importer/restartConsistency.log"
 topologyFile="/tmp/restart-topology.yaml"
 
 . ${scriptDir}/utils.sh
@@ -47,7 +47,8 @@ for i in $(eval echo {1..$restartNumber})
       --configuration-file "${repoDir}/lib/configuration.yaml" \
       --configuration-key ${CONFIG_KEY} \
       --postgres-name ${DB} --postgres-password ${DB_PASSWORD} \
-      --postgres-host ${DB_HOST} --postgres-port ${DB_PORT} > /dev/null &
+      --postgres-host ${DB_HOST} --postgres-port ${DB_PORT} \
+      --no-consistency-check > /dev/null &
 
     sleep 5s
     blockHeight=$(get_importer_height)
