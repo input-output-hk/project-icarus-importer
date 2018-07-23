@@ -1,4 +1,5 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# OPTIONS_GHC -Wno-deprecations #-}
 
 module Pos.BlockchainImporter.Tables.Utils
   ( -- * Conversions
@@ -13,6 +14,7 @@ module Pos.BlockchainImporter.Tables.Utils
 
 import           Universum
 
+import           Data.List (intercalate)
 import           Database.PostgreSQL.Simple ()
 import qualified Database.PostgreSQL.Simple as PGS
 import           Formatting (sformat)
@@ -51,7 +53,37 @@ toTxIn txHash idx = do
 -- Postgres
 ----------------------------------------------------------------------------
 
--- Insert rows into a table, only if they are not already present
-runUpsert_ :: PGS.Connection -> O.Table columns columns' -> [columns] -> IO Int64
-runUpsert_ conn table columns = O.runInsert_ conn sqlInsert
-  where sqlInsert = O.Insert table columns O.rCount (Just O.DoNothing)
+{-
+    Upserts rows into a table:
+    - If the rows are not present (checked by the primary keys passed), they are inserted.
+    - If they are, the columns specified are updated, none is updated if this list is empty.
+
+    FIXME: Due to ON CONFLICT (..) DO UPDATE is not yet implemented by Opaleye this had to
+    be manually implemented, which involved using the deprecated function
+    'arrangeInsertManySql'. Once this feature gets released, the usage of this
+    function will be removed.
+-}
+runUpsert_ ::
+     PGS.Connection             -- Connection to the SQL DB
+  -> O.Table columns columns'   -- Table to perform the upsert on
+  -> [String]                   -- Primary keys to check if columns are present
+  -> [String]                   -- Names of the columns to update
+  -> [columns]                  -- Rows to insert
+  -> IO Int64
+runUpsert_ conn table pkCheckConflict colUpdateOnConflict columns = case nonEmpty columns of
+    Just neColumns -> PGS.execute_ conn . fromString $ strUpsertQuery neColumns
+    Nothing        -> return 0
+  where strInsertQuery col = O.arrangeInsertManySql table col
+        strUpsertQuery col = (strInsertQuery col)  ++ " ON CONFLICT (" ++ pksString  ++ ") " ++
+                             updateColumnsToOnConflict colUpdateOnConflict
+        pksString      = intercalate ", " pkCheckConflict
+
+
+----------------------------------------------------------------------------
+-- Helpers
+----------------------------------------------------------------------------
+
+updateColumnsToOnConflict :: [String] -> String
+updateColumnsToOnConflict []              = "DO NOTHING"
+updateColumnsToOnConflict columnsToUpdate = "DO UPDATE SET " ++ doUpdateSet
+  where doUpdateSet = intercalate ", " $ (\col -> col ++ "=EXCLUDED." ++ col) <$> columnsToUpdate

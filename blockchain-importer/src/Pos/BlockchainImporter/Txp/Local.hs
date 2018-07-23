@@ -12,9 +12,9 @@ import           JsonLog (CanJsonLog (..))
 import           Universum
 
 import qualified Data.HashMap.Strict as HM
+import           UnliftIO (MonadUnliftIO)
 
-import           Pos.Core (BlockVersionData, EpochIndex, HasConfiguration, Timestamp,
-                           getCurrentTimestamp)
+import           Pos.Core (BlockVersionData, EpochIndex, HasConfiguration, Timestamp)
 import           Pos.Core.Txp (TxAux (..), TxId, TxUndo)
 import           Pos.Slotting (MonadSlots (getCurrentSlot), getSlotStart)
 import           Pos.StateLock (Priority (..), StateLock, StateLockMetrics, withStateLock)
@@ -25,11 +25,14 @@ import           Pos.Util.JsonLog.Events (MemPoolModifyReason (..))
 import qualified Pos.Util.Modifier as MM
 import           Pos.Util.Util (HasLens')
 
-import           Pos.BlockchainImporter.Configuration (HasPostGresDB)
+import           Pos.BlockchainImporter.Configuration (HasPostGresDB, postGreOperate,
+                                                       withPostGreTransaction,
+                                                       withPostGreTransactionM)
 import           Pos.BlockchainImporter.Core (TxExtra (..))
+import           Pos.BlockchainImporter.Tables.TxsTable as TxsT
 import           Pos.BlockchainImporter.Txp.Toil (BlockchainImporterExtraModifier, ELocalToilM,
-                                                  eApplyFailedTx, eApplyNewPendingTx,
-                                                  eNormalizeToil, eProcessTx, eemLocalTxsExtra)
+                                                  OnConflict (..), eNormalizeToil, eProcessTx,
+                                                  eUpsertFailedTx, eemLocalTxsExtra)
 
 type ETxpLocalWorkMode ctx m =
     ( TxpLocalWorkMode ctx m
@@ -60,7 +63,8 @@ eTxProcessTransactionNoLock itw@(_, txAux) = getCurrentSlot >>= \case
         -- Then get when that @SlotId@ started and use that as a time for @Tx@.
         mTxTimestamp <- getSlotStart slot
         processRes <- txProcessTransactionAbstract buildEmptyContext (processTx' mTxTimestamp) itw
-        forM processRes $ eApplyNewPendingTx (taTx txAux)
+        forM  processRes $
+              liftIO . withPostGreTransaction . postGreOperate . (TxsT.upsertPendingTx (taTx txAux))
   where
     buildEmptyContext :: Utxo -> TxAux -> m ()
     buildEmptyContext _ _ = pure ()
@@ -78,14 +82,13 @@ eTxProcessTransactionNoLock itw@(_, txAux) = getCurrentSlot >>= \case
 --   2. Remove invalid transactions from MemPool
 --   3. Set new tip to txp local data
 eTxNormalize ::
-       forall ctx m. (ETxpLocalWorkMode ctx m, HasConfiguration, HasPostGresDB)
+       forall ctx m. (ETxpLocalWorkMode ctx m, HasConfiguration, HasPostGresDB, MonadUnliftIO m)
     => m ()
-eTxNormalize = do
+eTxNormalize = withPostGreTransactionM $ do
     extras <- MM.insertionsMap . view eemLocalTxsExtra <$> withTxpLocalData getTxpExtra
     invalidTxs <- txNormalizeAbstract buildEmptyContext (normalizeToil' extras)
-    currTime <- getCurrentTimestamp
-    whenJust invalidTxs $
-             mapM_ $ \ptx -> eApplyFailedTx (taTx ptx) (Just currTime)
+    -- Invalid txs previously were in Pending state, so they are updated to the db
+    whenJust invalidTxs $ mapM_ (eUpsertFailedTx DoUpdate . taTx)
   where
     buildEmptyContext :: Utxo -> [TxAux] -> m ()
     buildEmptyContext _ _ = pure ()

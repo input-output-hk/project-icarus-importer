@@ -11,6 +11,6 @@ import           Pos.Core (Timestamp, TxUndo)
 
 deriveSimpleBi ''TxExtra [
     Cons 'TxExtra [
-        Field [| teFullProcessTime  :: Maybe Timestamp            |],
-        Field [| teInputOutputs     :: TxUndo                     |]
+        Field [| teTimestamp    :: Maybe Timestamp            |],
+        Field [| teInputOutputs :: TxUndo                     |]
     ]]
