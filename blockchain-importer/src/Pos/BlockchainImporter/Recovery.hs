@@ -48,7 +48,8 @@ type RecoveryMode ctx m =
     Recovers the consistency between the rocks and postgres db configured for the importer:
     1. Find the latest common block between the db, 'n'
     2. Rollback both db's to 'n - k' (with 'k' the maximum number of blocks that can be rollbacked)
-       Note: Substracting 'k' is done as both dbs could be on different forks
+       Note: Substracting 'k' is done as both dbs could be on different forks.
+             The length of the fork can't be bigger than 'k', as defined in the Cardano protocol.
 -}
 recoverDBsConsistency :: RecoveryMode ctx m => m ()
 recoverDBsConsistency = do

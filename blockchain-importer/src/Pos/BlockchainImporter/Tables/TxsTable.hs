@@ -184,7 +184,14 @@ markPendingTxsAsFailed conn = do
       isPending row             = trState row .== show Pending
   void $ runUpdate_ conn $ Update txsTable changePendingToFailed isPending rCount
 
--- | Deletes all confirmed txs whose block number is greater than the provided one
+{-|
+    As pending and failed txs have a NULL block number, this deletes all successful txs
+    whose block number is greater than the provided one
+
+    As this is called on start of the importer, all pending txs will have been moved to
+    failed with 'markPendingTxsAsFailed'. If any of these was successful, it will eventually
+    be moved to that state on syncing.
+-}
 deleteTxsAfterBlk :: ChainDifficulty -> PGS.Connection -> IO ()
 deleteTxsAfterBlk fromBlk conn = void $ runDelete_ conn deleteAfterBlkQuery
   where deleteAfterBlkQuery = Delete txsTable shouldDeleteTx rCount
