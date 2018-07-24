@@ -19,8 +19,7 @@ import           Universum
 import           Control.Monad.Except (mapExceptT)
 import qualified Database.PostgreSQL.Simple as PGS
 
-import           Pos.BlockchainImporter.Configuration (HasPostGresDB, maybePostGreStore,
-                                                       postGreOperate)
+import           Pos.BlockchainImporter.Configuration (HasPostGresDB, postGreOperate)
 import           Pos.BlockchainImporter.Core (TxExtra (..))
 import qualified Pos.BlockchainImporter.Tables.BestBlockTable as BBT
 import qualified Pos.BlockchainImporter.Tables.TxsTable as TxsT
@@ -65,11 +64,11 @@ eApplyToilPG ::
   -> m ()
 eApplyToilPG isNewEpoch mTxTimestamp txun blockHeight = do
     -- Update best block
-    postgresStoreOnBlockEvent isNewEpoch blockHeight $
+    postgresStoreOnBlockEvent isNewEpoch $
                               BBT.updateBestBlock blockHeight
 
     -- Update UTxOs
-    postgresStoreOnBlockEvent isNewEpoch blockHeight $
+    postgresStoreOnBlockEvent isNewEpoch $
                               UT.applyModifierToUtxos $ applyUTxOModifier txun
 
     -- Update tx history
@@ -80,7 +79,7 @@ eApplyToilPG isNewEpoch mTxTimestamp txun blockHeight = do
         let tx = taTx txAux
             newExtra = TxExtra mTxTimestamp txUndo
 
-        postgresStoreOnBlockEvent isNewEpoch blockHeight $
+        postgresStoreOnBlockEvent isNewEpoch $
                                   TxsT.upsertSuccessfulTx tx newExtra blockHeight
 
 
@@ -104,11 +103,11 @@ eRollbackToilPG ::
   -> m ()
 eRollbackToilPG isNewEpoch txun blockHeight = do
     -- Update best block
-    postgresStoreOnBlockEvent isNewEpoch blockHeight $
+    postgresStoreOnBlockEvent isNewEpoch $
                               BBT.updateBestBlock (blockHeight - 1)
 
     -- Update UTxOs
-    postgresStoreOnBlockEvent isNewEpoch blockHeight $
+    postgresStoreOnBlockEvent isNewEpoch $
                               UT.applyModifierToUtxos $ rollbackUTxOModifier txun
 
     -- Update tx history
@@ -118,7 +117,7 @@ eRollbackToilPG isNewEpoch txun blockHeight = do
     extraRollback (txAux, txUndo) = do
         let tx      = taTx txAux
 
-        postgresStoreOnBlockEvent isNewEpoch blockHeight $
+        postgresStoreOnBlockEvent isNewEpoch $
                                   TxsT.upsertPendingTx tx txUndo
 
 
@@ -234,9 +233,8 @@ fetchTxSenders tx = do
 postgresStoreOnBlockEvent ::
      (MonadIO m, HasPostGresDB)
   => IsNewEpochOperation
-  -> BlockCount
   -> (PGS.Connection -> IO ())
   -> m ()
-postgresStoreOnBlockEvent isNewEpoch blockHeight op = case isNewEpoch of
+postgresStoreOnBlockEvent isNewEpoch op = case isNewEpoch of
   (IsNewEpochOperation True)  -> pure ()
-  (IsNewEpochOperation False) -> liftIO $ maybePostGreStore blockHeight op
+  (IsNewEpochOperation False) -> liftIO $ postGreOperate op

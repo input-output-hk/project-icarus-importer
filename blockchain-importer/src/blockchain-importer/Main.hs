@@ -63,7 +63,7 @@ action :: BlockchainImporterNodeArgs -> Production ()
 action (BlockchainImporterNodeArgs (cArgs@CommonNodeArgs{..}) BlockchainImporterArgs{..}) =
     withConfigurations conf $ \ntpConfig -> do
       conn <- liftIO $ PGS.connect postGresConfig
-      withPostGresDB conn storingStartBlockPG $
+      withPostGresDB conn $
         withCompileInfo $(retrieveCompileTimeInfo) $ do
             CLI.printInfoOnStart cArgs ntpConfig
             logInfo "Blockchain importer is enabled!"

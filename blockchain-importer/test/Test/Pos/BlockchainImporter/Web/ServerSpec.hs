@@ -41,7 +41,7 @@ import           Test.Pos.Configuration (withDefConfigurations)
 spec :: Spec
 spec = withDefConfigurations $ \_ ->
         -- Postgres db is not mocked as it's never used
-        withPostGresDB (error "No postgres db configured") 0 $ do
+        withPostGresDB (error "No postgres db configured") $ do
     describe "Pos.BlockchainImporter.Web.Server" $ do
         blocksTotalSpec
         blocksPagesTotalSpec
