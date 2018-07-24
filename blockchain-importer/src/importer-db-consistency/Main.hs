@@ -62,7 +62,7 @@ action :: ImporterDBConsistencyNodeArgs -> Production ()
 action (ImporterDBConsistencyNodeArgs (cArgs@CommonNodeArgs{..}) ImporterDBConsistencyArgs{..}) =
     withConfigurations conf $ \ntpConfig -> do
       conn <- liftIO $ PGS.connect postGresConfig
-      withPostGresDB conn storingStartBlockPG $
+      withPostGresDB conn 0 $ -- Starting block number not used on consistency checks
         withCompileInfo $(retrieveCompileTimeInfo) $ do
             CLI.printInfoOnStart cArgs ntpConfig
             logInfo "Blockchain importer is enabled!"

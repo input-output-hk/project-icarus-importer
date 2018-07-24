@@ -14,7 +14,7 @@ import           Universum
 import           Data.Maybe (fromJust)
 import qualified Database.PostgreSQL.Simple as PGS
 import           Mockable (Production, runProduction)
-import           System.Wlog (LoggerName, logInfo)
+import           System.Wlog (LoggerName, logError, logInfo, logWarning)
 
 import           BlockchainImporterNodeOptions (BlockchainImporterArgs (..),
                                                 BlockchainImporterNodeArgs (..),
@@ -23,6 +23,7 @@ import           Pos.Binary ()
 import           Pos.BlockchainImporter.Configuration (HasPostGresDB, withPostGreTransaction,
                                                        withPostGresDB)
 import           Pos.BlockchainImporter.ExtraContext (makeExtraCtx)
+import           Pos.BlockchainImporter.Recovery (recoverDBsConsistency)
 import           Pos.BlockchainImporter.Tables.TxsTable (markPendingTxsAsFailed)
 import           Pos.BlockchainImporter.Txp (BlockchainImporterExtraModifier,
                                              blockchainImporterTxpGlobalSettings)
@@ -33,6 +34,7 @@ import qualified Pos.Client.CLI as CLI
 import           Pos.Context (NodeContext (..))
 import           Pos.DB.DB (initNodeDBs)
 import           Pos.Diffusion.Types (Diffusion)
+import           Pos.ImporterDBConsistency.ConsistencyChecker (internalConsistencyCheck)
 import           Pos.Launcher (ConfigurationOptions (..), HasConfigurations, NodeParams (..),
                                NodeResources (..), bracketNodeResources, elimRealMode,
                                loggerBracket, runNode, runServer, withConfigurations)
@@ -43,7 +45,7 @@ import           Pos.Util.CompileInfo (HasCompileInfo, retrieveCompileTimeInfo, 
 import           Pos.Util.UserSecret (usVss)
 
 loggerName :: LoggerName
-loggerName = "node"
+loggerName = "importer"
 
 ----------------------------------------------------------------------------
 -- Main action
@@ -53,7 +55,7 @@ main :: IO ()
 main = do
     args <- getBlockchainImporterNodeOptions
     let loggingParams = CLI.loggingParams loggerName (enaCommonNodeArgs args)
-    loggerBracket loggingParams . logException "node" . runProduction $ do
+    loggerBracket loggingParams . logException "importer" . runProduction $ do
         logInfo "[Attention] Software is built with blockchainImporter part"
         action args
 
@@ -103,11 +105,26 @@ action (BlockchainImporterNodeArgs (cArgs@CommonNodeArgs{..}) BlockchainImporter
             elim = elimRealMode nr
             ekgNodeMetrics = EkgNodeMetrics
                 nrEkgStore
-            serverRealMode = blockchainImporterModeToRealMode $ runServer
-                (runProduction . elim . blockchainImporterModeToRealMode)
-                ncNodeParams
-                ekgNodeMetrics
-                go
+            startImporter = runServer
+              (runProduction . elim . blockchainImporterModeToRealMode)
+              ncNodeParams
+              ekgNodeMetrics
+              go
+            serverRealMode = blockchainImporterModeToRealMode $
+              if recoveryMode then do
+                  recoverDBsConsistency
+                  startImporter
+              else if disableConsistencyCheck then do
+                logWarning "Initial consistency check disabled!"
+                startImporter
+              else do
+                logInfo "Checking internal db consistency..."
+                consistentDBs <- internalConsistencyCheck
+                if consistentDBs then do
+                  logInfo "Consistency check succeded, starting importer..."
+                  startImporter
+                else logError $ toText $ "Inconsistency detected between Rocks and " ++
+                                         "Postgres DBs, start using --recovery-mode flag"
         in  elim serverRealMode
 
     nodeArgs :: NodeArgs

@@ -8,7 +8,7 @@
 
 scriptDir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 repoDir="${scriptDir}/../../.."
-logsFile="${repoDir}/importer-db-consistency/internalConsistency.log"
+logsFile="${repoDir}/blockchain-importer/internalConsistency.log"
 topologyFile="/tmp/internal-topology.yaml"
 
 . ${scriptDir}/utils.sh
@@ -24,7 +24,7 @@ TOPOLOGY_HOST=
 setup_chain_config ${chain}
 
 logWithTimestamp "Doing setup"
-${repoDir}/scripts/build/cardano-sl.sh importer-db-consistency > /dev/null
+${repoDir}/scripts/build/cardano-sl.sh blockchain-importer > /dev/null
 printf "wallet:\n relays: [[{ host: ${TOPOLOGY_HOST} }]]\n valency: 1\n fallbacks: 7" > ${topologyFile}
 
 logWithTimestamp "Running internal consistency test"

@@ -14,13 +14,14 @@ import           Universum
 
 import           Data.Version (showVersion)
 import qualified Database.PostgreSQL.Simple as PGS
-import           Options.Applicative (Parser, auto, execParser, footerDoc, fullDesc, header, help,
-                                      helper, info, infoOption, long, metavar, option, progDesc,
-                                      showDefault, strOption, value)
+import           Options.Applicative (Parser, auto, execParser, flag, footerDoc, fullDesc, header,
+                                      help, helper, info, infoOption, long, metavar, option,
+                                      progDesc, showDefault, strOption, value)
 
 import           Paths_cardano_sl_blockchain_importer (version)
 import           Pos.Client.CLI (CommonNodeArgs (..))
 import qualified Pos.Client.CLI as CLI
+import           Pos.Core (BlockCount (..))
 
 
 data BlockchainImporterNodeArgs = BlockchainImporterNodeArgs
@@ -30,12 +31,16 @@ data BlockchainImporterNodeArgs = BlockchainImporterNodeArgs
 
 -- | BlockchainImporter specific arguments.
 data BlockchainImporterArgs = BlockchainImporterArgs
-    { webPort             :: !Word16
+    { webPort                 :: !Word16
     -- ^ The port for the blockchainImporter backend
-    , postGresConfig      :: !PGS.ConnectInfo
+    , postGresConfig          :: !PGS.ConnectInfo
     -- ^ Configuration of the PostGres DB
-    , storingStartBlockPG :: !Word64
+    , storingStartBlockPG     :: !BlockCount
     -- ^ Starting block number from which data will be stored on the DB
+    , recoveryMode            :: !Bool
+    -- ^ Enable importer recovery mode
+    , disableConsistencyCheck :: !Bool
+    -- ^ For testing: Do no initial consistency check (default: false)
     } deriving Show
 
 -- Parses the postgres configuration, using the defaults from 'PGS.defaultConnectInfo'
@@ -73,11 +78,17 @@ blockchainImporterArgsParser = do
     commonNodeArgs <- CLI.commonNodeArgsParser
     webPort        <- CLI.webPortOption 8200 "Port for web API."
     postGresConfig <- connectInfoParser
-    storingStartBlockPG     <- option auto $
+    storingStartBlockPG     <- option (BlockCount <$> auto) $
         long    "postgres-startblock" <>
         metavar "PS-START-NUM" <>
         value   0 <>
         help    "First block whose info will be stored on postgres DB."
+    recoveryMode <- flag False True $
+        long "recovery-mode" <>
+        help "Enable recovery mode"
+    disableConsistencyCheck <- flag False True $
+        long "no-consistency-check" <>
+        help "Disable initial consistency check for importer"
     pure $ BlockchainImporterNodeArgs commonNodeArgs BlockchainImporterArgs{..}
 
 -- | The parser for the blockchainImporter.

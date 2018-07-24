@@ -39,11 +39,11 @@ updateBestBlock newBestBlock conn = do
     where colBlockNum = BestBlockRow $ pgInt8 $ fromIntegral newBestBlock
 
 -- | Returns the best block number
-getBestBlock :: PGS.Connection -> IO Int64
+getBestBlock :: PGS.Connection -> IO BlockCount
 getBestBlock conn = do
-  bestBlockMatched <- runSelect conn bestBlockQuery
+  bestBlockMatched :: [Int64] <- runSelect conn bestBlockQuery
   case bestBlockMatched of
-    [ bestBlockNum ] -> pure $ bestBlockNum
+    [ bestBlockNum ] -> pure $ fromIntegral bestBlockNum
     _                -> pure 0
   where bestBlockQuery = proc () -> do
           BestBlockRow bestBlockNum <- (selectTable bestBlockTable) -< ()

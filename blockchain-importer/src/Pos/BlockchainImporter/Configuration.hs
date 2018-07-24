@@ -14,7 +14,6 @@ module Pos.BlockchainImporter.Configuration
 import           Universum
 
 import           Data.Reflection (Given (..), give, given)
-import           Data.Word (Word64)
 import qualified Database.PostgreSQL.Simple as PGS
 import           UnliftIO (MonadUnliftIO, withRunInIO)
 
@@ -26,7 +25,7 @@ data PostGresDBConfiguration = PostGresDBConfiguration
     {
       pgConnection :: !PGS.Connection
       -- ^ Connection to PostGres DB
-    , pgStartBlock :: !Word64
+    , pgStartBlock :: !BlockCount
       -- ^ Starting block number from which data will be stored on the DB
     }
 
@@ -44,5 +43,5 @@ maybePostGreStore currBN storeFn
 postGreOperate :: HasPostGresDB => (PGS.Connection -> IO a) -> IO a
 postGreOperate storeFn = storeFn $ pgConnection given
 
-withPostGresDB :: PGS.Connection -> Word64 -> (HasPostGresDB => r) -> r
+withPostGresDB :: PGS.Connection -> BlockCount -> (HasPostGresDB => r) -> r
 withPostGresDB conn startBlock = give $ PostGresDBConfiguration conn startBlock
