@@ -10,26 +10,28 @@ module Pos.BlockchainImporter.Txp.Toil.Logic
       , eNormalizeToil
       , eProcessTx
         -- * Pending tx DB processing
-      , eInsertPendingTx
-      , eDeletePendingTxs
+      , OnConflict (..)
+      , eUpsertFailedTx
       ) where
 
 import           Universum
 
 import           Control.Monad.Except (mapExceptT)
+import qualified Database.PostgreSQL.Simple as PGS
 
-import           Pos.BlockchainImporter.Configuration (HasPostGresDB, maybePostGreStore,
-                                                       postGreStore)
+import           Pos.BlockchainImporter.Configuration (HasPostGresDB, postGreOperate)
 import           Pos.BlockchainImporter.Core (TxExtra (..))
 import qualified Pos.BlockchainImporter.Tables.BestBlockTable as BBT
-import qualified Pos.BlockchainImporter.Tables.PendingTxsTable as PTxsT
 import qualified Pos.BlockchainImporter.Tables.TxsTable as TxsT
 import qualified Pos.BlockchainImporter.Tables.UtxosTable as UT
 import           Pos.BlockchainImporter.Txp.Toil.Monad (EGlobalToilM, ELocalToilM)
-import           Pos.Core (BlockVersionData, EpochIndex, HasConfiguration, HeaderHash, Timestamp)
+import           Pos.Core (BlockCount, BlockVersionData, EpochIndex, HasConfiguration, Timestamp)
 import           Pos.Core.Txp (Tx (..), TxAux (..), TxId, TxIn (..), TxOutAux (..), TxUndo)
 import           Pos.Crypto (WithHash (..), hash)
+import           Pos.DB.Class (MonadDBRead)
 import           Pos.Txp.Configuration (HasTxpConfiguration)
+import           Pos.Txp.DB.Utxo (getTxOut)
+import           Pos.Txp.Settings (IsNewEpochOperation (..))
 import           Pos.Txp.Toil (ToilVerFailure (..), extendGlobalToilM, extendLocalToilM)
 import qualified Pos.Txp.Toil as Txp
 import           Pos.Txp.Topsort (topsortTxs)
@@ -39,58 +41,85 @@ import qualified Pos.Util.Modifier as MM
 -- Global
 ----------------------------------------------------------------------------
 
--- | Apply transactions from one block. They must be valid (for
+-- | Apply transactions from one block or genesis. They must be valid (for
 -- example, it implies topological sort).
 eApplyToil ::
-       forall m. (HasConfiguration, HasPostGresDB, MonadIO m)
-    => Maybe Timestamp
-    -> [(TxAux, TxUndo)]
-    -> (HeaderHash, Word64)
+       forall m. (HasConfiguration, HasPostGresDB, MonadIO m, MonadDBRead m)
+    => IsNewEpochOperation    -- Whether apply resulted from new epoch operation
+    -> Maybe Timestamp        -- Timestamp of the block
+    -> [(TxAux, TxUndo)]      -- Txs of the block
+    -> Maybe BlockCount       -- Number of the block, if it's not a genesis
     -> m (EGlobalToilM ())
-eApplyToil mTxTimestamp txun (hh, blockHeight) = do
+eApplyToil isNewEpoch mTxTimestamp txun maybeBlockHeight = do
+    -- Genesis block changes don't impact postgresdb
+    whenJust maybeBlockHeight $ eApplyToilPG isNewEpoch mTxTimestamp txun
+    pure $ extendGlobalToilM $ Txp.applyToil txun
+
+eApplyToilPG ::
+     forall m. (HasConfiguration, HasPostGresDB, MonadIO m, MonadDBRead m)
+  => IsNewEpochOperation
+  -> Maybe Timestamp
+  -> [(TxAux, TxUndo)]
+  -> BlockCount
+  -> m ()
+eApplyToilPG isNewEpoch mTxTimestamp txun blockHeight = do
     -- Update best block
-    liftIO $ maybePostGreStore blockHeight $ BBT.updateBestBlock blockHeight
+    postgresStoreOnBlockEvent isNewEpoch $
+                              BBT.updateBestBlock blockHeight
 
     -- Update UTxOs
-    let toilApplyUTxO = extendGlobalToilM $ Txp.applyToil txun
-
-    liftIO $ maybePostGreStore blockHeight $ UT.applyModifierToUtxos $ applyUTxOModifier txun
+    postgresStoreOnBlockEvent isNewEpoch $
+                              UT.applyModifierToUtxos $ applyUTxOModifier txun
 
     -- Update tx history
-    zipWithM_ (curry applier) [0..] txun
-    return toilApplyUTxO
+    mapM_ applier txun
   where
-    applier :: (Word32, (TxAux, TxUndo)) -> m ()
-    applier (i, (txAux, txUndo)) = do
+    applier :: (TxAux, TxUndo) -> m ()
+    applier (txAux, txUndo) = do
         let tx = taTx txAux
-            newExtra = TxExtra (Just (hh, i)) mTxTimestamp txUndo
+            newExtra = TxExtra mTxTimestamp txUndo
 
-        liftIO $ maybePostGreStore blockHeight $ TxsT.insertTx tx newExtra blockHeight
-        eDeletePendingTxs [txAux]
+        postgresStoreOnBlockEvent isNewEpoch $
+                                  TxsT.upsertSuccessfulTx tx newExtra blockHeight
 
--- | Rollback transactions from one block.
+
+-- | Rollback transactions from one block or genesis.
 eRollbackToil ::
-     forall m. (HasConfiguration, HasPostGresDB, MonadIO m)
-  => [(TxAux, TxUndo)] -> Word64 -> m (EGlobalToilM ())
-eRollbackToil txun blockHeight = do
+       forall m. (HasConfiguration, HasPostGresDB, MonadIO m, MonadDBRead m)
+    => IsNewEpochOperation    -- Whether rollback resulted from new epoch operation
+    -> [(TxAux, TxUndo)]      -- Txs of the block
+    -> Maybe BlockCount       -- Number of the block, if it's not a genesis
+    -> m (EGlobalToilM ())
+eRollbackToil isNewEpoch txun maybeBlockHeight = do
+    -- Genesis block changes don't impact postgresdb
+    whenJust maybeBlockHeight $ eRollbackToilPG isNewEpoch txun
+    pure $ extendGlobalToilM $ Txp.rollbackToil txun
+
+eRollbackToilPG ::
+     forall m. (HasConfiguration, HasPostGresDB, MonadIO m, MonadDBRead m)
+  => IsNewEpochOperation
+  -> [(TxAux, TxUndo)]
+  -> BlockCount
+  -> m ()
+eRollbackToilPG isNewEpoch txun blockHeight = do
     -- Update best block
-    liftIO $ maybePostGreStore blockHeight $ BBT.updateBestBlock (blockHeight - 1)
+    postgresStoreOnBlockEvent isNewEpoch $
+                              BBT.updateBestBlock (blockHeight - 1)
 
     -- Update UTxOs
-    let toilRollbackUtxo = extendGlobalToilM $ Txp.rollbackToil txun
-
-    liftIO $ maybePostGreStore blockHeight $ UT.applyModifierToUtxos $ rollbackUTxOModifier txun
+    postgresStoreOnBlockEvent isNewEpoch $
+                              UT.applyModifierToUtxos $ rollbackUTxOModifier txun
 
     -- Update tx history
     mapM_ extraRollback $ reverse txun
-    return toilRollbackUtxo
   where
     extraRollback :: (TxAux, TxUndo) -> m ()
     extraRollback (txAux, txUndo) = do
         let tx      = taTx txAux
 
-        liftIO $ maybePostGreStore blockHeight $ TxsT.deleteTx tx
-        eInsertPendingTx tx txUndo
+        postgresStoreOnBlockEvent isNewEpoch $
+                                  TxsT.upsertPendingTx tx txUndo
+
 
 ----------------------------------------------------------------------------
 -- Local
@@ -124,17 +153,28 @@ eNormalizeToil bvd curEpoch txs = catMaybes <$> mapM normalize ordered
       pure $ txAux <$ leftToMaybe res
     repair (i, (txAux, extra)) = ((i, txAux), const extra)
 
--- | Inserts a pending tx to the Postgres DB
-eInsertPendingTx ::
-       (MonadIO m, HasPostGresDB)
-    => Tx
-    -> TxUndo
-    -> m ()
-eInsertPendingTx tx txUndo = liftIO $ postGreStore $ PTxsT.insertPendingTx tx txUndo
 
--- | Deletes a pending tx from the Postgres DB
-eDeletePendingTxs :: (MonadIO m, HasPostGresDB) => [TxAux] -> m ()
-eDeletePendingTxs txAuxs = mapM_ (liftIO . postGreStore . PTxsT.deletePendingTx . taTx) txAuxs
+data OnConflict = DoNothing | DoUpdate
+
+{-| Upserts a failed tx into the tx history table, solving conflicts according to the onConflict
+    parameter
+
+    Note that the tx that failed could have not being pending, as is the case where it failed
+    during it's processing. In that case, we attempt to obtain the inputs, returning them only
+    if we successfully get all of them
+-}
+eUpsertFailedTx :: (MonadIO m, MonadDBRead m, HasPostGresDB) => OnConflict -> Tx -> m ()
+eUpsertFailedTx onConflict tx = do
+  inputs <- fetchTxSenders tx
+
+  shouldUpsert <- case onConflict of
+    DoNothing -> do
+      maybeOldTx <- liftIO $ postGreOperate $ TxsT.getTxByHash (hash tx)
+      pure $ isNothing maybeOldTx
+    DoUpdate -> pure True
+
+  when shouldUpsert $
+       liftIO $ postGreOperate $ TxsT.upsertFailedTx tx inputs
 
 ----------------------------------------------------------------------------
 -- Helpers
@@ -173,3 +213,28 @@ rollbackSingleModifier (txAux, txUndo) = foldr  MM.delete
 
         mapValueToMaybe :: a -> Maybe b -> Maybe (a, b)
         mapValueToMaybe a = fmap ((,) a)
+
+fetchTxSenders :: (MonadIO m, MonadDBRead m, HasPostGresDB) => Tx -> m TxUndo
+fetchTxSenders tx = do
+  let txId = hash tx
+  maybeTx <- liftIO $ postGreOperate $ TxsT.getTxByHash txId
+  case maybeTx of
+    Just pgTx ->
+      pure $ Just <$> TxsT.txInputs pgTx
+    Nothing -> do
+      -- Fetch the tx inputs
+      -- If any of the inputs of the tx is not known, none is returned
+      knownInputs <- mapM getTxOut (_txInputs tx)
+      let allInputsKnown = all isJust knownInputs
+          inputs         = if allInputsKnown then knownInputs
+                           else const Nothing <$> _txInputs tx
+      pure inputs
+
+postgresStoreOnBlockEvent ::
+     (MonadIO m, HasPostGresDB)
+  => IsNewEpochOperation
+  -> (PGS.Connection -> IO ())
+  -> m ()
+postgresStoreOnBlockEvent isNewEpoch op = case isNewEpoch of
+  (IsNewEpochOperation True)  -> pure ()
+  (IsNewEpochOperation False) -> liftIO $ postGreOperate op

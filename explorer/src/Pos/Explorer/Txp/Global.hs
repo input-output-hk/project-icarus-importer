@@ -29,8 +29,8 @@ explorerTxpGlobalSettings :: HasConfiguration => TxpGlobalSettings
 explorerTxpGlobalSettings =
     -- verification is same
     txpGlobalSettings
-    { tgsApplyBlocks = applyBlocksWith applySettings
-    , tgsRollbackBlocks = processBlunds rollbackSettings . getNewestFirst
+    { tgsApplyBlocks = \_ -> applyBlocksWith applySettings
+    , tgsRollbackBlocks = \_ -> processBlunds rollbackSettings . getNewestFirst
     , tgsApplyBlockModifier = identity
     , tgsRollbackBlockModifier = identity
     }

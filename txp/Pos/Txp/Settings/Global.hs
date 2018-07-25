@@ -12,6 +12,7 @@ module Pos.Txp.Settings.Global
        , TxpBlock
        , TxpBlund
        , TxpGlobalSettings (..)
+       , IsNewEpochOperation (..)
        ) where
 
 import           Universum
@@ -45,6 +46,9 @@ type TxpGlobalRollbackMode m = TxpCommonMode m
 type TxpBlock = ComponentBlock TxPayload
 type TxpBlund = (TxpBlock, TxpUndo)
 
+-- | Flag determining whether applying and rollbacking was done due to new epoch.
+newtype IsNewEpochOperation = IsNewEpochOperation Bool deriving Show
+
 data TxpGlobalSettings = TxpGlobalSettings
     { -- | Verify a chain of payloads from blocks and return txp undos
       -- for each payload.
@@ -57,10 +61,10 @@ data TxpGlobalSettings = TxpGlobalSettings
                          m $ Either ToilVerFailure $ OldestFirst NE TxpUndo
     , -- | Apply chain of /definitely/ valid blocks to Txp's GState.
       tgsApplyBlocks :: forall ctx m . TxpGlobalApplyMode ctx m =>
-                        OldestFirst NE TxpBlund -> m SomeBatchOp
+                         IsNewEpochOperation -> OldestFirst NE TxpBlund -> m SomeBatchOp
     , -- | Rollback chain of blocks.
       tgsRollbackBlocks :: forall m . (TxpGlobalRollbackMode m, MonadIO m) =>
-                           NewestFirst NE TxpBlund -> m SomeBatchOp
+                         IsNewEpochOperation -> NewestFirst NE TxpBlund -> m SomeBatchOp
     , -- | Modify the block applying execution
       tgsApplyBlockModifier :: forall m . (MonadUnliftIO m, MonadIO m) => m () -> m ()
     , -- | Modify the block rollbacking execution

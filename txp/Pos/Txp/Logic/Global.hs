@@ -22,9 +22,9 @@ import qualified Data.HashMap.Strict as HM
 import qualified Data.List.NonEmpty as NE
 import           Formatting (build, sformat, (%))
 
+import           Pos.Core (HasCoreConfiguration, HasGenesisData, HasProtocolMagic)
 import           Pos.Core.Block.Union (ComponentBlock (..))
 import           Pos.Core.Class (epochIndexL)
-import           Pos.Core (HasCoreConfiguration, HasGenesisData, HasProtocolMagic)
 import           Pos.Core.Txp (TxAux, TxUndo, TxpUndo)
 import           Pos.DB (SomeBatchOp (..))
 import           Pos.DB.Class (gsAdoptedBVData)
@@ -54,8 +54,8 @@ txpGlobalSettings :: (HasProtocolMagic, HasGenesisData) => TxpGlobalSettings
 txpGlobalSettings =
     TxpGlobalSettings
     { tgsVerifyBlocks = verifyBlocks
-    , tgsApplyBlocks = applyBlocksWith (processBlundsSettings False applyToil)
-    , tgsRollbackBlocks = rollbackBlocks
+    , tgsApplyBlocks = \_ -> applyBlocksWith (processBlundsSettings False applyToil)
+    , tgsRollbackBlocks = \_ -> rollbackBlocks
     , tgsApplyBlockModifier = identity
     , tgsRollbackBlockModifier = identity
     }
