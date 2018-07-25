@@ -37,7 +37,7 @@ getBlocksTotalBench
 getBlocksTotalBench (testParams, extraContext) =
     withDefConfigurations $ \_ ->
       -- Postgres db is not mocked as it's never used
-      withPostGresDB (error "No postgres db configured") 0 $
+      withPostGresDB (error "No postgres db configured") $
         runBlockchainImporterTestMode testParams extraContext getBlocksTotal
 
 -- | This is used to generate the test environment. We don't do this while benchmarking
@@ -56,7 +56,7 @@ generateTestParams totalBlocksNumber slotsPerEpoch = do
     -- The extra context so we can mock the functions.
     -- Postgres db is not mocked as it's never used
     let extraContext :: ExtraContext
-        extraContext = withPostGresDB (error "No postgres db configured") 0 $
+        extraContext = withPostGresDB (error "No postgres db configured") $
                           withDefConfigurations $ const $ makeMockExtraCtx mode
 
     pure (testParams, extraContext)
