@@ -14809,6 +14809,89 @@ mainnet_dryrun_wallet_linux64: &mainnet_dryrun_wallet_linux64
 
 ##############################################################################
 ##                                                                          ##
+##   Testnet config                                                         ##
+##                                                                          ##
+##############################################################################
+
+testnet_full: &testnet_full
+  <<: *mainnet_base
+  core: &testnet_full_core
+    <<: *mainnet_base_core
+    genesis:
+      src:
+        file: testnet-genesis.json
+        hash: 6300910ff7d8ca51a61df661a09dfd1486be756f32eff7f348e1f4e3b6166c54
+
+  update: &testnet_full_update
+    applicationName: cardano-sl
+    applicationVersion: 0
+    lastKnownBlockVersion:
+      bvMajor: 0
+      bvMinor: 0
+      bvAlt: 0
+
+testnet_wallet: &testnet_wallet
+  <<: *testnet_full
+  update: &testnet_wallet_update
+    applicationName: csl-daedalus
+    applicationVersion: 0
+    lastKnownBlockVersion:
+      bvMajor: 0
+      bvMinor: 1
+      bvAlt: 0
+
+testnet_wallet_win64: &testnet_wallet_win64
+  <<: *testnet_wallet
+  update:
+    <<: *testnet_wallet_update
+    systemTag: win64
+
+testnet_wallet_macos64: &testnet_wallet_macos64
+  <<: *testnet_wallet
+  update:
+    <<: *testnet_wallet_update
+    systemTag: macos64
+
+testnet_wallet_linux64: &testnet_wallet_linux64
+  <<: *testnet_wallet
+  update:
+    <<: *testnet_wallet_update
+    systemTag: linux
+
+# Should be used to generate genesis
+testnet_launch: &testnet_launch
+  <<: *testnet_full
+  core: &testnet_gen_core
+    <<: *testnet_full_core
+    genesis:
+      <<: *mainnet_base_genesis
+      spec:
+        <<: *mainnet_base_spec
+        protocolConstants:
+          <<: *mainnet_base_protocolConstants
+          protocolMagic: 1097911063
+        avvmDistr: {}
+        initializer:
+          testBalance:
+            poors:        100
+            richmen:      7
+            richmenShare: 0.95
+            totalBalance: 42000000000000000 # 42e9 ADA
+            useHDAddresses: True
+          fakeAvvmBalance:
+            count: 100
+            oneBalance: 20000000000000 # 2e7 ADA
+          avvmBalanceFactor: 1
+          useHeavyDlg: True
+          seed: 0 # should be overridden using --configuration-seed
+        blockVersionData:
+          <<: *mainnet_base_blockVersionData
+          maxHeaderSize:      2000
+          maxProposalSize:   70000 # 70KB
+          maxTxSize:         65536 # 64KiB
+
+##############################################################################
+##                                                                          ##
 ##   Mainnet staging with short epoch                                       ##
 ##                                                                          ##
 ##############################################################################
