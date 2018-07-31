@@ -16,11 +16,12 @@ import           Data.Version (showVersion)
 import qualified Database.PostgreSQL.Simple as PGS
 import           Options.Applicative (Parser, auto, execParser, flag, footerDoc, fullDesc, header,
                                       help, helper, info, infoOption, long, metavar, option,
-                                      progDesc, showDefault, strOption, value)
+                                      progDesc, showDefault, strOption, switch, value)
 
 import           Paths_cardano_sl_blockchain_importer (version)
 import           Pos.Client.CLI (CommonNodeArgs (..))
 import qualified Pos.Client.CLI as CLI
+import           Pos.Web (TlsParams (..))
 
 data BlockchainImporterNodeArgs = BlockchainImporterNodeArgs
     { enaCommonNodeArgs         :: !CommonNodeArgs
@@ -33,6 +34,8 @@ data BlockchainImporterArgs = BlockchainImporterArgs
     -- ^ The port for the blockchainImporter backend
     , postGresConfig          :: !PGS.ConnectInfo
     -- ^ Configuration of the PostGres DB
+    , maybeTlsParams          :: !(Maybe TlsParams)
+    -- ^ Configuration of TLS
     , recoveryMode            :: !Bool
     -- ^ Enable importer recovery mode
     , disableConsistencyCheck :: !Bool
@@ -74,6 +77,7 @@ blockchainImporterArgsParser = do
     commonNodeArgs <- CLI.commonNodeArgsParser
     webPort        <- CLI.webPortOption 8200 "Port for web API."
     postGresConfig <- connectInfoParser
+    maybeTlsParams <- tlsParamsParser
     recoveryMode <- flag False True $
         long "recovery-mode" <>
         help "Enable recovery mode"
@@ -81,6 +85,45 @@ blockchainImporterArgsParser = do
         long "no-consistency-check" <>
         help "Disable initial consistency check for importer"
     pure $ BlockchainImporterNodeArgs commonNodeArgs BlockchainImporterArgs{..}
+
+tlsParamsParser :: Parser (Maybe TlsParams)
+tlsParamsParser = constructTlsParams <$> certPathParser
+                                     <*> keyPathParser
+                                     <*> caPathParser
+                                     <*> disabledParser
+  where
+    constructTlsParams tpCertPath tpKeyPath tpCaPath disabled =
+        guard (not disabled) $> TlsParams{..}
+
+    certPathParser :: Parser FilePath
+    certPathParser = strOption (CLI.templateParser
+                                "tlscert"
+                                "FILEPATH"
+                                "Path to file with TLS certificate"
+                                <> value "scripts/tls-files/server.crt"
+                               )
+
+    keyPathParser :: Parser FilePath
+    keyPathParser = strOption (CLI.templateParser
+                               "tlskey"
+                               "FILEPATH"
+                               "Path to file with TLS key"
+                               <> value "scripts/tls-files/server.key"
+                              )
+
+    caPathParser :: Parser FilePath
+    caPathParser = strOption (CLI.templateParser
+                              "tlsca"
+                              "FILEPATH"
+                              "Path to file with TLS certificate authority"
+                              <> value "scripts/tls-files/ca.crt"
+                             )
+
+    disabledParser :: Parser Bool
+    disabledParser = switch $
+                     long "no-tls" <>
+                     help "Disable tls. If set, 'tlscert', 'tlskey' \
+                          \and 'tlsca' options are ignored"
 
 -- | The parser for the blockchainImporter.
 getBlockchainImporterNodeOptions :: IO BlockchainImporterNodeArgs

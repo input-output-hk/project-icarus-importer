@@ -74,7 +74,7 @@ action (BlockchainImporterNodeArgs (cArgs@CommonNodeArgs{..}) BlockchainImporter
 
             let plugins :: HasConfigurations => [Diffusion BlockchainImporterProd -> BlockchainImporterProd ()]
                 plugins =
-                    [ blockchainImporterPlugin webPort
+                    [ blockchainImporterPlugin webPort maybeTlsParams
                     , updateTriggerWorker
                     ]
 
