@@ -40,7 +40,7 @@ import           Pos.Core.Block (Block)
 import           Pos.Core.Txp (TxAux, taTx)
 import           Pos.Txp (MonadTxpLocal, ToilVerFailure (..), TxId, txpProcessTx, verifyTx)
 import           Pos.Txp.DB.Utxo (getTxOut)
-import           Pos.Web (serveImpl)
+import           Pos.Web (TlsParams, serveImpl)
 
 import           Pos.BlockchainImporter.Aeson.ClientTypes ()
 import           Pos.BlockchainImporter.BlockchainImporterMode (BlockchainImporterMode)
@@ -62,8 +62,10 @@ blockchainImporterServeImpl
     :: BlockchainImporterMode ctx m
     => m Application
     -> Word16
+    -> Maybe TlsParams
     -> m ()
-blockchainImporterServeImpl app port = serveImpl loggingApp "*" port Nothing Nothing Nothing
+blockchainImporterServeImpl app port maybeTlsParams =
+  serveImpl loggingApp "*" port maybeTlsParams Nothing Nothing
   where
     loggingApp = logStdoutDev <$> app
 

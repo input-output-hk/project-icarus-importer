@@ -28,6 +28,7 @@ import           Pos.Txp (HasTxpConfiguration, MempoolExt, MonadTxpLocal (..))
 import           Pos.Update.Configuration (HasUpdateConfiguration)
 import           Pos.Util.CompileInfo (HasCompileInfo)
 import           Pos.Util.Mockable ()
+import           Pos.Web (TlsParams)
 import           Pos.WorkMode (RealMode, RealModeContext (..))
 
 import           Pos.BlockchainImporter.BListener (BlockchainImporterBListener,
@@ -81,21 +82,23 @@ type HasBlockchainImporterConfiguration =
 blockchainImporterPlugin
     :: HasBlockchainImporterConfiguration
     => Word16
+    -> Maybe TlsParams
     -> Diffusion BlockchainImporterProd
     -> BlockchainImporterProd ()
-blockchainImporterPlugin = flip blockchainImporterServeWebReal
+blockchainImporterPlugin port maybeTlsParams diffusion = blockchainImporterServeWebReal diffusion port maybeTlsParams
 
 blockchainImporterServeWebReal
     :: HasBlockchainImporterConfiguration
     => Diffusion BlockchainImporterProd
     -> Word16
+    -> Maybe TlsParams
     -> BlockchainImporterProd ()
-blockchainImporterServeWebReal diffusion port = do
+blockchainImporterServeWebReal diffusion port maybeTlsParams = do
     rctx <- ask
     let handlers = blockchainImporterHandlers diffusion
         server = hoistServer blockchainImporterApi (convertHandler rctx) handlers
         app = blockchainImporterApp (pure server)
-    blockchainImporterServeImpl app port
+    blockchainImporterServeImpl app port maybeTlsParams
 
 convertHandler
     :: HasConfiguration
