@@ -42,6 +42,12 @@ stack exec cardano-blockchain-importer-mock
 
 Run it from project root.
 
+When starting-up, a consistency check is run (if the flag `--no-consistency-check` is not used). **If this fails please check that the proper DBs were configured (and they are from the same network).** This could fail with a block number difference, for two reasons:
+- The DBs weren't obtained from the same importer execution. For example, this happens if the importer is run with the DB of an external Cardano node.
+- The importer was stopped while it was rollbacking `2k` blocks upon a new epoch.
+
+In both cases, using the `--recovery-mode` recovers from the DBs difference.
+
 ### Dev version
 
 - run `./scripts/build/cardano-sl.sh blockchain-importer`
