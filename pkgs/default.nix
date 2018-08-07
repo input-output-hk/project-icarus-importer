@@ -34506,9 +34506,9 @@ inherit (pkgs) which;};
            pname = "servant-server";
            version = "0.12";
            src = fetchgit {
-             url = "https://github.com/serokell/servant.git";
-             sha256 = "1irn9kvyyv2xxfm5rg92f3sw4x5c0drg44g74ccpsw83dh1wl169";
-             rev = "5db013cc36894afdff9e748dbc1c05947c54df3d";
+             url = "https://github.com/Profpatsch/servant.git";
+             sha256 = "0wak1iq10igh0q8ja3q6qr13igka0hqfnq40795nxynlhgp9s1zi";
+             rev = "d7518c34774484d94b7314d649c9e7690f04a51f";
            };
            postUnpack = "sourceRoot+=/servant-server; echo source root reset to $sourceRoot";
            isLibrary = true;
