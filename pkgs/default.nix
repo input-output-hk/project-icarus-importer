@@ -7121,7 +7121,8 @@ inherit (pkgs) mesa;};
          , mmorph, MonadRandom, mtl, opaleye, optparse-applicative
          , postgresql-simple, product-profunctors, QuickCheck, reflection
          , resourcet, rocksdb-haskell-ng, safe-exceptions, serokell-util
-         , servant, servant-generic, servant-server, socket-io, stdenv, stm
+         , servant, servant-generic, servant-server, servant-multipart
+         , socket-io, stdenv, stm
          , text, text-format, time, time-units, transformers, universum
          , unliftio, unordered-containers, vector, wai, wai-cors, wai-extra
          , warp, weigh
@@ -7144,7 +7145,8 @@ inherit (pkgs) mesa;};
              generic-arbitrary http-types lens log-warper memory mmorph mtl
              opaleye postgresql-simple product-profunctors QuickCheck reflection
              resourcet rocksdb-haskell-ng safe-exceptions serokell-util servant
-             servant-generic servant-server socket-io stm text text-format time
+             servant-generic servant-server servant-multipart
+             socket-io stm text text-format time
              time-units transformers universum unliftio unordered-containers
              vector wai wai-cors wai-extra warp
            ];

@@ -109,6 +109,7 @@ let
       walletConfig = if allowCustomConfig then (if builtins.pathExists walletConfigFile then import walletConfigFile else {}) else {};
     in
       args: pkgs.callPackage ./scripts/launch/connect-to-cluster (args // { inherit gitrev; } // walletConfig );
+
   other = rec {
     demoCluster = pkgs.callPackage ./scripts/launch/demo-cluster { inherit gitrev; };
     walletIntegrationTests = pkgs.callPackage ./scripts/test/wallet/integration { inherit gitrev; };
@@ -137,6 +138,13 @@ let
     dockerImages = {
       mainnetWallet = mkDocker { environment = "mainnet"; };
       stagingWallet = mkDocker { environment = "mainnet-staging"; };
+      testnetBlockchainImporter = mkDocker {
+        environment = "testnet";
+        connectArgs = {
+          executable = "blockchain-importer";
+          # additionalNodeArgs = ""; TODO?
+        };
+      };
     };
 
     daedalus-bridge = let

@@ -32,6 +32,10 @@ let
       relays = "relays.awstest.iohkdev.io";
       confKey = "mainnet_dryrun_full";
     };
+    testnet = {
+      relays = "relays.cardano-testnet.iohkdev.io";
+      confKey = "testnet_full";
+    };
     demo = {
       confKey = "dev";
     };
@@ -39,7 +43,7 @@ let
       inherit relays confKey;
     };
   };
-  executables =  {
+  executables = {
     wallet = "${iohkPkgs.cardano-sl-wallet-new}/bin/cardano-node";
     explorer = "${iohkPkgs.cardano-sl-explorer-static}/bin/cardano-explorer";
     blockchain-importer = "${iohkPkgs.cardano-sl-blockchain-importer-static}/bin/cardano-blockchain-importer";
