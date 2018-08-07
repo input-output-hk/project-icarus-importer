@@ -27,14 +27,17 @@ let
     mainnet = {
       relays = "relays.cardano-mainnet.iohk.io";
       confKey = "mainnet_full";
+      genesisJson = "mainnet-genesis.json";
     };
     mainnet-staging = {
       relays = "relays.awstest.iohkdev.io";
       confKey = "mainnet_dryrun_full";
+      genesisJson = "mainnet-genesis.json";
     };
     testnet = {
       relays = "relays.cardano-testnet.iohkdev.io";
       confKey = "testnet_full";
+      genesisJson = "testnet-genesis.json";
     };
     demo = {
       confKey = "dev";
@@ -43,6 +46,9 @@ let
       inherit relays confKey;
     };
   };
+
+  ourEnvironment = environments.${environment};
+
   executables = {
     wallet = "${iohkPkgs.cardano-sl-wallet-new}/bin/cardano-node";
     explorer = "${iohkPkgs.cardano-sl-explorer-static}/bin/cardano-explorer";
@@ -53,7 +59,7 @@ let
   src = ./../../../.;
   topologyFileDefault = pkgs.writeText "topology-${environment}" ''
     wallet:
-      relays: [[{ host: ${environments.${environment}.relays} }]]
+      relays: [[{ host: ${ourEnvironment.relays} }]]
       valency: 1
       fallbacks: 7
   '';
@@ -62,7 +68,7 @@ let
     cd $out
     cp -vi ${iohkPkgs.cardano-sl.src + "/configuration.yaml"} configuration.yaml
     cp -vi ${iohkPkgs.cardano-sl.src + "/mainnet-genesis-dryrun-with-stakeholders.json"} mainnet-genesis-dryrun-with-stakeholders.json
-    cp -vi ${iohkPkgs.cardano-sl.src + "/mainnet-genesis.json"} mainnet-genesis.json
+    cp -vi ${iohkPkgs.cardano-sl.src}/${ourEnvironment.genesisJson} ${ourEnvironment.genesisJson}
     cp -vi ${iohkPkgs.cardano-sl.src + "/../log-configs/connect-to-cluster.yaml"} log-config-connect-to-cluster.yaml
     cp -vi ${if topologyFile != null then topologyFile else topologyFileDefault } topology.yaml
   '';
@@ -95,7 +101,7 @@ in pkgs.writeScript "${executable}-connect-to-${environment}" ''
 
   ${executables.${executable}}                                     \
     --configuration-file ${configFiles}/configuration.yaml         \
-    --configuration-key ${environments.${environment}.confKey}     \
+    --configuration-key ${ourEnvironment.confKey}     \
     ${ ifWallet "--tlscert ${stateDir}/tls/server.cert"}           \
     ${ ifWallet "--tlskey ${stateDir}/tls/server.key"}             \
     ${ ifWallet "--tlsca ${stateDir}/tls/server.cert"}             \
