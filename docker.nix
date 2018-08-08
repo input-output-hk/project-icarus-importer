@@ -25,6 +25,10 @@ let
     cd /wallet
     exec ${connectToCluster} "$@"
   '';
+
+  user = "cardano-sl";
+  uidGidStr = toString 999;
+
 in pkgs.dockerTools.buildImage {
   name = "cardano-container-${environment}";
   contents = with pkgs; [ iana-etc startScript openssl bashInteractive coreutils utillinux iproute iputils curl socat ];
@@ -37,5 +41,12 @@ in pkgs.dockerTools.buildImage {
       "8200/tcp" = {}; # blockchain-importer
       "8000/tcp" = {}; # ekg
     };
+    User = user;
   };
+  runAsRoot = ''
+    # the user our program is run as
+    echo "${user}::${uidGidStr}:${uidGidStr}::::" > /etc/passwd
+    # also gets a group
+    echo "${user}:x:${uidGidStr}:${user}" > /etc/group
+  '';
 }

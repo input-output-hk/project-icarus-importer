@@ -75,6 +75,13 @@ let
 in pkgs.writeScript "${executable}-connect-to-${environment}" ''
   #!${pkgs.stdenv.shell}
 
+  mkdir -p ${stateDir}
+
+  if [[ ! -w ${stateDir} || ! -x ${stateDir} ]]; then
+    echo "The state dir (${stateDir}) must be owned by user id $(id -u), exiting" 2>&1
+    exit 1
+  fi
+
   if [[ "$1" == "--delete-state" ]]; then
     echo "Deleting ${stateDir} ... "
     rm -Rf ${stateDir}
