@@ -23,7 +23,7 @@ let
     exit 1
     fi
     cd /wallet
-    exec ${connectToCluster}
+    exec ${connectToCluster} "$@"
   '';
 in pkgs.dockerTools.buildImage {
   name = "cardano-container-${environment}";

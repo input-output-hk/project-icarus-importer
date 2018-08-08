@@ -85,6 +85,8 @@ in pkgs.writeScript "${executable}-connect-to-${environment}" ''
     RUNTIME_ARGS=""
   fi
 
+  echo RUNTIME_ARGS are: $RUNTIME_ARGS
+
   echo "Keeping state in ${stateDir}"
   mkdir -p ${stateDir}/logs
 
