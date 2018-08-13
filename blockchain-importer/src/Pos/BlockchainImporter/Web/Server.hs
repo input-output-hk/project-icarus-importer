@@ -46,7 +46,7 @@ import           Pos.BlockchainImporter.Aeson.ClientTypes ()
 import           Pos.BlockchainImporter.BlockchainImporterMode (BlockchainImporterMode)
 import           Pos.BlockchainImporter.Configuration (withPostGreTransactionM)
 import           Pos.BlockchainImporter.ExtraContext (HasBlockchainImporterCSLInterface (..))
-import           Pos.BlockchainImporter.Txp.Toil (OnConflict (..), eUpsertFailedTx)
+import           Pos.BlockchainImporter.Txp.Toil (eCheckSuccessfulToil, eFailedToil)
 import           Pos.BlockchainImporter.Web.Api (BlockchainImporterApi,
                                                  BlockchainImporterApiRecord (..),
                                                  blockchainImporterApi)
@@ -141,9 +141,12 @@ handleSendSTxError ::
      (BlockchainImporterMode ctx m, MonadTxpLocal m)
   => TxAux -> SendSTxFailure -> m a
 handleSendSTxError txAux sendErr = do
+  let tx = taTx txAux
   -- Invalid sent txs should only be inserted to the db if they were not duplicated
-  withPostGreTransactionM $ eUpsertFailedTx DoNothing (taTx txAux)
-  let txHash = hash $ taTx txAux
+  withPostGreTransactionM $ do
+    shouldUpsert <- not <$> eCheckSuccessfulToil tx
+    when shouldUpsert $ eFailedToil tx
+  let txHash = hash tx
   throwM $ sendSTxFailureToBIError txHash sendErr
 
 

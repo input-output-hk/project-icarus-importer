@@ -3,6 +3,7 @@
 module Pos.BlockchainImporter.Tables.TxsTable
   ( -- * Data types
     TxRecord (..)
+  , TxState (..)
     -- * Getters
   , getTxByHash
     -- * Manipulation
