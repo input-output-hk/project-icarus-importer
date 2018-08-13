@@ -9,9 +9,9 @@ module Pos.BlockchainImporter.Txp.Toil.Logic
         -- * Tx processing
       , eNormalizeToil
       , eProcessTx
-        -- * Pending tx DB processing
-      , OnConflict (..)
-      , eUpsertFailedTx
+        -- * Failed tx processing
+      , eFailedToil
+      , eCheckSuccessfulToil
       ) where
 
 import           Universum
@@ -38,7 +38,7 @@ import           Pos.Txp.Topsort (topsortTxs)
 import qualified Pos.Util.Modifier as MM
 
 ----------------------------------------------------------------------------
--- Global
+-- Block processing
 ----------------------------------------------------------------------------
 
 -- | Apply transactions from one block or genesis. They must be valid (for
@@ -122,7 +122,7 @@ eRollbackToilPG isNewEpoch txun blockHeight = do
 
 
 ----------------------------------------------------------------------------
--- Local
+-- Tx processing
 ----------------------------------------------------------------------------
 
 -- | Verify one transaction and also add it to mem pool and apply to utxo
@@ -154,27 +154,29 @@ eNormalizeToil bvd curEpoch txs = catMaybes <$> mapM normalize ordered
     repair (i, (txAux, extra)) = ((i, txAux), const extra)
 
 
-data OnConflict = DoNothing | DoUpdate
+----------------------------------------------------------------------------
+-- Failed tx processing
+----------------------------------------------------------------------------
 
-{-| Upserts a failed tx into the tx history table, solving conflicts according to the onConflict
-    parameter
+{-| Upserts a failed tx into the tx history table
 
     Note that the tx that failed could have not being pending, as is the case where it failed
     during it's processing. In that case, we attempt to obtain the inputs, returning them only
     if we successfully get all of them
 -}
-eUpsertFailedTx :: (MonadIO m, MonadDBRead m, HasPostGresDB) => OnConflict -> Tx -> m ()
-eUpsertFailedTx onConflict tx = do
+eFailedToil :: (MonadIO m, MonadDBRead m, HasPostGresDB) => Tx -> m ()
+eFailedToil tx = do
   inputs <- fetchTxSenders tx
+  liftIO $ postGreOperate $ TxsT.upsertFailedTx tx inputs
 
-  shouldUpsert <- case onConflict of
-    DoNothing -> do
-      maybeOldTx <- liftIO $ postGreOperate $ TxsT.getTxByHash (hash tx)
-      pure $ isNothing maybeOldTx
-    DoUpdate -> pure True
+-- | Checks if a tx was successful
+eCheckSuccessfulToil :: (MonadIO m, MonadDBRead m, HasPostGresDB) => Tx -> m Bool
+eCheckSuccessfulToil tx = do
+  maybeTx <- liftIO $ postGreOperate $ TxsT.getTxByHash (hash tx)
+  pure $ case maybeTx of
+        Just (TxsT.TxRecord _ _ _ _ _ TxsT.Successful) -> False
+        _                                              -> True
 
-  when shouldUpsert $
-       liftIO $ postGreOperate $ TxsT.upsertFailedTx tx inputs
 
 ----------------------------------------------------------------------------
 -- Helpers
