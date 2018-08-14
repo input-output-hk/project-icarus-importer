@@ -7,3 +7,7 @@ Icarus Importer allows wallet users to access blockchain data. For a detailed ar
 ## Installation
 
 For specific instructions, please refer to the following [`README`](blockchain-importer/README.md)
+
+## License
+
+This project is Copyright 2018 IOHK and licensed under the [MIT](lib/LICENSE)
