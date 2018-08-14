@@ -2,7 +2,7 @@
 
 Icarus, a reference implementation for a lightweight wallet developed by the IOHK Engineering Team. This code base can be used as a point of reference to enable developers to create their own secure light and mobile wallets for Cardano. Icarus is a fully open-source code base that will be the first step in a range of open source initiatives to provide developers with a suite of tools to integrate with Cardano.
 
-Icarus Importer connects to will allow wallet users to access blockchain data. For a detailed architecture explanation, please refer to the [wiki](https://github.com/input-output-hk/icarus-poc/wiki/Architecture).
+Icarus Importer allows wallet users to access blockchain data. For a detailed architecture explanation, please refer to the [wiki](https://github.com/input-output-hk/icarus-poc/wiki/Architecture).
 
 ## Installation
 
