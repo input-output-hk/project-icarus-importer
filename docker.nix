@@ -29,9 +29,32 @@ let
   user = "cardano-sl";
   uidGidStr = toString 999;
 
+  wait-for-it =
+    let file = pkgs.fetchurl {
+      url = "https://raw.githubusercontent.com/vishnubob/wait-for-it/db049716e42767d39961e95dd9696103dca813f1/wait-for-it.sh";
+      sha256 = "0p43i1bm1yh90pjcyc19i5rmf3bm23bzyi4ppcrsjdwwkmfdwx8g";
+    };
+    in pkgs.runCommand "wait-for-it" {} ''
+      mkdir -p $out/bin
+      install "${file}" $out/bin/wait-for-it.sh
+      patchShebangs $out/bin/wait-for-it.sh
+    '';
+
 in pkgs.dockerTools.buildImage {
   name = "cardano-container-${environment}";
-  contents = with pkgs; [ iana-etc startScript openssl bashInteractive coreutils utillinux iproute iputils curl socat ];
+  contents = with pkgs; [
+    iana-etc
+    startScript
+    openssl
+    bashInteractive
+    coreutils
+    utillinux
+    iproute
+    iputils
+    curl
+    socat
+    wait-for-it
+  ];
   config = {
     Cmd = [ "cardano-start" ];
     ExposedPorts = {
@@ -48,5 +71,8 @@ in pkgs.dockerTools.buildImage {
     echo "${user}::${uidGidStr}:${uidGidStr}::::" > /etc/passwd
     # also gets a group
     echo "${user}:x:${uidGidStr}:${user}" > /etc/group
+    # create a first wallet folder, in case no volume is mounted
+    mkdir /wallet
+    chown ${uidGidStr}:${uidGidStr} /wallet
   '';
 }
