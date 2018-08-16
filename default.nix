@@ -3,7 +3,7 @@ let
 in
 { system ? builtins.currentSystem
 , config ? {}
-, gitrev ? localLib.commitIdFromGitRepo ./.git
+, gitrev ? "beta"
 , buildId ? null
 , pkgs ? (import (localLib.fetchNixPkgs) { inherit system config; })
 # should enable or disable all checkPhases for cardano libraries,
