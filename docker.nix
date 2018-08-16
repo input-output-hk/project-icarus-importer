@@ -37,6 +37,8 @@ let
     in pkgs.runCommand "wait-for-it" {} ''
       mkdir -p $out/bin
       install "${file}" $out/bin/wait-for-it.sh
+      substituteInPlace $out/bin/wait-for-it.sh \
+        --replace "which" "type -p"
       patchShebangs $out/bin/wait-for-it.sh
     '';
 
