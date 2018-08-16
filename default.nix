@@ -6,8 +6,10 @@ in
 , gitrev ? localLib.commitIdFromGitRepo ./.git
 , buildId ? null
 , pkgs ? (import (localLib.fetchNixPkgs) { inherit system config; })
+# should enable or disable all checkPhases for cardano libraries,
+# but doesn’t right now.
+, globalDoCheck ? false
 # profiling slows down performance by 50% so we don't enable it by default
-, forceDontCheck ? false
 , enableProfiling ? false
 , enableDebugging ? false
 , allowCustomConfig ? true
@@ -17,6 +19,8 @@ with pkgs.lib;
 with pkgs.haskell.lib;
 
 let
+  # enable or disable checking for a Haskell package
+  globalCheck = if globalDoCheck then doCheck else dontCheck;
   addGitRev = subject: subject.overrideAttrs (drv: { GITREV = gitrev; });
   addRealTimeTestLogs = drv: overrideCabal drv (attrs: {
     testTarget = "--log=test.log || (sleep 10 && kill $TAILPID && false)";
@@ -45,7 +49,7 @@ let
           "-f-asserts"
         ];
         # waiting on load-command size fix in dyld
-        doCheck = ! pkgs.stdenv.isDarwin;
+        doCheck = globalDoCheck && !pkgs.stdenv.isDarwin;
         passthru = {
           inherit enableProfiling;
         };
@@ -53,8 +57,8 @@ let
 
       cardano-sl-wallet-static = justStaticExecutables super.cardano-sl-wallet;
       cardano-sl-networking = dontCheck super.cardano-sl-networking;
-      cardano-sl-client = addRealTimeTestLogs super.cardano-sl-client;
-      cardano-sl-generator = addRealTimeTestLogs super.cardano-sl-generator;
+      cardano-sl-client = globalCheck (addRealTimeTestLogs super.cardano-sl-client);
+      cardano-sl-generator = globalCheck (addRealTimeTestLogs super.cardano-sl-generator);
       # cardano-sl-auxx = addGitRev (justStaticExecutables super.cardano-sl-auxx);
       cardano-sl-auxx = addGitRev (justStaticExecutables (overrideCabal super.cardano-sl-auxx (drv: {
         # waiting on load-command size fix in dyld
@@ -64,13 +68,13 @@ let
       cardano-sl-wallet-new = addGitRev (justStaticExecutables super.cardano-sl-wallet-new);
       cardano-sl-tools = addGitRev (justStaticExecutables (overrideCabal super.cardano-sl-tools (drv: {
         # waiting on load-command size fix in dyld
-        doCheck = ! pkgs.stdenv.isDarwin;
+        doCheck = globalDoCheck && ! pkgs.stdenv.isDarwin;
         executableHaskellDepends = drv.executableHaskellDepends ++ [self.cabal-install];
       })));
 
       cardano-sl-node-static = justStaticExecutables self.cardano-sl-node;
       cardano-sl-explorer-static = addGitRev (justStaticExecutables self.cardano-sl-explorer);
-      cardano-sl-blockchain-importer-static = addGitRev (justStaticExecutables self.cardano-sl-blockchain-importer);
+      cardano-sl-blockchain-importer-static = globalCheck (addGitRev (justStaticExecutables self.cardano-sl-blockchain-importer));
       cardano-report-server-static = justStaticExecutables self.cardano-report-server;
 
       # Undo configuration-nix.nix change to hardcode security binary on darwin
@@ -99,8 +103,7 @@ let
         # TODO: DEVOPS-355
         dontStrip = true;
         configureFlags = (args.configureFlags or []) ++ [ "--ghc-options=-g --disable-executable-stripping --disable-library-stripping" "--profiling-detail=toplevel-functions"];
-      } // optionalAttrs (forceDontCheck == true) {
-        doCheck = false;
+        doCheck = globalDoCheck;
       });
     };
   });
