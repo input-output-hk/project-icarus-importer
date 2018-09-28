@@ -63,10 +63,6 @@ data TxRecord = TxRecord
                        -----------------
                            tx resend
 -}
-data TxState  = Successful
-              | Failed
-              | Pending
-              deriving (Show, Read)
 
 {-|
     Given the possible events:
@@ -148,7 +144,7 @@ getTxByHash txHash conn = do
     it's timestamp and last update are updated
 -}
 upsertSuccessfulTx :: Tx -> TxExtra -> BlockCount -> PGS.Connection -> IO ()
-upsertSuccessfulTx tx txExtra blockHeight conn = upsertTx tx txExtra (Just blockHeight) Successful conn
+upsertSuccessfulTx tx txExtra blockHeight conn = upsertTx tx txExtra (Just blockHeight) Successful True conn
 
 {-|
     Inserts a failed tx to the tx history table with the current time as it's timestamp
@@ -158,7 +154,8 @@ upsertSuccessfulTx tx txExtra blockHeight conn = upsertTx tx txExtra (Just block
 upsertFailedTx :: Tx -> TxUndo -> PGS.Connection -> IO ()
 upsertFailedTx tx txUndo conn = do
   txExtra <- currentTxExtra txUndo
-  upsertTx tx txExtra Nothing Failed conn
+  upsertTx tx txExtra Nothing Failed False conn
+
 
 {-|
     Inserts a pending tx to the tx history table with the current time as it's timestamp
@@ -168,7 +165,7 @@ upsertFailedTx tx txUndo conn = do
 upsertPendingTx :: Tx -> TxUndo -> PGS.Connection -> IO ()
 upsertPendingTx tx txUndo conn = do
   txExtra <- currentTxExtra txUndo
-  upsertTx tx txExtra Nothing Pending conn
+  upsertTx tx txExtra Nothing Pending True conn
 
 {-|
     Marks all pending txs as failed
@@ -206,19 +203,19 @@ deleteTxsAfterBlk fromBlk conn = void $ runDelete_ conn deleteAfterBlkQuery
 
 -- Inserts a given Tx into the Tx history tables with a given state (overriding any
 -- it if it was already present).
-upsertTx :: Tx -> TxExtra -> Maybe BlockCount -> TxState -> PGS.Connection -> IO ()
-upsertTx tx txExtra maybeBlockHeight succeeded conn = do
-  upsertTxToHistory tx txExtra maybeBlockHeight succeeded conn
+upsertTx :: Tx -> TxExtra -> Maybe BlockCount -> TxState -> Bool -> PGS.Connection -> IO ()
+upsertTx tx txExtra maybeBlockHeight succeeded overrideSuccess conn = do
+  upsertTxToHistory tx txExtra maybeBlockHeight succeeded overrideSuccess conn
   TAT.insertTxAddresses tx (teInputOutputs txExtra) conn
 
 -- Inserts the basic info of a given Tx into the master Tx history table (overriding any
 -- it if it was already present)
-upsertTxToHistory :: Tx -> TxExtra -> Maybe BlockCount -> TxState -> PGS.Connection -> IO ()
-upsertTxToHistory tx TxExtra{..} blockHeight txState conn = do
+upsertTxToHistory :: Tx -> TxExtra -> Maybe BlockCount -> TxState -> Bool -> PGS.Connection -> IO ()
+upsertTxToHistory tx TxExtra{..} blockHeight txState overrideSuccess conn = do
   currentTime <- getCurrentTime
-  void $ runUpsert_ conn txsTable ["hash"]
-                    ["block_num", "tx_state", "last_update", "time"]
-                    [rowFromLastUpdate currentTime]
+  void $ getUpSertMethod conn txsTable ["hash"]
+    ["block_num", "tx_state", "last_update", "time"]
+    [rowFromLastUpdate currentTime]
   where
     inputs                        = toaOut <$> (catMaybes $ NE.toList $ teInputOutputs)
     outputs                       = NE.toList $ _txOutputs tx
@@ -236,6 +233,11 @@ upsertTxToHistory tx TxExtra{..} blockHeight txState conn = do
                 , trLastUpdate    = pgUTCTime currentTime
                 }
     timestampToPGTime = pgUTCTime . (^. timestampToUTCTimeL)
+    getUpSertMethod = if overrideSuccess
+      then
+        runUpsert_ 
+      else
+        runUpsertUnlessSuccess_
 
 currentTxExtra :: TxUndo -> IO TxExtra
 currentTxExtra txUndo = do
