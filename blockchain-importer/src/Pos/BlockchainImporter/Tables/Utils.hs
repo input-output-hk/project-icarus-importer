@@ -100,7 +100,7 @@ runUpsertUnlessSuccess_ conn table pkCheckConflict colUpdateOnConflict columns =
   where strInsertQuery col = O.arrangeInsertManySql table col
         strUpsertQuery col = (strInsertQuery col)  ++ " ON CONFLICT (" ++ pksString  ++ ") " ++
                              (updateColumnsToOnConflict colUpdateOnConflict) ++
-                             ("WHERE EXCLUDED.tx_state != " ++ (show Successful))
+                             (" WHERE EXCLUDED.tx_state != " ++ (show Successful))
         pksString      = intercalate ", " pkCheckConflict
 
 
