@@ -10,6 +10,9 @@ module Pos.BlockchainImporter.Tables.Utils
   , toTxOutAux
     -- * Postgres
   , runUpsert_
+  , runUpsertUnlessSuccess_
+    -- * helpers
+  , TxState (..)
   ) where
 
 import           Universum
@@ -78,6 +81,28 @@ runUpsert_ conn table pkCheckConflict colUpdateOnConflict columns = case nonEmpt
                              updateColumnsToOnConflict colUpdateOnConflict
         pksString      = intercalate ", " pkCheckConflict
 
+{-
+  We want to disable setting a SUCCESSFUL transaction to FAILED since 
+  1) This transition should not be possible according to ur state diagram
+  2) It may happen that when sending 2 identical transactions to the backend, one is rejected  as "FAILED"
+    This will override the "SUCCESSFUL" status even if the transaction really is in the blockchain
+-}
+runUpsertUnlessSuccess_ ::
+     PGS.Connection             -- Connection to the SQL DB
+  -> O.Table columns columns'   -- Table to perform the upsert on
+  -> [String]                   -- Primary keys to check if columns are present
+  -> [String]                   -- Names of the columns to update
+  -> [columns]                  -- Rows to insert
+  -> IO Int64
+runUpsertUnlessSuccess_ conn table pkCheckConflict colUpdateOnConflict columns = case nonEmpty columns of
+    Just neColumns -> PGS.execute_ conn . fromString $ strUpsertQuery neColumns
+    Nothing        -> return 0
+  where strInsertQuery col = O.arrangeInsertManySql table col
+        strUpsertQuery col = (strInsertQuery col)  ++ " ON CONFLICT (" ++ pksString  ++ ") " ++
+                             (updateColumnsToOnConflict colUpdateOnConflict) ++
+                             (" WHERE EXCLUDED.tx_state != " ++ (show Successful))
+        pksString      = intercalate ", " pkCheckConflict
+
 
 ----------------------------------------------------------------------------
 -- Helpers
@@ -87,3 +112,9 @@ updateColumnsToOnConflict :: [String] -> String
 updateColumnsToOnConflict []              = "DO NOTHING"
 updateColumnsToOnConflict columnsToUpdate = "DO UPDATE SET " ++ doUpdateSet
   where doUpdateSet = intercalate ", " $ (\col -> col ++ "=EXCLUDED." ++ col) <$> columnsToUpdate
+
+data TxState = 
+    Successful
+  | Failed
+  | Pending
+  deriving (Show, Read)
