@@ -174,8 +174,8 @@ eCheckSuccessfulToil :: (MonadIO m, MonadDBRead m, HasPostGresDB) => Tx -> m Boo
 eCheckSuccessfulToil tx = do
   maybeTx <- liftIO $ postGreOperate $ TxsT.getTxByHash (hash tx)
   pure $ case maybeTx of
-        Just (TxsT.TxRecord _ _ _ _ _ TxsT.Successful) -> False
-        _                                              -> True
+        Just (TxsT.TxRecord _ _ _ _ _ TxsT.Successful) -> True
+        _                                              -> False
 
 
 ----------------------------------------------------------------------------
