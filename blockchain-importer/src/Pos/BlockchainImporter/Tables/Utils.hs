@@ -33,8 +33,11 @@ import           Pos.Txp.Toil.Types ()
 hashToString :: AbstractHash algo a -> String
 hashToString h = toString $ sformat hashHexF h
 
+cutDownLongAddress :: String -> String
+cutDownLongAddress = take 7000
+
 addressToString :: Address -> String
-addressToString addr = toString $ sformat addressF addr
+addressToString addr = cutDownLongAddress . toString $ sformat addressF addr
 
 coinToInt64 :: Coin -> Int64
 coinToInt64 = fromIntegral . getCoin
