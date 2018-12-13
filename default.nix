@@ -148,6 +148,20 @@ let
           # additionalNodeArgs = ""; TODO?
         };
       };
+      mainnetBlockchainImporter = mkDocker {
+        environment = "mainnet";
+        connectArgs = {
+          executable = "blockchain-importer";
+          # additionalNodeArgs = ""; TODO?
+        };
+      };
+      stagingBlockchainImporter = mkDocker {
+        environment = "mainnet-staging";
+        connectArgs = {
+          executable = "blockchain-importer";
+          # additionalNodeArgs = ""; TODO?
+        };
+      };
     };
 
     daedalus-bridge = let

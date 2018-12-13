@@ -27,9 +27,11 @@ stack exec cardano-importer-swagger
 
 ## Run it
 
-**Pre-requesites**: `sudo apt-get install liblzma-dev libpq-dev`
-
-Run it from project root.
+1) Install PostgresSQL and [run the scripts to create the necessary tables] (https://github.com/input-output-hk/project-icarus-importer/blob/icarus-master/scripts/generate/blockImporterTables-beta.sql)
+2) `sudo apt-get install liblzma-dev libpq-dev`
+3) `curl https://nixos.org/nix/install > install-nix.sh && . install-nix.sh`
+4) `nix-build . -A connectScripts.mainnetBlockchainImporter -o importer-bin`
+5) `./importer-bin - --runtime-args '--postgres-name importer --postgres-password mysecretpassword --no-tls` # Complete with the data you defined in step (1)
 
 When starting-up, a consistency check is run (if the flag `--no-consistency-check` is not used). **If this fails please check that the proper DBs were configured (and they are from the same network).** This could fail with a block number difference, for two reasons:
 - The DBs weren't obtained from the same importer execution. For example, this happens if the importer is run with the DB of an external Cardano node.
@@ -37,7 +39,6 @@ When starting-up, a consistency check is run (if the flag `--no-consistency-chec
 
 In both cases, using the `--recovery-mode` recovers from the DBs differences.
 
-The Cardano Byron Testnet is currently being tested and will be launched in the coming weeks.  When it is ready, the readme will be updated with instructions on how to connect to test Project Icarus on testnet.
 
 ## Recovery mode
 
