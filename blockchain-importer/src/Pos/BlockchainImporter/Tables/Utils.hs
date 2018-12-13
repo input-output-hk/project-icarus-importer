@@ -34,7 +34,7 @@ hashToString :: AbstractHash algo a -> String
 hashToString h = toString $ sformat hashHexF h
 
 cutDownLongAddress :: String -> String
-cutDownLongAddress = take 7000
+cutDownLongAddress = take 2000
 
 addressToString :: Address -> String
 addressToString addr = cutDownLongAddress . toString $ sformat addressF addr
